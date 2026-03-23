@@ -1,0 +1,94 @@
+/* internal/web/static/passage.css
+   Palette overrides for Simple.css and admin sidebar layout. */
+
+/* ─── Light mode palette ─────────────────────────────────────────────────── */
+:root {
+  --accent:       #2e6b4f;   /* deep forest green — institutional, trustworthy */
+  --accent-hover: #245840;   /* slightly darker on hover */
+  --accent-bg:    #f3f7f5;   /* near-white with a faint green tint */
+  --text:         #1a1f1c;   /* near-black with slight green warmth */
+  --text-light:   #5a6b62;   /* muted text for secondary labels */
+  --bg:           #ffffff;
+  --border:       #c8d5cd;   /* cool grey-green border */
+  --code-bg:      #eef3f0;
+}
+
+/* ─── Dark mode palette (auto-applied via prefers-color-scheme) ───────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent:       #5ba882;   /* lighter green — readable on dark bg */
+    --accent-hover: #6dbf96;
+    --accent-bg:    #1a2620;   /* very dark green-tinted surface */
+    --text:         #dde8e2;
+    --text-light:   #8aaa97;
+    --bg:           #141917;
+    --border:       #3a4f44;
+    --code-bg:      #1f2e27;
+  }
+}
+
+/* ─── Wordmark ───────────────────────────────────────────────────────────── */
+.wordmark {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ─── Flash / alert messages ─────────────────────────────────────────────── */
+.flash {
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--border);
+}
+.flash-error {
+  border-left-color: #c0392b;
+  background-color: #fdf3f2;
+  color: #7b241c;
+}
+.flash-success {
+  border-left-color: var(--accent);
+  background-color: var(--accent-bg);
+  color: var(--text);
+}
+.flash-info {
+  border-left-color: var(--accent);
+  background-color: var(--accent-bg);
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  .flash-error {
+    background-color: #3b1a18;
+    color: #f1948a;
+  }
+  .flash-success,
+  .flash-info {
+    background-color: var(--accent-bg);
+    color: var(--text);
+  }
+}
+
+/* ─── Admin layout ───────────────────────────────────────────────────────── */
+.admin-layout {
+  display: grid;
+  grid-template-columns: 13rem 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+.admin-layout > header { grid-column: 1 / -1; }
+.admin-sidebar { padding: 1rem 0; border-right: 1px solid var(--border); }
+.admin-content { padding: 1.5rem 2rem; }
+
+/* ─── Destructive action buttons ─────────────────────────────────────────── */
+button.danger,
+input[type="submit"].danger {
+  border-color: #c0392b;
+  color: #c0392b;
+  background: transparent;
+}
+button.danger:hover,
+input[type="submit"].danger:hover {
+  background-color: #c0392b;
+  color: #fff;
+}

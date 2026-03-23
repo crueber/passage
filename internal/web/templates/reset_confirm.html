@@ -1,0 +1,19 @@
+{{template "layout" .}}
+
+{{define "title"}}Choose a new password{{end}}
+
+{{define "content"}}
+<h2>Choose a new password</h2>
+<form method="POST" action="/reset/{{.Token}}">
+  <label for="password">New password</label>
+  <input type="password" id="password" name="password"
+         autocomplete="new-password" required autofocus minlength="8">
+
+  <label for="password_confirm">Confirm new password</label>
+  <input type="password" id="password_confirm" name="password_confirm"
+         autocomplete="new-password" required minlength="8">
+
+  <button type="submit">Set new password</button>
+</form>
+<p><a href="/login">Back to sign in</a></p>
+{{end}}
