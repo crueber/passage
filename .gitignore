@@ -1,0 +1,35 @@
+# Binaries
+passage
+passage.exe
+
+# Build artifacts
+dist/
+*.db
+*.db-shm
+*.db-wal
+
+# Test output
+*.test
+*.out
+
+# Go module download cache (not the go.sum — that's checked in)
+vendor/
+
+# Editor and IDE files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+*.env.local
+.env.*
+
+# Air live-reload
+tmp/
+
+# golangci-lint cache
+.golangci-lint-cache/
