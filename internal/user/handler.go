@@ -135,8 +135,23 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, token, expiresAt, h.cfg)
 
+	// Check for passage_rd cookie first (set by /auth/start), then fall back
+	// to the rd form field, then default to /.
 	dest := "/"
-	if rd != "" && strings.HasPrefix(rd, "/") {
+	if rdCookie, err := r.Cookie("passage_rd"); err == nil && strings.HasPrefix(rdCookie.Value, "/") {
+		dest = rdCookie.Value
+		// Clear the passage_rd cookie now that we've consumed it.
+		http.SetCookie(w, &http.Cookie{
+			Name:     "passage_rd",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
+			HttpOnly: true,
+			Secure:   h.cfg.Session.CookieSecure,
+			SameSite: http.SameSiteLaxMode,
+		})
+	} else if rd != "" && strings.HasPrefix(rd, "/") {
 		dest = rd
 	}
 	http.Redirect(w, r, dest, http.StatusFound)

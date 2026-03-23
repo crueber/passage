@@ -17,9 +17,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/email"
+	"github.com/crueber/passage/internal/forwardauth"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
@@ -75,6 +77,13 @@ func run() error {
 		return fmt.Errorf("parse templates: %w", err)
 	}
 
+	// Build app store and service.
+	appStore := app.NewStore(database)
+	appSvc := app.NewService(appStore, appStore, logger)
+
+	// Build forward-auth handler.
+	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
+
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, sessionSvc, mailer, tmpl, cfg, logger)
 
@@ -103,6 +112,9 @@ func run() error {
 			Version string `json:"version"`
 		}{Status: "ok", Version: version})
 	})
+
+	// Forward-auth endpoints (consumed by reverse proxy).
+	faHandler.Routes(r)
 
 	// User-facing auth routes (no session middleware).
 	r.Get("/login", userHandler.GetLogin)

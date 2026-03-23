@@ -880,9 +880,9 @@ Provide ready-to-use configuration snippets users can drop into their reverse pr
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/forwardauth/...` passes
-- [ ] `go test -race ./internal/app/...` passes (including `TestResolveFromHost_Wildcard`, `TestResolveFromHost_Exact`, `TestResolveFromHost_NoMatch`)
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/forwardauth/...` passes
+- [x] `go test -race ./internal/app/...` passes (including `TestResolveFromHost_Wildcard`, `TestResolveFromHost_Exact`, `TestResolveFromHost_NoMatch`)
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] Configure Nginx with `auth_request` pointing at `http://localhost:8080/auth/nginx`
