@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +19,10 @@ import (
 
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/db"
+	"github.com/crueber/passage/internal/email"
+	"github.com/crueber/passage/internal/session"
+	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // version is set at build time via -ldflags "-X main.version=1.0.0".
@@ -31,6 +37,9 @@ func run() error {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	// Set up logger.
@@ -47,36 +56,104 @@ func run() error {
 	}
 	defer database.Close()
 
+	// Build stores and services.
+	userStore := user.NewStore(database)
+	userSvc := user.NewService(userStore, userStore, cfg)
+
+	sessionStore := session.NewStore(database)
+	sessionSvc := session.NewService(sessionStore, userStore, cfg, logger)
+
+	// Build email sender.
+	mailer, err := email.NewSMTPSender(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("create email sender: %w", err)
+	}
+
+	// Parse HTML templates.
+	tmpl, err := web.Parse(web.TemplateFS)
+	if err != nil {
+		return fmt.Errorf("parse templates: %w", err)
+	}
+
+	// Build user handler.
+	userHandler := user.NewHandler(userSvc, sessionSvc, mailer, tmpl, cfg, logger)
+
+	// Prepare static file server from embedded FS.
+	staticFS, err := fs.Sub(web.StaticFS, "static")
+	if err != nil {
+		return fmt.Errorf("create static sub-fs: %w", err)
+	}
+
 	// Build the router.
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+
+	// Static assets.
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	// Health check endpoint.
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ok","version":"%s"}`, version)
+		_ = json.NewEncoder(w).Encode(struct {
+			Status  string `json:"status"`
+			Version string `json:"version"`
+		}{Status: "ok", Version: version})
+	})
+
+	// User-facing auth routes (no session middleware).
+	r.Get("/login", userHandler.GetLogin)
+	r.Post("/login", userHandler.PostLogin)
+	r.Get("/register", userHandler.GetRegister)
+	r.Post("/register", userHandler.PostRegister)
+	r.Get("/reset", userHandler.GetResetRequest)
+	r.Post("/reset", userHandler.PostResetRequest)
+	r.Get("/reset/{token}", userHandler.GetResetConfirm)
+	r.Post("/reset/{token}", userHandler.PostResetConfirm)
+	r.Get("/logout", userHandler.GetLogout)
+
+	// Protected routes require a valid session.
+	r.Group(func(r chi.Router) {
+		r.Use(session.RequireSession(sessionSvc, cfg))
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			u, _ := session.UserFromContext(r.Context())
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			if u != nil {
+				fmt.Fprintf(w, "Hello, %s! You are authenticated.\n", u.Username)
+			} else {
+				fmt.Fprintln(w, "Hello! You are authenticated.")
+			}
+		})
 	})
 
 	// Start the HTTP server.
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:         addr,
+		Handler:      r,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	logger.Info("starting server", "addr", addr, "version", version)
 
+	srvErr := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("server error", "error", err)
+			srvErr <- err
 		}
 	}()
 
-	// Wait for shutdown signal.
-	<-ctx.Done()
+	// Wait for shutdown signal or server error.
+	select {
+	case err := <-srvErr:
+		return fmt.Errorf("server error: %w", err)
+	case <-ctx.Done():
+	}
 	logger.Info("shutting down server")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

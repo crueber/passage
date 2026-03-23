@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/crueber/passage/internal/config"
@@ -155,6 +156,90 @@ log:
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.got != tt.want {
 				t.Errorf("got %v; want %v", tt.got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_MalformedYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(path, []byte(":\tinvalid: [yaml\n"), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	_, err := config.Load(path)
+	if err == nil {
+		t.Fatal("expected error for malformed YAML, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse config file") {
+		t.Errorf("expected error to contain %q, got: %v", "parse config file", err)
+	}
+}
+
+func TestValidate(t *testing.T) {
+	validCfg := func() *config.Config {
+		cfg, _ := config.Load("")
+		return cfg
+	}
+
+	tests := []struct {
+		name    string
+		mutate  func(*config.Config)
+		wantErr bool
+	}{
+		{
+			name:    "valid config passes",
+			mutate:  func(c *config.Config) {},
+			wantErr: false,
+		},
+		{
+			name:    "bcrypt_cost below 10 fails",
+			mutate:  func(c *config.Config) { c.Auth.BcryptCost = 9 },
+			wantErr: true,
+		},
+		{
+			name:    "bcrypt_cost above 31 fails",
+			mutate:  func(c *config.Config) { c.Auth.BcryptCost = 32 },
+			wantErr: true,
+		},
+		{
+			name:    "port zero fails",
+			mutate:  func(c *config.Config) { c.Server.Port = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "port above 65535 fails",
+			mutate:  func(c *config.Config) { c.Server.Port = 65536 },
+			wantErr: true,
+		},
+		{
+			name:    "duration_hours zero fails",
+			mutate:  func(c *config.Config) { c.Session.DurationHours = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "duration_hours negative fails",
+			mutate:  func(c *config.Config) { c.Session.DurationHours = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "empty database path fails",
+			mutate:  func(c *config.Config) { c.Database.Path = "" },
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validCfg()
+			tt.mutate(cfg)
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
 	}

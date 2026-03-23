@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -114,6 +115,27 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// Validate checks that all configuration values are within acceptable bounds.
+// It uses errors.Join to collect and return all validation errors together.
+func (c *Config) Validate() error {
+	var errs []error
+
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		errs = append(errs, fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port))
+	}
+	if c.Session.DurationHours <= 0 {
+		errs = append(errs, fmt.Errorf("session.duration_hours must be positive, got %d", c.Session.DurationHours))
+	}
+	if c.Auth.BcryptCost < 10 || c.Auth.BcryptCost > 31 {
+		errs = append(errs, fmt.Errorf("auth.bcrypt_cost must be between 10 and 31, got %d", c.Auth.BcryptCost))
+	}
+	if c.Database.Path == "" {
+		errs = append(errs, fmt.Errorf("database.path must not be empty"))
+	}
+
+	return errors.Join(errs...)
+}
+
 // applyEnvOverrides applies PASSAGE_* environment variables on top of cfg.
 func applyEnvOverrides(cfg *Config) {
 	// Server
@@ -123,6 +145,8 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_SERVER_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Server.Port = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SERVER_PORT", v, err)
 		}
 	}
 	if v := os.Getenv("PASSAGE_SERVER_BASE_URL"); v != "" {
@@ -138,6 +162,8 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_SESSION_DURATION_HOURS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Session.DurationHours = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SESSION_DURATION_HOURS", v, err)
 		}
 	}
 	if v := os.Getenv("PASSAGE_SESSION_COOKIE_NAME"); v != "" {
@@ -146,6 +172,8 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_SESSION_COOKIE_SECURE"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Session.CookieSecure = b
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SESSION_COOKIE_SECURE", v, err)
 		}
 	}
 
@@ -156,6 +184,8 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_SMTP_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.SMTP.Port = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SMTP_PORT", v, err)
 		}
 	}
 	if v := os.Getenv("PASSAGE_SMTP_USERNAME"); v != "" {
@@ -175,11 +205,15 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_AUTH_ALLOW_REGISTRATION"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Auth.AllowRegistration = b
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_ALLOW_REGISTRATION", v, err)
 		}
 	}
 	if v := os.Getenv("PASSAGE_AUTH_BCRYPT_COST"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Auth.BcryptCost = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_BCRYPT_COST", v, err)
 		}
 	}
 

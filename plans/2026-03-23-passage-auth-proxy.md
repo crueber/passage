@@ -636,7 +636,7 @@ or as a dependency on handler structs (consistent with Go conventions — no glo
 #### Manual Verification:
 - [x] Binary starts cleanly, logs are structured JSON
 - [x] Stopping with Ctrl-C logs a graceful shutdown message
-- [x] Running without a config file prints a helpful error and exits non-zero
+- [x] Running without a config file starts with defaults (no error — env vars and defaults apply)
 
 **Pause after Phase 1 for manual confirmation before proceeding.**
 
@@ -747,10 +747,10 @@ Inline with the user store (same `store.go` file):
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/user/...` passes
-- [ ] `go test -race ./internal/session/...` passes
-- [ ] `go test -race ./internal/email/...` passes (with SMTP mocked)
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/user/...` passes
+- [x] `go test -race ./internal/session/...` passes
+- [x] `go test -race ./internal/email/...` passes (with SMTP mocked)
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] Navigate to `http://localhost:8080/login` — login page renders
