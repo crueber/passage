@@ -33,3 +33,6 @@ tmp/
 
 # golangci-lint cache
 .golangci-lint-cache/
+
+# Git worktrees
+.worktrees/
