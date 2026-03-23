@@ -1,0 +1,30 @@
+# passage.example.yaml — copy to passage.yaml and edit for your environment
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  base_url: "https://auth.home.example.com"
+
+database:
+  path: "./passage.db"
+
+session:
+  duration_hours: 24
+  cookie_name: "passage_session"
+  cookie_secure: true
+
+smtp:
+  host: "smtp.example.com"
+  port: 587
+  username: "passage@example.com"
+  password: "changeme"
+  from: "Passage <passage@example.com>"
+  tls: "starttls"
+
+auth:
+  allow_registration: true
+  bcrypt_cost: 12
+
+log:
+  level: "info"
+  format: "json"

@@ -625,18 +625,18 @@ or as a dependency on handler structs (consistent with Go conventions — no glo
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go build ./...` compiles with zero errors, zero warnings
-- [ ] `go vet ./...` passes
-- [ ] `CGO_ENABLED=0 go build -o passage ./cmd/passage` produces a binary
-- [ ] Binary starts: `./passage --config passage.example.yaml`
-- [ ] Health check: `curl http://localhost:8080/healthz` returns HTTP 200 with `{"status":"ok"}`
-- [ ] SQLite DB file is created at configured path
-- [ ] `go test -race ./...` passes
+- [x] `go build ./...` compiles with zero errors, zero warnings
+- [x] `go vet ./...` passes
+- [x] `CGO_ENABLED=0 go build -o passage ./cmd/passage` produces a binary
+- [x] Binary starts: `./passage --config passage.example.yaml`
+- [x] Health check: `curl http://localhost:8080/healthz` returns HTTP 200 with `{"status":"ok"}`
+- [x] SQLite DB file is created at configured path
+- [x] `go test -race ./...` passes
 
 #### Manual Verification:
-- [ ] Binary starts cleanly, logs are structured JSON
-- [ ] Stopping with Ctrl-C logs a graceful shutdown message
-- [ ] Running without a config file prints a helpful error and exits non-zero
+- [x] Binary starts cleanly, logs are structured JSON
+- [x] Stopping with Ctrl-C logs a graceful shutdown message
+- [x] Running without a config file prints a helpful error and exits non-zero
 
 **Pause after Phase 1 for manual confirmation before proceeding.**
 
