@@ -61,9 +61,10 @@
       <h3>OAuth Client</h3>
 
       {{if .NewClientSecret}}
-      <div role="alert" style="background: #d4edda; border: 1px solid #28a745; padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
+      <div role="alert" class="notice">
         <strong>New client secret (copy now — it will not be shown again):</strong><br>
         <code style="font-size: 1.1em; word-break: break-all;">{{.NewClientSecret}}</code>
+        <button type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
       </div>
       {{end}}
 

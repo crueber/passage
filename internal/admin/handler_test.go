@@ -1144,9 +1144,7 @@ func TestAdminSettings_Update(t *testing.T) {
 
 // ─── OAuth credential management ─────────────────────────────────────────────
 
-// TestAdminApps_OAuth_GenerateCredentials verifies that an admin can enable OAuth
-// for an app via the generate endpoint, and the secret is shown exactly once.
-func TestAdminApps_OAuth_GenerateCredentials(t *testing.T) {
+func TestAdminApps_OAuth(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
@@ -1154,247 +1152,212 @@ func TestAdminApps_OAuth_GenerateCredentials(t *testing.T) {
 	router := buildAdminRouter(f)
 	ctx := context.Background()
 
-	// Create an app.
-	a := &app.App{
-		Slug:        "oauth-gen-app",
-		Name:        "OAuth Gen App",
-		HostPattern: "oauth-gen.example.com",
-		IsActive:    true,
-	}
-	if err := f.appSvc.Create(ctx, a); err != nil {
-		t.Fatalf("create app: %v", err)
-	}
-	created, err := f.appStore.GetBySlug(ctx, "oauth-gen-app")
-	if err != nil {
-		t.Fatalf("get app by slug: %v", err)
-	}
+	t.Run("generate credentials", func(t *testing.T) {
+		a := &app.App{
+			Slug:        "oauth-gen-app",
+			Name:        "OAuth Gen App",
+			HostPattern: "oauth-gen.example.com",
+			IsActive:    true,
+		}
+		if err := f.appSvc.Create(ctx, a); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		created, err := f.appStore.GetBySlug(ctx, "oauth-gen-app")
+		if err != nil {
+			t.Fatalf("get app by slug: %v", err)
+		}
 
-	// POST to generate OAuth credentials.
-	rec := adminRequest(t, router, http.MethodPost,
-		"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
-	res := rec.Result()
+		// POST to generate OAuth credentials.
+		rec := adminRequest(t, router, http.MethodPost,
+			"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
 
-	// Handler re-renders the form (200) with the secret shown once.
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("generate oauth: got status %d, want 200", res.StatusCode)
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "Copy the secret") {
-		t.Errorf("generate oauth: response does not contain copy-secret message; got: %s", body)
-	}
+		// Handler re-renders the form (200) with the secret shown once.
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("generate oauth: got status %d, want 200", res.StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "Copy the secret") {
+			t.Errorf("generate oauth: response does not contain copy-secret message; got: %s", body)
+		}
 
-	// The app must now have OAuthEnabled and a ClientID.
-	updated, err := f.appStore.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("get updated app: %v", err)
-	}
-	if !updated.OAuthEnabled {
-		t.Error("generate oauth: OAuthEnabled is false after generate")
-	}
-	if updated.ClientID == "" {
-		t.Error("generate oauth: ClientID is empty after generate")
-	}
-	if updated.ClientSecretHash == "" {
-		t.Error("generate oauth: ClientSecretHash is empty after generate")
-	}
-}
+		// The app must now have OAuthEnabled and a ClientID.
+		updated, err := f.appStore.GetByID(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("get updated app: %v", err)
+		}
+		if !updated.OAuthEnabled {
+			t.Error("generate oauth: OAuthEnabled is false after generate")
+		}
+		if updated.ClientID == "" {
+			t.Error("generate oauth: ClientID is empty after generate")
+		}
+		if updated.ClientSecretHash == "" {
+			t.Error("generate oauth: ClientSecretHash is empty after generate")
+		}
+	})
 
-// TestAdminApps_OAuth_GenerateCredentials_AlreadyEnabled verifies that a second
-// generate request is rejected and the form is re-rendered with an error flash.
-func TestAdminApps_OAuth_GenerateCredentials_AlreadyEnabled(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
-	token := createSession(t, f, adminUser.ID)
-	router := buildAdminRouter(f)
-	ctx := context.Background()
+	t.Run("generate credentials already enabled", func(t *testing.T) {
+		a := &app.App{
+			Slug:        "oauth-double-gen",
+			Name:        "OAuth Double Gen",
+			HostPattern: "oauth-double.example.com",
+			IsActive:    true,
+		}
+		if err := f.appSvc.Create(ctx, a); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		created, err := f.appStore.GetBySlug(ctx, "oauth-double-gen")
+		if err != nil {
+			t.Fatalf("get app by slug: %v", err)
+		}
 
-	a := &app.App{
-		Slug:        "oauth-double-gen",
-		Name:        "OAuth Double Gen",
-		HostPattern: "oauth-double.example.com",
-		IsActive:    true,
-	}
-	if err := f.appSvc.Create(ctx, a); err != nil {
-		t.Fatalf("create app: %v", err)
-	}
-	created, err := f.appStore.GetBySlug(ctx, "oauth-double-gen")
-	if err != nil {
-		t.Fatalf("get app by slug: %v", err)
-	}
+		// First generate — must succeed.
+		rec := adminRequest(t, router, http.MethodPost,
+			"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("first generate: unexpected status %d", rec.Result().StatusCode)
+		}
 
-	// First generate — must succeed.
-	rec := adminRequest(t, router, http.MethodPost,
-		"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
-	if rec.Result().StatusCode != http.StatusOK {
-		t.Fatalf("first generate: unexpected status %d", rec.Result().StatusCode)
-	}
+		// Second generate — must render error flash.
+		rec = adminRequest(t, router, http.MethodPost,
+			"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
 
-	// Second generate — must render error flash.
-	rec = adminRequest(t, router, http.MethodPost,
-		"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
-	res := rec.Result()
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("double generate: got status %d, want 200 (re-render with error)", res.StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "Failed to generate") {
+			t.Errorf("double generate: response does not contain error message; got: %s", body)
+		}
+	})
 
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("double generate: got status %d, want 200 (re-render with error)", res.StatusCode)
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "Failed to generate") {
-		t.Errorf("double generate: response does not contain error message; got: %s", body)
-	}
-}
+	t.Run("rotate secret", func(t *testing.T) {
+		a := &app.App{
+			Slug:        "oauth-rotate-app",
+			Name:        "OAuth Rotate App",
+			HostPattern: "oauth-rotate.example.com",
+			IsActive:    true,
+		}
+		if err := f.appSvc.Create(ctx, a); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		created, err := f.appStore.GetBySlug(ctx, "oauth-rotate-app")
+		if err != nil {
+			t.Fatalf("get app by slug: %v", err)
+		}
 
-// TestAdminApps_OAuth_RotateSecret verifies that an admin can rotate the client
-// secret for an OAuth-enabled app.
-func TestAdminApps_OAuth_RotateSecret(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
-	token := createSession(t, f, adminUser.ID)
-	router := buildAdminRouter(f)
-	ctx := context.Background()
+		// Enable OAuth first.
+		rec := adminRequest(t, router, http.MethodPost,
+			"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("generate: unexpected status %d", rec.Result().StatusCode)
+		}
 
-	a := &app.App{
-		Slug:        "oauth-rotate-app",
-		Name:        "OAuth Rotate App",
-		HostPattern: "oauth-rotate.example.com",
-		IsActive:    true,
-	}
-	if err := f.appSvc.Create(ctx, a); err != nil {
-		t.Fatalf("create app: %v", err)
-	}
-	created, err := f.appStore.GetBySlug(ctx, "oauth-rotate-app")
-	if err != nil {
-		t.Fatalf("get app by slug: %v", err)
-	}
+		// Capture the hash before rotation.
+		beforeRotate, err := f.appStore.GetByID(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("get app before rotate: %v", err)
+		}
+		oldHash := beforeRotate.ClientSecretHash
 
-	// Enable OAuth first.
-	rec := adminRequest(t, router, http.MethodPost,
-		"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
-	if rec.Result().StatusCode != http.StatusOK {
-		t.Fatalf("generate: unexpected status %d", rec.Result().StatusCode)
-	}
+		// POST to rotate.
+		rec = adminRequest(t, router, http.MethodPost,
+			"/admin/apps/"+created.ID+"/oauth/rotate", token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
 
-	// Capture the hash before rotation.
-	beforeRotate, err := f.appStore.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("get app before rotate: %v", err)
-	}
-	oldHash := beforeRotate.ClientSecretHash
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("rotate: got status %d, want 200", res.StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "rotated") {
+			t.Errorf("rotate: response does not contain 'rotated'; got: %s", body)
+		}
 
-	// POST to rotate.
-	rec = adminRequest(t, router, http.MethodPost,
-		"/admin/apps/"+created.ID+"/oauth/rotate", token, f.cfg.Session.CookieName, nil, "")
-	res := rec.Result()
+		// The hash must have changed.
+		afterRotate, err := f.appStore.GetByID(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("get app after rotate: %v", err)
+		}
+		if afterRotate.ClientSecretHash == oldHash {
+			t.Error("rotate: ClientSecretHash did not change after rotation")
+		}
+	})
 
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("rotate: got status %d, want 200", res.StatusCode)
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "rotated") {
-		t.Errorf("rotate: response does not contain 'rotated'; got: %s", body)
-	}
+	t.Run("rotate secret not enabled", func(t *testing.T) {
+		a := &app.App{
+			Slug:        "oauth-rotate-disabled",
+			Name:        "OAuth Rotate Disabled",
+			HostPattern: "oauth-rotate-disabled.example.com",
+			IsActive:    true,
+		}
+		if err := f.appSvc.Create(ctx, a); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		created, err := f.appStore.GetBySlug(ctx, "oauth-rotate-disabled")
+		if err != nil {
+			t.Fatalf("get app by slug: %v", err)
+		}
 
-	// The hash must have changed.
-	afterRotate, err := f.appStore.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("get app after rotate: %v", err)
-	}
-	if afterRotate.ClientSecretHash == oldHash {
-		t.Error("rotate: ClientSecretHash did not change after rotation")
-	}
-}
+		// POST rotate without ever enabling OAuth.
+		rec := adminRequest(t, router, http.MethodPost,
+			"/admin/apps/"+created.ID+"/oauth/rotate", token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
 
-// TestAdminApps_OAuth_RotateSecret_NotEnabled verifies that rotating a secret
-// for an app without OAuth enabled renders an error flash.
-func TestAdminApps_OAuth_RotateSecret_NotEnabled(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
-	token := createSession(t, f, adminUser.ID)
-	router := buildAdminRouter(f)
-	ctx := context.Background()
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("rotate not enabled: got status %d, want 200 (re-render with error)", res.StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "Failed to rotate") {
+			t.Errorf("rotate not enabled: response does not contain error message; got: %s", body)
+		}
+	})
 
-	a := &app.App{
-		Slug:        "oauth-rotate-disabled",
-		Name:        "OAuth Rotate Disabled",
-		HostPattern: "oauth-rotate-disabled.example.com",
-		IsActive:    true,
-	}
-	if err := f.appSvc.Create(ctx, a); err != nil {
-		t.Fatalf("create app: %v", err)
-	}
-	created, err := f.appStore.GetBySlug(ctx, "oauth-rotate-disabled")
-	if err != nil {
-		t.Fatalf("get app by slug: %v", err)
-	}
+	t.Run("update redirect URIs", func(t *testing.T) {
+		a := &app.App{
+			Slug:        "redirect-uri-app",
+			Name:        "Redirect URI App",
+			HostPattern: "redirect-uri.example.com",
+			IsActive:    true,
+		}
+		if err := f.appSvc.Create(ctx, a); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		created, err := f.appStore.GetBySlug(ctx, "redirect-uri-app")
+		if err != nil {
+			t.Fatalf("get app by slug: %v", err)
+		}
 
-	// POST rotate without ever enabling OAuth.
-	rec := adminRequest(t, router, http.MethodPost,
-		"/admin/apps/"+created.ID+"/oauth/rotate", token, f.cfg.Session.CookieName, nil, "")
-	res := rec.Result()
+		// POST update with redirect URIs.
+		form := url.Values{}
+		form.Set("slug", "redirect-uri-app")
+		form.Set("name", "Redirect URI App")
+		form.Set("host_pattern", "redirect-uri.example.com")
+		form.Set("is_active", "on")
+		form.Set("redirect_uris", "https://app.example.com/callback\nhttps://app.example.com/callback2\n")
 
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("rotate not enabled: got status %d, want 200 (re-render with error)", res.StatusCode)
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "Failed to rotate") {
-		t.Errorf("rotate not enabled: response does not contain error message; got: %s", body)
-	}
-}
+		rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+		res := rec.Result()
 
-// TestAdminApps_Update_RedirectURIs verifies that redirect_uris are saved via
-// the standard app update form.
-func TestAdminApps_Update_RedirectURIs(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
-	token := createSession(t, f, adminUser.ID)
-	router := buildAdminRouter(f)
-	ctx := context.Background()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("update redirect_uris: got %d, want 302", res.StatusCode)
+		}
 
-	a := &app.App{
-		Slug:        "redirect-uri-app",
-		Name:        "Redirect URI App",
-		HostPattern: "redirect-uri.example.com",
-		IsActive:    true,
-	}
-	if err := f.appSvc.Create(ctx, a); err != nil {
-		t.Fatalf("create app: %v", err)
-	}
-	created, err := f.appStore.GetBySlug(ctx, "redirect-uri-app")
-	if err != nil {
-		t.Fatalf("get app by slug: %v", err)
-	}
-
-	// POST update with redirect URIs.
-	form := url.Values{}
-	form.Set("slug", "redirect-uri-app")
-	form.Set("name", "Redirect URI App")
-	form.Set("host_pattern", "redirect-uri.example.com")
-	form.Set("is_active", "on")
-	form.Set("redirect_uris", "https://app.example.com/callback\nhttps://app.example.com/callback2\n")
-
-	rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
-		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
-	res := rec.Result()
-
-	if res.StatusCode != http.StatusFound {
-		t.Errorf("update redirect_uris: got %d, want 302", res.StatusCode)
-	}
-
-	// Verify the URIs were persisted.
-	updated, err := f.appStore.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("get updated app: %v", err)
-	}
-	if len(updated.RedirectURIs) != 2 {
-		t.Errorf("update redirect_uris: got %d URIs, want 2; uris: %v", len(updated.RedirectURIs), updated.RedirectURIs)
-	}
-	if len(updated.RedirectURIs) >= 1 && updated.RedirectURIs[0] != "https://app.example.com/callback" {
-		t.Errorf("update redirect_uris: first URI = %q, want %q", updated.RedirectURIs[0], "https://app.example.com/callback")
-	}
-	if len(updated.RedirectURIs) >= 2 && updated.RedirectURIs[1] != "https://app.example.com/callback2" {
-		t.Errorf("update redirect_uris: second URI = %q, want %q", updated.RedirectURIs[1], "https://app.example.com/callback2")
-	}
+		// Verify the URIs were persisted.
+		updated, err := f.appStore.GetByID(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("get updated app: %v", err)
+		}
+		if len(updated.RedirectURIs) != 2 {
+			t.Errorf("update redirect_uris: got %d URIs, want 2; uris: %v", len(updated.RedirectURIs), updated.RedirectURIs)
+		}
+		if len(updated.RedirectURIs) >= 1 && updated.RedirectURIs[0] != "https://app.example.com/callback" {
+			t.Errorf("update redirect_uris: first URI = %q, want %q", updated.RedirectURIs[0], "https://app.example.com/callback")
+		}
+		if len(updated.RedirectURIs) >= 2 && updated.RedirectURIs[1] != "https://app.example.com/callback2" {
+			t.Errorf("update redirect_uris: second URI = %q, want %q", updated.RedirectURIs[1], "https://app.example.com/callback2")
+		}
+	})
 }

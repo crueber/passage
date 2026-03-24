@@ -173,10 +173,6 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "Access granted."}
 	case "access-revoked":
 		return &Flash{Type: "success", Message: "Access revoked."}
-	case "oauth-generated":
-		return &Flash{Type: "success", Message: "OAuth credentials generated."}
-	case "oauth-rotated":
-		return &Flash{Type: "success", Message: "OAuth client secret rotated."}
 	case "self-delete-forbidden":
 		return &Flash{Type: "error", Message: "You cannot delete your own account."}
 	case "error":
@@ -699,7 +695,13 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 	}
 
 	// Re-fetch to get the updated ClientID and OAuthEnabled flag.
-	a, _ = h.apps.GetByID(ctx, id)
+	updatedApp, refetchErr := h.apps.GetByID(ctx, id)
+	if refetchErr != nil {
+		h.logger.Error("admin: re-fetch app after oauth generate", "id", id, "error", refetchErr)
+		// Write succeeded — continue rendering with stale app data + new secret
+	} else {
+		a = updatedApp
+	}
 	h.render(w, r, "admin-app-form", appFormData{
 		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}},
 		EditApp:         a,
@@ -735,7 +737,13 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Re-fetch to get the updated state.
-	a, _ = h.apps.GetByID(ctx, id)
+	updatedApp, refetchErr := h.apps.GetByID(ctx, id)
+	if refetchErr != nil {
+		h.logger.Error("admin: re-fetch app after oauth rotate", "id", id, "error", refetchErr)
+		// Write succeeded — continue rendering with stale app data + new secret
+	} else {
+		a = updatedApp
+	}
 	h.render(w, r, "admin-app-form", appFormData{
 		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}},
 		EditApp:         a,
