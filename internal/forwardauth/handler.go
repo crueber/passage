@@ -152,7 +152,9 @@ func (h *Handler) checkAuth(w http.ResponseWriter, r *http.Request, host string)
 func (h *Handler) AuthStart(w http.ResponseWriter, r *http.Request) {
 	rd := r.URL.Query().Get("rd")
 
-	if rd != "" && strings.HasPrefix(rd, "/") {
+	// Safe if it starts with "/" but NOT "//" (protocol-relative URLs like
+	// //evil.example.com are treated as absolute by browsers and must be rejected).
+	if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") {
 		// Store the return URL in a short-lived HttpOnly cookie.
 		http.SetCookie(w, &http.Cookie{
 			Name:     "passage_rd",

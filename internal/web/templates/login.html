@@ -1,32 +1,46 @@
-{{template "layout" .}}
+{{define "login.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — Passage</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+  <main>
+    <h1 class="wordmark">passage</h1>
+    {{if .Flash}}
+    <div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
+    {{end}}
+    <script src="/static/passkey.js" defer></script>
+    <h2>Sign in to continue</h2>
+    <form method="POST" action="/login">
+      <input type="hidden" name="rd" value="{{.RedirectTo}}">
 
-{{define "title"}}Sign in{{end}}
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username"
+             required autofocus value="{{.Username}}">
 
-{{define "content"}}
-<script src="/static/passkey.js" defer></script>
-<h2>Sign in to continue</h2>
-<form method="POST" action="/login">
-  <input type="hidden" name="rd" value="{{.RedirectTo}}">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
 
-  <label for="username">Username</label>
-  <input type="text" id="username" name="username" autocomplete="username"
-         required autofocus value="{{.Username}}">
+      <button type="submit">Sign in</button>
+    </form>
 
-  <label for="password">Password</label>
-  <input type="password" id="password" name="password" autocomplete="current-password" required>
+    <p>
+      <button type="button" id="passkey-login-btn">Sign in with a passkey</button>
+    </p>
+    <p id="passkey-login-status" aria-live="polite"></p>
 
-  <button type="submit">Sign in</button>
-</form>
-
-<p>
-  <button type="button" id="passkey-login-btn">Sign in with a passkey</button>
-</p>
-<p id="passkey-login-status" aria-live="polite"></p>
-
-<p>
-  <a href="/reset">Forgot password?</a>
-  {{if .AllowRegistration}}
-  &nbsp;·&nbsp; <a href="/register">Create an account</a>
-  {{end}}
-</p>
+    <p>
+      <a href="/reset">Forgot password?</a>
+      {{if .AllowRegistration}}
+      &nbsp;·&nbsp; <a href="/register">Create an account</a>
+      {{end}}
+    </p>
+  </main>
+</body>
+</html>
 {{end}}

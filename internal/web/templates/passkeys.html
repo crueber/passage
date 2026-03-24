@@ -1,48 +1,58 @@
-{{template "layout" .}}
-
-{{define "title"}}Passkeys — Passage{{end}}
-
-{{define "content"}}
-<script src="/static/passkey.js" defer></script>
-<h2>Passkeys</h2>
-
-{{if .Flash}}
-<div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
-{{end}}
-
-{{if .Credentials}}
-<table>
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Registered</th>
-      <th>Last used</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {{range .Credentials}}
-    <tr>
-      <td>{{if .Name}}{{.Name}}{{else}}<em>Unnamed passkey</em>{{end}}</td>
-      <td>{{.CreatedAt.Format "2006-01-02"}}</td>
-      <td>{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}Never{{end}}</td>
-      <td>
-        <form method="POST" action="/passkeys/delete/{{.ID}}"
-              onsubmit="return confirm('Remove this passkey?')">
-          <button type="submit">Remove</button>
-        </form>
-      </td>
-    </tr>
+{{define "passkeys.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Passkeys — Passage</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+  <main>
+    <h1 class="wordmark">passage</h1>
+    {{if .Flash}}
+    <div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
     {{end}}
-  </tbody>
-</table>
-{{else}}
-<p>You have no passkeys registered yet.</p>
-{{end}}
+    <script src="/static/passkey.js" defer></script>
+    <h2>Passkeys</h2>
 
-<hr>
-<h3>Register a new passkey</h3>
-<p>Passkeys let you sign in securely without a password.</p>
-<button type="button" id="register-passkey-btn">Register passkey</button>
-<p id="passkey-register-status" aria-live="polite"></p>
+    {{if .Credentials}}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Registered</th>
+          <th>Last used</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Credentials}}
+        <tr>
+          <td>{{if .Name}}{{.Name}}{{else}}<em>Unnamed passkey</em>{{end}}</td>
+          <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+          <td>{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}Never{{end}}</td>
+          <td>
+            <form method="POST" action="/passkeys/delete/{{.ID}}"
+                  onsubmit="return confirm('Remove this passkey?')">
+              <button type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p>You have no passkeys registered yet.</p>
+    {{end}}
+
+    <hr>
+    <h3>Register a new passkey</h3>
+    <p>Passkeys let you sign in securely without a password.</p>
+    <button type="button" id="register-passkey-btn">Register passkey</button>
+    <p id="passkey-register-status" aria-live="polite"></p>
+  </main>
+</body>
+</html>
 {{end}}

@@ -2,10 +2,12 @@ package webauthn_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -213,5 +215,173 @@ func TestPostDeletePasskey_Success(t *testing.T) {
 	_, err = f.credStore.GetByID(context.Background(), "del-cred-1")
 	if err == nil {
 		t.Error("credential should be deleted but still exists")
+	}
+}
+
+// TestGetPasskeys_AuthenticatedEmpty verifies that a logged-in user with no
+// registered passkeys receives the passkeys page (200) showing the empty state.
+func TestGetPasskeys_AuthenticatedEmpty(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+
+	_, err := f.userSvc.Register(context.Background(), "emptyuser", "emptyuser@example.com", "password123")
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+	u, err := f.userStore.GetByUsername(context.Background(), "emptyuser")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+
+	token, _, err := f.sessionSvc.CreateSession(context.Background(), u.ID, nil, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	router := buildPasskeyRouter(f)
+	req := httptest.NewRequest(http.MethodGet, "/passkeys", nil)
+	req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: token})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("got %d, want 200", res.StatusCode)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyStr := string(body)
+
+	// Must not be a redirect page.
+	if strings.Contains(bodyStr, "Sign in") {
+		t.Error("response body contains 'Sign in' — looks like a redirect/login page")
+	}
+
+	// The empty state from passkeys.html.
+	const wantText = "You have no passkeys registered yet."
+	if !strings.Contains(bodyStr, wantText) {
+		t.Errorf("response body does not contain %q", wantText)
+	}
+}
+
+// TestGetBeginRegistration_RequiresSession verifies that the begin-registration
+// endpoint redirects unauthenticated requests to /login.
+func TestGetBeginRegistration_RequiresSession(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+	router := buildPasskeyRouter(f)
+
+	req := httptest.NewRequest(http.MethodGet, "/passkeys/register/begin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("got %d, want 302", res.StatusCode)
+	}
+	loc := res.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/login") {
+		t.Errorf("expected redirect to /login, got %q", loc)
+	}
+}
+
+// TestGetBeginRegistration_ReturnsJSON verifies that an authenticated user
+// receives JSON credential-creation options and a wa_reg_session cookie.
+func TestGetBeginRegistration_ReturnsJSON(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+
+	_, err := f.userSvc.Register(context.Background(), "reguser", "reguser@example.com", "password123")
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+	u, err := f.userStore.GetByUsername(context.Background(), "reguser")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+
+	token, _, err := f.sessionSvc.CreateSession(context.Background(), u.ID, nil, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	router := buildPasskeyRouter(f)
+	req := httptest.NewRequest(http.MethodGet, "/passkeys/register/begin", nil)
+	req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: token})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("got %d, want 200", res.StatusCode)
+	}
+
+	ct := res.Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if !json.Valid(body) {
+		t.Errorf("response body is not valid JSON: %s", body)
+	}
+
+	var foundRegCookie bool
+	for _, c := range res.Cookies() {
+		if c.Name == "wa_reg_session" {
+			foundRegCookie = true
+			break
+		}
+	}
+	if !foundRegCookie {
+		t.Error("expected wa_reg_session cookie to be set in response")
+	}
+}
+
+// TestGetBeginLogin_ReturnsJSON verifies that the public begin-login endpoint
+// returns JSON discoverable-login options and a wa_auth_session cookie.
+// No session is required for this endpoint.
+func TestGetBeginLogin_ReturnsJSON(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+	router := buildPasskeyRouter(f)
+
+	req := httptest.NewRequest(http.MethodGet, "/login/passkey/begin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("got %d, want 200", res.StatusCode)
+	}
+
+	ct := res.Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if !json.Valid(body) {
+		t.Errorf("response body is not valid JSON: %s", body)
+	}
+
+	var foundAuthCookie bool
+	for _, c := range res.Cookies() {
+		if c.Name == "wa_auth_session" {
+			foundAuthCookie = true
+			break
+		}
+	}
+	if !foundAuthCookie {
+		t.Error("expected wa_auth_session cookie to be set in response")
 	}
 }

@@ -133,6 +133,7 @@ func TestNginxAuth_ValidSession(t *testing.T) {
 	}
 	checkHeader(t, w, "X-Passage-Username", u.Username)
 	checkHeader(t, w, "X-Passage-Email", u.Email)
+	checkHeader(t, w, "X-Passage-Name", "")
 	checkHeader(t, w, "X-Passage-User-ID", u.ID)
 	checkHeader(t, w, "X-Passage-Is-Admin", "false")
 }
@@ -255,6 +256,54 @@ func TestNginxAuth_ExpiredSession(t *testing.T) {
 	}
 }
 
+// TestTraefikAuth_ExpiredSession verifies that an expired session returns 401
+// on the Traefik forward-auth endpoint. Session expiry is checked before app
+// resolution, so no registered app is needed.
+func TestTraefikAuth_ExpiredSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Create a fresh DB and minimal services for this isolated test.
+	db3 := testutil.NewTestDB(t)
+	expiredCfg3 := &config.Config{
+		Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
+		Session: config.SessionConfig{DurationHours: 0, CookieName: "passage_session"},
+	}
+	userStore3 := user.NewStore(db3)
+	userSvc3 := user.NewService(userStore3, userStore3, expiredCfg3)
+	sessionStore3 := session.NewStore(db3)
+	sessionSvc3 := session.NewService(sessionStore3, userStore3, expiredCfg3, slog.Default())
+	appStore3 := app.NewStore(db3)
+	appSvc3 := app.NewService(appStore3, appStore3, slog.Default())
+	h3 := forwardauth.NewHandler(sessionSvc3, appSvc3, expiredCfg3, slog.Default())
+
+	u3, err := userSvc3.Register(ctx, "traefikexpuser", "traefikexpuser@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Insert a session directly with a past expiry so it is already expired.
+	// app_id is NULL because forward-auth sessions are not app-scoped at the session level;
+	// app resolution happens at request time based on the X-Forwarded-Host header.
+	pastExpiry := time.Now().UTC().Add(-1 * time.Hour)
+	const insertSQL = `INSERT INTO sessions (id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
+		VALUES ('traefik-expired-token', ?, NULL, '', '', ?, ?)`
+	if _, err := db3.ExecContext(ctx, insertSQL, u3.ID, pastExpiry, time.Now().UTC()); err != nil {
+		t.Fatalf("insert expired session: %v", err)
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/auth/traefik", nil)
+	r.Header.Set("X-Forwarded-Host", "grafana.home.example.com")
+	r.AddCookie(&http.Cookie{Name: expiredCfg3.Session.CookieName, Value: "traefik-expired-token"})
+	w := httptest.NewRecorder()
+
+	newRouter(h3).ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("TraefikAuth expired session: got status %d, want 401", w.Code)
+	}
+}
+
 // TestTraefikAuth_ValidSession verifies the Traefik variant with X-Forwarded-Host.
 func TestTraefikAuth_ValidSession(t *testing.T) {
 	t.Parallel()
@@ -277,6 +326,65 @@ func TestTraefikAuth_ValidSession(t *testing.T) {
 	}
 	checkHeader(t, w, "X-Passage-Username", u.Username)
 	checkHeader(t, w, "X-Passage-User-ID", u.ID)
+}
+
+// TestTraefikAuth_NoSession verifies that a Traefik forward-auth request
+// without a session cookie returns 401.
+func TestTraefikAuth_NoSession(t *testing.T) {
+	t.Parallel()
+	deps := setupDeps(t)
+	createApp(t, deps, "traefiknosess", "traefiknosess.home.example.com")
+
+	r := httptest.NewRequest(http.MethodGet, "/auth/traefik", nil)
+	r.Header.Set("X-Forwarded-Host", "traefiknosess.home.example.com")
+	// No session cookie set.
+	w := httptest.NewRecorder()
+
+	newRouter(deps.handler).ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("TraefikAuth no session: got status %d, want 401", w.Code)
+	}
+}
+
+// TestTraefikAuth_NoAccess verifies that a valid Traefik session for a user
+// without app access returns 403 Forbidden.
+func TestTraefikAuth_NoAccess(t *testing.T) {
+	t.Parallel()
+	deps := setupDeps(t)
+	_, token := createUserAndSession(t, deps, "traefiknoaccess")
+	createApp(t, deps, "traefikprivate", "traefikprivate.home.example.com")
+	// Do NOT grant access.
+
+	r := httptest.NewRequest(http.MethodGet, "/auth/traefik", nil)
+	r.Header.Set("X-Forwarded-Host", "traefikprivate.home.example.com")
+	r.AddCookie(&http.Cookie{Name: deps.cfg.Session.CookieName, Value: token})
+	w := httptest.NewRecorder()
+
+	newRouter(deps.handler).ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("TraefikAuth no access: got status %d, want 403", w.Code)
+	}
+}
+
+// TestTraefikAuth_MissingHeader verifies that a Traefik forward-auth request
+// with no X-Forwarded-Host header returns 401.
+func TestTraefikAuth_MissingHeader(t *testing.T) {
+	t.Parallel()
+	deps := setupDeps(t)
+	_, token := createUserAndSession(t, deps, "traefikmissingheader")
+
+	r := httptest.NewRequest(http.MethodGet, "/auth/traefik", nil)
+	// No X-Forwarded-Host header set.
+	r.AddCookie(&http.Cookie{Name: deps.cfg.Session.CookieName, Value: token})
+	w := httptest.NewRecorder()
+
+	newRouter(deps.handler).ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("TraefikAuth missing header: got status %d, want 401", w.Code)
+	}
 }
 
 // TestAuthStart_WithRd verifies that a valid relative rd param results in a
@@ -317,30 +425,51 @@ func TestAuthStart_WithRd(t *testing.T) {
 	}
 }
 
-// TestAuthStart_OpenRedirect verifies that an external (non-relative) rd param
-// is rejected: no passage_rd cookie is set and the redirect is still to /login.
+// TestAuthStart_OpenRedirect verifies that external rd params (absolute URLs and
+// protocol-relative URLs) are rejected: no passage_rd cookie is set and the
+// redirect is still to /login.
 func TestAuthStart_OpenRedirect(t *testing.T) {
 	t.Parallel()
 	deps := setupDeps(t)
 
-	r := httptest.NewRequest(http.MethodGet, "/auth/start?rd=https://evil.example.com/steal", nil)
-	w := httptest.NewRecorder()
-
-	newRouter(deps.handler).ServeHTTP(w, r)
-
-	if w.Code != http.StatusFound {
-		t.Errorf("AuthStart open redirect: got status %d, want 302", w.Code)
+	cases := []struct {
+		name string
+		rd   string
+	}{
+		{
+			name: "absolute https URL",
+			rd:   "https://evil.example.com/steal",
+		},
+		{
+			name: "protocol-relative URL",
+			rd:   "//evil.example.com/steal",
+		},
 	}
-	loc := w.Header().Get("Location")
-	if loc != "/login" {
-		t.Errorf("AuthStart open redirect: got Location %q, want /login", loc)
-	}
 
-	// The passage_rd cookie must NOT be set for external URLs.
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "passage_rd" {
-			t.Errorf("AuthStart open redirect: passage_rd cookie should not be set, got value %q", c.Value)
-		}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := httptest.NewRequest(http.MethodGet, "/auth/start?rd="+tc.rd, nil)
+			w := httptest.NewRecorder()
+
+			newRouter(deps.handler).ServeHTTP(w, r)
+
+			if w.Code != http.StatusFound {
+				t.Errorf("AuthStart open redirect (%s): got status %d, want 302", tc.name, w.Code)
+			}
+			loc := w.Header().Get("Location")
+			if loc != "/login" {
+				t.Errorf("AuthStart open redirect (%s): got Location %q, want /login", tc.name, loc)
+			}
+
+			// The passage_rd cookie must NOT be set for external URLs.
+			for _, c := range w.Result().Cookies() {
+				if c.Name == "passage_rd" {
+					t.Errorf("AuthStart open redirect (%s): passage_rd cookie should not be set, got value %q", tc.name, c.Value)
+				}
+			}
+		})
 	}
 }
 

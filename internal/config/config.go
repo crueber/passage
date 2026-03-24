@@ -133,6 +133,16 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("database.path must not be empty"))
 	}
 
+	// Validate SMTP TLS mode only when SMTP is configured.
+	if c.SMTP.Host != "" {
+		switch c.SMTP.TLS {
+		case "tls", "starttls", "none":
+			// valid
+		default:
+			errs = append(errs, fmt.Errorf("smtp.tls must be one of \"tls\", \"starttls\", or \"none\", got %q", c.SMTP.TLS))
+		}
+	}
+
 	return errors.Join(errs...)
 }
 

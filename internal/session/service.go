@@ -121,6 +121,16 @@ func (s *Service) ListAll(ctx context.Context) ([]*Session, error) {
 	return sessions, nil
 }
 
+// ListByUser returns all sessions for the given user, ordered by creation
+// time descending. It delegates directly to the store.
+func (s *Service) ListByUser(ctx context.Context, userID string) ([]*Session, error) {
+	sessions, err := s.store.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions by user: %w", err)
+	}
+	return sessions, nil
+}
+
 // SetCookie writes the session cookie to the response.
 func SetCookie(w http.ResponseWriter, token string, expiresAt time.Time, cfg *config.Config) {
 	http.SetCookie(w, &http.Cookie{

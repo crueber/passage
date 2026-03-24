@@ -209,6 +209,56 @@ func TestRevokeSession(t *testing.T) {
 	}
 }
 
+// TestListByUser verifies that ListByUser returns only sessions belonging to
+// the requested user. Creates 2 sessions for user A and 1 for user B, then
+// asserts exactly 2 are returned for user A.
+func TestListByUser(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig()
+	userSvc := user.NewService(userStore, userStore, cfg)
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
+	ctx := context.Background()
+
+	// Register two distinct users.
+	userA, err := userSvc.Register(ctx, "list_user_a", "list_a@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register userA: %v", err)
+	}
+	userB, err := userSvc.Register(ctx, "list_user_b", "list_b@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register userB: %v", err)
+	}
+
+	// Create 2 sessions for userA.
+	if _, err := sessionSvc.NewSession(ctx, userA.ID, nil, "10.0.0.1", "AgentA/1"); err != nil {
+		t.Fatalf("NewSession A1: %v", err)
+	}
+	if _, err := sessionSvc.NewSession(ctx, userA.ID, nil, "10.0.0.2", "AgentA/2"); err != nil {
+		t.Fatalf("NewSession A2: %v", err)
+	}
+
+	// Create 1 session for userB.
+	if _, err := sessionSvc.NewSession(ctx, userB.ID, nil, "10.0.0.3", "AgentB/1"); err != nil {
+		t.Fatalf("NewSession B1: %v", err)
+	}
+
+	got, err := sessionSvc.ListByUser(ctx, userA.ID)
+	if err != nil {
+		t.Fatalf("ListByUser: unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("ListByUser: got %d sessions, want 2", len(got))
+	}
+	for _, s := range got {
+		if s.UserID != userA.ID {
+			t.Errorf("ListByUser: got session with UserID %q, want %q", s.UserID, userA.ID)
+		}
+	}
+}
+
 // TestNewSession_NilAppID verifies that a session with nil AppID round-trips
 // correctly through the store — the AppID field stays nil after ValidateSession.
 func TestNewSession_NilAppID(t *testing.T) {

@@ -264,3 +264,79 @@ func TestCreate_SlugUnique(t *testing.T) {
 		t.Errorf("Create duplicate slug: got %v, want ErrSlugTaken", err)
 	}
 }
+
+// TestValidateHostPattern verifies that ValidateHostPattern is advisory only
+// and always returns nil — even for exact duplicates and overlapping patterns.
+func TestValidateHostPattern(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cases := []struct {
+		name            string
+		existingPattern string
+		newPattern      string
+		overlapExpected bool // documents the intent; ValidateHostPattern always returns nil
+	}{
+		{
+			name:            "exact duplicate pattern",
+			existingPattern: "grafana.home.example.com",
+			newPattern:      "grafana.home.example.com",
+			overlapExpected: true,
+		},
+		{
+			name:            "non-overlapping pattern",
+			existingPattern: "grafana.home.example.com",
+			newPattern:      "prometheus.other.example.com",
+			overlapExpected: false,
+		},
+		{
+			name:            "wildcard matches existing hostname",
+			existingPattern: "grafana.home.example.com",
+			newPattern:      "*.home.example.com",
+			overlapExpected: true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Each sub-test gets its own isolated DB so apps don't pollute each other.
+			svc, _ := newService(t)
+			existing := seedApp(t, svc, "existingapp", tc.existingPattern)
+
+			if tc.overlapExpected {
+				t.Logf("overlap expected between existing pattern %q and new pattern %q (advisory only)", tc.existingPattern, tc.newPattern)
+			}
+
+			// ValidateHostPattern always returns nil — it is advisory and never blocks creation.
+			err := svc.ValidateHostPattern(ctx, tc.newPattern, existing.ID)
+			if err != nil {
+				t.Errorf("ValidateHostPattern(%q, excludeID=%q): got error %v, want nil", tc.newPattern, existing.ID, err)
+			}
+		})
+	}
+}
+
+// TestResolveFromHost_MultiMatch verifies that when two apps both match the
+// same host, the one created first (by created_at ASC from ListActive) is
+// returned and no error occurs.
+func TestResolveFromHost_MultiMatch(t *testing.T) {
+	t.Parallel()
+	svc, _ := newService(t)
+	ctx := context.Background()
+
+	// app1 is created first — it should win on multi-match.
+	app1 := seedApp(t, svc, "grafana-exact", "grafana.home.example.com")
+	// app2 is a wildcard that also matches "grafana.home.example.com".
+	_ = seedApp(t, svc, "homelab-wildcard", "*.home.example.com")
+
+	got, err := svc.ResolveFromHost(ctx, "grafana.home.example.com")
+	if err != nil {
+		t.Fatalf("ResolveFromHost multi-match: unexpected error: %v", err)
+	}
+	if got.ID != app1.ID {
+		t.Errorf("ResolveFromHost multi-match: got app ID %q (%s), want %q (%s)",
+			got.ID, got.Slug, app1.ID, app1.Slug)
+	}
+}

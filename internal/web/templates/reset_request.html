@@ -1,16 +1,30 @@
-{{template "layout" .}}
+{{define "reset_request.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset password — Passage</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+  <main>
+    <h1 class="wordmark">passage</h1>
+    {{if .Flash}}
+    <div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
+    {{end}}
+    <h2>Reset your password</h2>
+    <p>Enter the email address associated with your account and we'll send you a reset link.</p>
+    <form method="POST" action="/reset">
+      <label for="email">Email address</label>
+      <input type="email" id="email" name="email" autocomplete="email"
+             required autofocus>
 
-{{define "title"}}Reset password{{end}}
-
-{{define "content"}}
-<h2>Reset your password</h2>
-<p>Enter the email address associated with your account and we'll send you a reset link.</p>
-<form method="POST" action="/reset">
-  <label for="email">Email address</label>
-  <input type="email" id="email" name="email" autocomplete="email"
-         required autofocus>
-
-  <button type="submit">Send reset link</button>
-</form>
-<p><a href="/login">Back to sign in</a></p>
+      <button type="submit">Send reset link</button>
+    </form>
+    <p><a href="/login">Back to sign in</a></p>
+  </main>
+</body>
+</html>
 {{end}}

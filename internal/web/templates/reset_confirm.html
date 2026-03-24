@@ -1,19 +1,33 @@
-{{template "layout" .}}
+{{define "reset_confirm.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choose a new password — Passage</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+  <main>
+    <h1 class="wordmark">passage</h1>
+    {{if .Flash}}
+    <div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
+    {{end}}
+    <h2>Choose a new password</h2>
+    <form method="POST" action="/reset/{{.Token}}">
+      <label for="password">New password</label>
+      <input type="password" id="password" name="password"
+             autocomplete="new-password" required autofocus minlength="8">
 
-{{define "title"}}Choose a new password{{end}}
+      <label for="password_confirm">Confirm new password</label>
+      <input type="password" id="password_confirm" name="password_confirm"
+             autocomplete="new-password" required minlength="8">
 
-{{define "content"}}
-<h2>Choose a new password</h2>
-<form method="POST" action="/reset/{{.Token}}">
-  <label for="password">New password</label>
-  <input type="password" id="password" name="password"
-         autocomplete="new-password" required autofocus minlength="8">
-
-  <label for="password_confirm">Confirm new password</label>
-  <input type="password" id="password_confirm" name="password_confirm"
-         autocomplete="new-password" required minlength="8">
-
-  <button type="submit">Set new password</button>
-</form>
-<p><a href="/login">Back to sign in</a></p>
+      <button type="submit">Set new password</button>
+    </form>
+    <p><a href="/login">Back to sign in</a></p>
+  </main>
+</body>
+</html>
 {{end}}

@@ -769,6 +769,290 @@ func TestAdminSessions_Revoke_HTMX(t *testing.T) {
 	}
 }
 
+// ─── PostCreateUser validation errors ────────────────────────────────────────
+
+func TestAdminUsers_Create_ShortPassword(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("username", "shortpwuser")
+	form.Set("email", "shortpw@example.com")
+	form.Set("password", "abc") // 3 chars — below the 8-char minimum
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/users", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	// Handler must re-render the form (200), not redirect.
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("short password: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Password must be at least 8 characters") {
+		t.Errorf("short password: response does not contain expected error message; got: %s", body)
+	}
+
+	// No user should have been created.
+	_, err := f.userStore.GetByUsername(context.Background(), "shortpwuser")
+	if err == nil {
+		t.Error("short password: user was created despite short password")
+	}
+}
+
+func TestAdminUsers_Create_DuplicateUsername(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	// Create the first user via the service.
+	if _, err := f.userSvc.Register(context.Background(), "dupuser", "first@example.com", "password123"); err != nil {
+		t.Fatalf("register first user: %v", err)
+	}
+
+	// POST a second user with the same username but different email.
+	form := url.Values{}
+	form.Set("username", "dupuser")
+	form.Set("email", "second@example.com")
+	form.Set("password", "password456")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/users", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("duplicate username: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "That username is already taken") {
+		t.Errorf("duplicate username: response does not contain expected error message; got: %s", body)
+	}
+
+	// Only one user with that username should exist.
+	users, err := f.userStore.List(context.Background())
+	if err != nil {
+		t.Fatalf("list users: %v", err)
+	}
+	count := 0
+	for _, u := range users {
+		if u.Username == "dupuser" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("duplicate username: expected 1 user with username 'dupuser', got %d", count)
+	}
+}
+
+func TestAdminUsers_Create_DuplicateEmail(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	// Create the first user via the service.
+	if _, err := f.userSvc.Register(context.Background(), "emailuser1", "shared@example.com", "password123"); err != nil {
+		t.Fatalf("register first user: %v", err)
+	}
+
+	// POST a second user with a different username but the same email.
+	form := url.Values{}
+	form.Set("username", "emailuser2")
+	form.Set("email", "shared@example.com")
+	form.Set("password", "password456")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/users", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("duplicate email: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "An account with that email already exists") {
+		t.Errorf("duplicate email: response does not contain expected error message; got: %s", body)
+	}
+
+	// Only one user with that email should exist.
+	users, err := f.userStore.List(context.Background())
+	if err != nil {
+		t.Fatalf("list users: %v", err)
+	}
+	count := 0
+	for _, u := range users {
+		if u.Email == "shared@example.com" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("duplicate email: expected 1 user with email 'shared@example.com', got %d", count)
+	}
+}
+
+func TestAdminUsers_Create_MissingUsername(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("username", "") // deliberately empty
+	form.Set("email", "nouser@example.com")
+	form.Set("password", "password123")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/users", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("missing username: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+
+	body := rec.Body.String()
+	// Handler renders a general "required" message when username is empty.
+	if !strings.Contains(body, "required") {
+		t.Errorf("missing username: response does not contain any error message; got: %s", body)
+	}
+}
+
+// ─── PostCreateApp validation errors ─────────────────────────────────────────
+
+func TestAdminApps_Create_MissingSlug(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("slug", "") // deliberately empty
+	form.Set("name", "Valid App Name")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("missing slug: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Slug and name are required") {
+		t.Errorf("missing slug: response does not contain expected error message; got: %s", body)
+	}
+}
+
+func TestAdminApps_Create_DuplicateSlug(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	// Create the first app via a successful POST.
+	firstForm := url.Values{}
+	firstForm.Set("slug", "my-app")
+	firstForm.Set("name", "My App")
+	firstForm.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+		strings.NewReader(firstForm.Encode()), "application/x-www-form-urlencoded")
+	if rec.Result().StatusCode != http.StatusFound {
+		t.Fatalf("create first app: unexpected status %d", rec.Result().StatusCode)
+	}
+
+	// POST a second app with the same slug but different name.
+	secondForm := url.Values{}
+	secondForm.Set("slug", "my-app")
+	secondForm.Set("name", "Different App Name")
+	secondForm.Set("is_active", "on")
+
+	rec = adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+		strings.NewReader(secondForm.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("duplicate slug: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "An app with that slug already exists") {
+		t.Errorf("duplicate slug: response does not contain expected error message; got: %s", body)
+	}
+}
+
+// ─── PostUpdateUser conflict ──────────────────────────────────────────────────
+
+func TestAdminUsers_Update_DuplicateUsername(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+	ctx := context.Background()
+
+	// Create two non-admin users.
+	if _, err := f.userSvc.Register(ctx, "updateuser1", "updateuser1@example.com", "password123"); err != nil {
+		t.Fatalf("register user1: %v", err)
+	}
+	user1, err := f.userStore.GetByUsername(ctx, "updateuser1")
+	if err != nil {
+		t.Fatalf("get user1: %v", err)
+	}
+
+	if _, err := f.userSvc.Register(ctx, "updateuser2", "updateuser2@example.com", "password123"); err != nil {
+		t.Fatalf("register user2: %v", err)
+	}
+	user2, err := f.userStore.GetByUsername(ctx, "updateuser2")
+	if err != nil {
+		t.Fatalf("get user2: %v", err)
+	}
+	_ = user1 // user1 exists purely to occupy the username
+
+	// Attempt to update user2's username to match user1's username.
+	form := url.Values{}
+	form.Set("username", "updateuser1") // conflict with user1
+	form.Set("email", "updateuser2@example.com")
+	form.Set("name", "User Two")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/users/"+user2.ID, token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("update duplicate username: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "That username is already taken") {
+		t.Errorf("update duplicate username: response does not contain expected error message; got: %s", body)
+	}
+
+	// Verify user2's username has NOT changed in the DB.
+	refreshed, err := f.userStore.GetByID(ctx, user2.ID)
+	if err != nil {
+		t.Fatalf("get user2 after failed update: %v", err)
+	}
+	if refreshed.Username != "updateuser2" {
+		t.Errorf("update duplicate username: user2 username changed to %q, expected it to remain %q", refreshed.Username, "updateuser2")
+	}
+}
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 func TestAdminSettings_Update(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 )
 
 func TestLoad_Defaults(t *testing.T) {
+	t.Parallel()
 	// Load with no file — should get all defaults.
 	cfg, err := config.Load("")
 	if err != nil {
@@ -46,6 +47,11 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_EnvOverride(t *testing.T) {
+	// NOTE: t.Parallel() is intentionally omitted here. This test uses
+	// t.Setenv to mutate environment variables, and Go's testing package
+	// (since Go 1.25) panics if t.Setenv is called after t.Parallel().
+	// Serial execution is correct for env-var mutation tests.
+
 	// Set a few env vars and verify they override defaults.
 	envVars := map[string]string{
 		"PASSAGE_SERVER_HOST":           "127.0.0.1",
@@ -91,6 +97,7 @@ func TestLoad_EnvOverride(t *testing.T) {
 }
 
 func TestLoad_YAMLFile(t *testing.T) {
+	t.Parallel()
 	// Write a temporary YAML config file.
 	yaml := `
 server:
@@ -162,6 +169,7 @@ log:
 }
 
 func TestLoad_MalformedYAML(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.yaml")
 	if err := os.WriteFile(path, []byte(":\tinvalid: [yaml\n"), 0o600); err != nil {
@@ -178,6 +186,7 @@ func TestLoad_MalformedYAML(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
+	t.Parallel()
 	validCfg := func() *config.Config {
 		cfg, _ := config.Load("")
 		return cfg
@@ -227,6 +236,54 @@ func TestValidate(t *testing.T) {
 			name:    "empty database path fails",
 			mutate:  func(c *config.Config) { c.Database.Path = "" },
 			wantErr: true,
+		},
+		{
+			name: "smtp tls=starttls with host passes",
+			mutate: func(c *config.Config) {
+				c.SMTP.Host = "mail.example.com"
+				c.SMTP.TLS = "starttls"
+			},
+			wantErr: false,
+		},
+		{
+			name: "smtp tls=tls with host passes",
+			mutate: func(c *config.Config) {
+				c.SMTP.Host = "mail.example.com"
+				c.SMTP.TLS = "tls"
+			},
+			wantErr: false,
+		},
+		{
+			name: "smtp tls=none with host passes",
+			mutate: func(c *config.Config) {
+				c.SMTP.Host = "mail.example.com"
+				c.SMTP.TLS = "none"
+			},
+			wantErr: false,
+		},
+		{
+			name: "smtp tls=ssl with host fails",
+			mutate: func(c *config.Config) {
+				c.SMTP.Host = "mail.example.com"
+				c.SMTP.TLS = "ssl"
+			},
+			wantErr: true,
+		},
+		{
+			name: "smtp tls empty with host fails",
+			mutate: func(c *config.Config) {
+				c.SMTP.Host = "mail.example.com"
+				c.SMTP.TLS = ""
+			},
+			wantErr: true,
+		},
+		{
+			name: "smtp tls=ssl with no host passes (smtp not configured)",
+			mutate: func(c *config.Config) {
+				c.SMTP.Host = ""
+				c.SMTP.TLS = "ssl"
+			},
+			wantErr: false,
 		},
 	}
 
