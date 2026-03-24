@@ -1,47 +1,294 @@
 # Passage
 
-A self-hosted authentication proxy for home labs — implements the forward-auth pattern so that Nginx, Traefik, or Caddy can delegate authentication decisions to a single, lightweight service.
+A self-hosted authentication proxy for home labs. Implements the **forward-auth pattern** so that Nginx, Traefik, or Caddy can delegate all authentication decisions to a single lightweight service — your apps never handle logins.
 
-## What it does
+---
 
-- **Username/password login** with bcrypt-hashed credentials stored in a local SQLite database
-- **Passkey support** (WebAuthn) for passwordless authentication on supporting browsers and devices
-- **Admin web UI** for managing users and protected applications
-- **SQLite backing store** — a single file, no separate database server required
-- **Single static binary** — no runtime dependencies, no CGo, deploy anywhere Go runs
+## How it works
+
+Your reverse proxy intercepts every incoming request and asks Passage: *"Is this user authenticated and allowed to access this app?"* Passage checks the session cookie and app-access grant, then returns `200 OK` (proceed) or `401` (redirect to login). The protected application never sees unauthenticated traffic.
+
+```
+Browser → Nginx/Traefik → Passage /auth/nginx ──→ 200 OK + identity headers
+                        ↑                                    ↓
+                        └── protected app ←── upstream service
+```
+
+On `401`, the reverse proxy redirects the browser to Passage's login page, which sets a session cookie after successful authentication, then bounces the user back to where they were going.
+
+---
+
+## Features
+
+- **Username + password login** — bcrypt-hashed credentials stored in SQLite (cost configurable, default 12)
+- **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and log in without a password
+- **Per-app access control** — grant or revoke each user's access to each registered application independently
+- **Admin web UI** — manage users, apps, sessions, and settings without touching config files
+- **Self-registration** — optionally let users create their own accounts (togglable by admin at runtime)
+- **Email password reset** — single-use tokens, 1-hour expiry, sent via configurable SMTP
+- **Session management** — DB-backed sessions with configurable duration; admin can revoke any session instantly
+- **Identity headers** — on successful auth, Passage forwards user metadata to your upstream apps:
+  - `X-Passage-Username`, `X-Passage-Email`, `X-Passage-Name`, `X-Passage-User-ID`, `X-Passage-Is-Admin`
+- **Single static binary** — no runtime dependencies, no CGo, no Docker required to run
+- **SQLite backing store** — a single `.db` file; no separate database server
+
+---
 
 ## Status
 
-Early development — pre-release. Not yet suitable for production use. APIs and configuration format may change without notice.
+All five implementation phases are complete:
 
-## Quick Start
+| Phase | Status | What it delivers |
+|---|---|---|
+| 1 — Foundation | ✅ Complete | Go project skeleton, SQLite + migrations, config loading, HTTP server, health check |
+| 2 — User Auth | ✅ Complete | Login, registration, password reset, session management, HTML UI |
+| 3 — Forward Auth | ✅ Complete | `/auth/nginx`, `/auth/traefik`, app model, host-pattern matching, access grants |
+| 4 — Admin UI | ✅ Complete | Full admin dashboard: users, apps, sessions, settings, htmx enhancements |
+| 5 — Passkeys | ✅ Complete | WebAuthn registration and authentication, per-user credential management |
 
-Documentation is coming. For now, see the `plans/` directory for implementation progress and the `docs/` directory for reverse proxy configuration examples.
+> **Pre-release**: APIs and configuration format may change before v1.0.
+
+---
+
+## Quick start (development)
+
+### Requirements
+
+- Go 1.22 or later
+- `CGO_ENABLED=0` — no CGo, ever
+
+```bash
+git clone https://github.com/crueber/passage.git
+cd passage
+
+# Build
+CGO_ENABLED=0 go build -o passage ./cmd/passage
+
+# Copy and edit the example config
+cp passage.example.yaml passage.yaml
+# edit passage.yaml — at minimum set server.base_url
+
+# Run
+./passage --config passage.yaml
+```
+
+The server starts on `0.0.0.0:8080` by default. Visit `http://localhost:8080/healthz` to confirm it's running.
+
+On first start with an empty database, a one-time setup token is printed to stdout. Use it to create the first admin account via `/setup` (that endpoint is disabled as soon as an admin exists).
+
+---
 
 ## Configuration
 
-Documentation is coming. Configuration is loaded from environment variables with an optional YAML file override. See `config.example.yaml` (when available) for all supported options.
+Passage is configured via a YAML file plus `PASSAGE_*` environment variable overrides. Environment variables always take precedence over the file.
 
-## Reverse Proxy Setup
+### Full configuration reference
+
+```yaml
+# passage.yaml — copy from passage.example.yaml and edit
+
+server:
+  host: "0.0.0.0"      # bind address
+  port: 8080            # listen port
+  base_url: "https://auth.home.example.com"  # required — used for email links and WebAuthn
+
+database:
+  path: "./passage.db"  # path to SQLite file; created on first run
+
+session:
+  duration_hours: 24    # how long sessions stay valid
+  cookie_name: "passage_session"
+  cookie_secure: true   # set false only for local HTTP development
+
+smtp:
+  host: "smtp.example.com"
+  port: 587
+  username: "passage@example.com"
+  password: "secret"
+  from: "Passage <passage@example.com>"
+  tls: "starttls"       # "starttls" | "tls" | "none"
+
+auth:
+  allow_registration: true  # allow users to self-register; togglable in admin UI at runtime
+  bcrypt_cost: 12           # password hashing cost; 10–14 recommended
+
+log:
+  level: "info"    # "debug" | "info" | "warn" | "error"
+  format: "json"   # "json" | "text"
+```
+
+### Environment variable overrides
+
+Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → underscores, uppercase). Examples:
+
+| Variable | Overrides |
+|---|---|
+| `PASSAGE_SERVER_PORT` | `server.port` |
+| `PASSAGE_SERVER_BASE_URL` | `server.base_url` |
+| `PASSAGE_DATABASE_PATH` | `database.path` |
+| `PASSAGE_SESSION_DURATION_HOURS` | `session.duration_hours` |
+| `PASSAGE_SESSION_COOKIE_SECURE` | `session.cookie_secure` |
+| `PASSAGE_SMTP_HOST` | `smtp.host` |
+| `PASSAGE_SMTP_PASSWORD` | `smtp.password` |
+| `PASSAGE_SMTP_TLS` | `smtp.tls` |
+| `PASSAGE_AUTH_ALLOW_REGISTRATION` | `auth.allow_registration` |
+| `PASSAGE_AUTH_BCRYPT_COST` | `auth.bcrypt_cost` |
+| `PASSAGE_LOG_LEVEL` | `log.level` |
+| `PASSAGE_LOG_FORMAT` | `log.format` |
+
+---
+
+## Reverse proxy integration
 
 ### Nginx
 
-Documentation is coming. Passage exposes a `/auth/nginx` endpoint compatible with Nginx's `auth_request` module.
+Passage exposes `/auth/nginx` for use with Nginx's `auth_request` module.
+
+```nginx
+# In your server {} block for the protected application
+location /auth/ {
+    internal;
+    proxy_pass              http://localhost:8080;
+    proxy_pass_request_body off;
+    proxy_set_header        Content-Length "";
+    proxy_set_header        X-Original-URL $scheme://$http_host$request_uri;
+}
+
+location / {
+    auth_request /auth/nginx;
+    error_page 401 403 = @login;
+
+    # Forward identity headers to your upstream
+    auth_request_set $passage_user  $upstream_http_x_passage_username;
+    auth_request_set $passage_email $upstream_http_x_passage_email;
+    auth_request_set $passage_name  $upstream_http_x_passage_name;
+    auth_request_set $passage_uid   $upstream_http_x_passage_user_id;
+    auth_request_set $passage_admin $upstream_http_x_passage_is_admin;
+
+    proxy_set_header X-Passage-Username $passage_user;
+    proxy_set_header X-Passage-Email    $passage_email;
+    proxy_set_header X-Passage-Name     $passage_name;
+    proxy_set_header X-Passage-User-ID  $passage_uid;
+    proxy_set_header X-Passage-Is-Admin $passage_admin;
+
+    proxy_pass http://your-upstream-service;
+}
+
+location @login {
+    return 302 https://auth.home.example.com/auth/start?rd=$request_uri;
+}
+```
+
+See [`docs/nginx-example.conf`](docs/nginx-example.conf) for the full annotated example.
 
 ### Traefik
 
-Documentation is coming. Passage exposes a `/auth/traefik` endpoint compatible with Traefik's ForwardAuth middleware.
+Passage exposes `/auth/traefik` for use with Traefik's `forwardAuth` middleware.
+
+```yaml
+http:
+  middlewares:
+    passage-auth:
+      forwardAuth:
+        address: "http://passage:8080/auth/traefik"
+        authResponseHeaders:
+          - "X-Passage-Username"
+          - "X-Passage-Email"
+          - "X-Passage-Name"
+          - "X-Passage-User-ID"
+          - "X-Passage-Is-Admin"
+        trustForwardHeader: true
+
+  routers:
+    my-app:
+      rule: "Host(`myapp.home.example.com`)"
+      middlewares:
+        - passage-auth
+      service: my-app-service
+```
+
+See [`docs/traefik-example.yaml`](docs/traefik-example.yaml) for the full annotated example.
+
+---
 
 ## Development
 
-Requirements: Go 1.22+, no CGo required.
+### Build
 
 ```bash
-git clone git@github.com:crueber/passage.git
-cd passage
+# Standard build
 go build ./...
-go test -race ./...
+
+# Verified static binary (required before any commit)
+CGO_ENABLED=0 go build -o passage ./cmd/passage
+
+# With version injected
+CGO_ENABLED=0 go build -ldflags "-X main.version=0.1.0" -o passage ./cmd/passage
 ```
+
+### Test
+
+```bash
+# All tests with race detector (required)
+go test -race ./...
+
+# Single package
+go test -race ./internal/user/...
+go test -race ./internal/session/...
+go test -race ./internal/app/...
+go test -race ./internal/forwardauth/...
+go test -race ./internal/admin/...
+go test -race ./internal/webauthn/...
+```
+
+Tests use a real in-memory SQLite database — no mocks at the database layer. The `internal/testutil` package provides `NewTestDB(t)` for setting up a fully migrated test database.
+
+### Vet and tidy
+
+```bash
+go vet ./...
+go mod tidy
+```
+
+### Full pre-commit checklist
+
+```bash
+CGO_ENABLED=0 go build ./...
+go vet ./...
+go test -race ./...
+go mod tidy && git diff --exit-code go.mod go.sum
+```
+
+---
+
+## Security notes
+
+- **Passwords**: bcrypt, minimum cost 10, default 12. Minimum password length: 8 characters.
+- **Session tokens**: 32 bytes of `crypto/rand` entropy (64-char hex). Never `math/rand`.
+- **Reset tokens**: 32 bytes of `crypto/rand`. Single-use (`used_at` stamped on redeem). 1-hour TTL.
+- **Cookies**: `HttpOnly`, `Secure` (configurable for HTTP dev), `SameSite=Lax`.
+- **CSRF**: All mutations use POST. `SameSite=Lax` provides top-level navigation protection.
+- **SQL**: All queries use parameterized statements — no string concatenation in SQL.
+- **Templates**: `html/template` auto-escaping on all rendered output — no `template.HTML()` bypasses.
+- **Admin routes**: `is_admin` checked against the database on every admin request; not cached.
+
+---
+
+## Acknowledgements
+
+Passage is built on the shoulders of these excellent open-source projects:
+
+- [go-chi/chi](https://github.com/go-chi/chi) — lightweight, idiomatic Go HTTP router
+- [pressly/goose](https://github.com/pressly/goose) — database migration tool
+- [wneessen/go-mail](https://github.com/wneessen/go-mail) — modern Go mail library
+- [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) — Go supplementary cryptography libraries
+- [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) — pure-Go SQLite driver (no CGo)
+- [go-webauthn/webauthn](https://github.com/go-webauthn/webauthn) — WebAuthn/passkeys library for Go
+- [gopkg.in/yaml.v3](https://github.com/go-yaml/yaml) — YAML support for Go
+- [Simple.css](https://simplecss.org) — classless CSS framework by Kev Quirk
+- [htmx](https://htmx.org) — high power tools for HTML
+
+---
 
 ## License
 
