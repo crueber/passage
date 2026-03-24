@@ -62,17 +62,24 @@ type sessionServiceOps interface {
 	RevokeSession(ctx context.Context, token string) error
 }
 
+// credentialCounter is the minimal interface for querying passkey credential counts.
+// Defined at the consumer boundary.
+type credentialCounter interface {
+	CountByUser(ctx context.Context, userID string) (int, error)
+}
+
 // Handler holds all admin HTTP handlers in one struct.
 type Handler struct {
-	userStore userStore
-	userSvc   userServiceOps
-	sessions  sessionServiceOps
-	apps      appServiceOps
-	settings  SettingsStore
-	mailer    email.Sender
-	tmpl      *template.Template
-	cfg       *config.Config
-	logger    *slog.Logger
+	userStore   userStore
+	userSvc     userServiceOps
+	sessions    sessionServiceOps
+	apps        appServiceOps
+	settings    SettingsStore
+	credentials credentialCounter
+	mailer      email.Sender
+	tmpl        *template.Template
+	cfg         *config.Config
+	logger      *slog.Logger
 }
 
 // NewHandler creates a new admin Handler with all dependencies wired.
@@ -82,21 +89,23 @@ func NewHandler(
 	sessions sessionServiceOps,
 	apps appServiceOps,
 	settings SettingsStore,
+	credentials credentialCounter,
 	mailer email.Sender,
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
-		userStore: userStore,
-		userSvc:   userSvc,
-		sessions:  sessions,
-		apps:      apps,
-		settings:  settings,
-		mailer:    mailer,
-		tmpl:      tmpl,
-		cfg:       cfg,
-		logger:    logger,
+		userStore:   userStore,
+		userSvc:     userSvc,
+		sessions:    sessions,
+		apps:        apps,
+		settings:    settings,
+		credentials: credentials,
+		mailer:      mailer,
+		tmpl:        tmpl,
+		cfg:         cfg,
+		logger:      logger,
 	}
 }
 
@@ -255,8 +264,9 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 type userFormData struct {
 	basePage
-	EditUser *user.User
-	IsNew    bool
+	EditUser     *user.User
+	IsNew        bool
+	PasskeyCount int
 }
 
 // GetNewUser renders the new user form.
@@ -347,10 +357,17 @@ func (h *Handler) GetEditUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	passkeyCount, err := h.credentials.CountByUser(r.Context(), id)
+	if err != nil {
+		// Non-fatal: log and continue with zero count.
+		h.logger.Warn("admin: count passkeys for user", "id", id, "error", err)
+	}
+
 	h.render(w, r, "admin-user-form", userFormData{
-		basePage: basePage{ActiveNav: "users"},
-		EditUser: u,
-		IsNew:    false,
+		basePage:     basePage{ActiveNav: "users"},
+		EditUser:     u,
+		IsNew:        false,
+		PasskeyCount: passkeyCount,
 	})
 }
 

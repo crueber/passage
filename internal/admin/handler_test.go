@@ -26,6 +26,11 @@ type noopMailer struct{}
 
 func (noopMailer) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
 
+// noopCredentialCounter satisfies the credentialCounter interface with a zero-returning implementation.
+type noopCredentialCounter struct{}
+
+func (noopCredentialCounter) CountByUser(_ context.Context, _ string) (int, error) { return 0, nil }
+
 // fixture holds the full dependency graph for admin handler tests.
 type fixture struct {
 	db           interface{ Close() error }
@@ -78,7 +83,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopMailer{}, tmpl, cfg, logger)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger)
 
 	return &fixture{
 		db:           database,

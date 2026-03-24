@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/crueber/passage/internal/admin"
 	"github.com/crueber/passage/internal/app"
@@ -26,6 +28,7 @@ import (
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
+	"github.com/crueber/passage/internal/webauthn"
 )
 
 // version is set at build time via -ldflags "-X main.version=1.0.0".
@@ -82,6 +85,16 @@ func run() error {
 	appStore := app.NewStore(database)
 	appSvc := app.NewService(appStore, appStore, logger)
 
+	// Build WebAuthn credential store and challenge store.
+	credStore := webauthn.NewSQLiteCredentialStore(database)
+	challenges := webauthn.NewChallengeStore()
+
+	// Build the go-webauthn instance from configuration.
+	wa, err := buildWebAuthn(cfg)
+	if err != nil {
+		return fmt.Errorf("configure webauthn: %w", err)
+	}
+
 	// Start session cleanup background goroutine.
 	// Deletes expired sessions every hour; exits on context cancellation.
 	go func() {
@@ -99,15 +112,43 @@ func run() error {
 		}
 	}()
 
+	// Start challenge store cleanup goroutine.
+	// Removes expired in-memory WebAuthn challenges every 10 minutes.
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				challenges.Cleanup()
+			}
+		}
+	}()
+
 	// Build admin handler.
 	settingsStore := admin.NewSQLiteSettingsStore(database)
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, mailer, tmpl, cfg, logger)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger)
 
 	// Build forward-auth handler.
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
 
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, sessionSvc, settingsStore, mailer, tmpl, cfg, logger)
+
+	// Build WebAuthn passkey handler.
+	passkeyHandler := webauthn.NewHandler(
+		wa,
+		credStore,
+		challenges,
+		userStore,
+		sessionSvc,
+		cfg.Session.CookieName,
+		cfg.Session.CookieSecure,
+		tmpl,
+		logger,
+	)
 
 	// Prepare static file server from embedded FS.
 	staticFS, err := fs.Sub(web.StaticFS, "static")
@@ -149,6 +190,9 @@ func run() error {
 	r.Post("/reset/{token}", userHandler.PostResetConfirm)
 	r.Get("/logout", userHandler.GetLogout)
 
+	// Passkey login routes (public — no session required).
+	passkeyHandler.AuthRoutes(r)
+
 	// Protected routes require a valid session.
 	r.Group(func(r chi.Router) {
 		r.Use(session.RequireSession(sessionSvc, cfg))
@@ -161,6 +205,9 @@ func run() error {
 				fmt.Fprintln(w, "Hello! You are authenticated.")
 			}
 		})
+
+		// Passkey management routes (require session).
+		passkeyHandler.ProfileRoutes(r)
 	})
 
 	// Admin routes — protected by RequireAdmin middleware.
@@ -229,4 +276,27 @@ func buildLogger(cfg *config.Config) *slog.Logger {
 	}
 
 	return slog.New(handler)
+}
+
+// buildWebAuthn constructs a go-webauthn WebAuthn instance from the server configuration.
+// The relying party ID is derived from the BaseURL hostname. If BaseURL is not set,
+// it falls back to "localhost" for development.
+func buildWebAuthn(cfg *config.Config) (*gowebauthn.WebAuthn, error) {
+	rpID := "localhost"
+	rpOrigins := []string{"http://localhost:8080"}
+
+	if cfg.Server.BaseURL != "" {
+		u, err := url.Parse(cfg.Server.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse base_url: %w", err)
+		}
+		rpID = u.Hostname()
+		rpOrigins = []string{cfg.Server.BaseURL}
+	}
+
+	return gowebauthn.New(&gowebauthn.Config{
+		RPID:          rpID,
+		RPDisplayName: "Passage",
+		RPOrigins:     rpOrigins,
+	})
 }

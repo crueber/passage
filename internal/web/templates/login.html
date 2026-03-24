@@ -3,6 +3,7 @@
 {{define "title"}}Sign in{{end}}
 
 {{define "content"}}
+<script src="/static/passkey.js" defer></script>
 <h2>Sign in to continue</h2>
 <form method="POST" action="/login">
   <input type="hidden" name="rd" value="{{.RedirectTo}}">
@@ -16,6 +17,12 @@
 
   <button type="submit">Sign in</button>
 </form>
+
+<p>
+  <button type="button" id="passkey-login-btn">Sign in with a passkey</button>
+</p>
+<p id="passkey-login-status" aria-live="polite"></p>
+
 <p>
   <a href="/reset">Forgot password?</a>
   {{if .AllowRegistration}}

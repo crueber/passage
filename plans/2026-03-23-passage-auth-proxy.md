@@ -1002,8 +1002,8 @@ go func() {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/admin/...` passes
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/admin/...` passes
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] `/admin` redirects unauthenticated users to `/login`
@@ -1102,8 +1102,8 @@ via `passkey.js`. The password form remains the primary login path; passkeys are
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/webauthn/...` passes
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/webauthn/...` passes
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] Log in with password, navigate to `/passkeys`

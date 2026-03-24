@@ -54,6 +54,16 @@
         <button type="submit">{{if .IsNew}}Create User{{else}}Save Changes{{end}}</button>
         <a href="/admin/users">Cancel</a>
       </form>
+
+      {{if not .IsNew}}
+      <hr>
+      <h3>Passkeys</h3>
+      {{if gt .PasskeyCount 0}}
+      <p>This user has <strong>{{.PasskeyCount}}</strong> passkey{{if gt .PasskeyCount 1}}s{{end}} registered.</p>
+      {{else}}
+      <p>This user has no passkeys registered.</p>
+      {{end}}
+      {{end}}
     </main>
   </div>
 </body>
