@@ -50,7 +50,7 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
 
-	pemBytes, err := store.GetOrCreateRSAKey(ctx)
+	pemBytes, kid, err := store.GetOrCreateRSAKey(ctx)
 	if err != nil {
 		t.Fatalf("buildHandlerTestStack: GetOrCreateRSAKey: %v", err)
 	}
@@ -62,12 +62,12 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 	apps := &fakeAppClient{app: testApp, access: true}
 	users := &fakeUserReader{u: testUser}
 
-	svc, err := oauth.NewService(store, apps, users, pemBytes, "https://auth.example.com", slog.Default())
+	svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
 	if err != nil {
 		t.Fatalf("buildHandlerTestStack: NewService: %v", err)
 	}
 
-	h := oauth.NewHandler(svc, sv, svc.PrivateKey(), "https://auth.example.com", "passage_session", slog.Default())
+	h := oauth.NewHandler(svc, sv, svc.PrivateKey(), svc.KeyID(), "https://auth.example.com", "passage_session", slog.Default())
 	return &handlerTestStack{
 		handler: h,
 		svc:     svc,
@@ -85,7 +85,6 @@ func newTestRouter(h *oauth.Handler) *chi.Mux {
 }
 
 func TestHandler_Discovery(t *testing.T) {
-	t.Helper()
 
 	sv := &fakeSessionValidator{}
 	testApp := buildTestApp(t, "client-1", "secret", []string{"https://example.com/cb"})
@@ -129,7 +128,6 @@ func TestHandler_Discovery(t *testing.T) {
 }
 
 func TestHandler_JWKS(t *testing.T) {
-	t.Helper()
 
 	sv := &fakeSessionValidator{}
 	testApp := buildTestApp(t, "client-1", "secret", []string{"https://example.com/cb"})
@@ -179,7 +177,6 @@ func TestHandler_JWKS(t *testing.T) {
 }
 
 func TestHandler_Authorize_RedirectsToLogin(t *testing.T) {
-	t.Helper()
 
 	// No valid session.
 	sv := &fakeSessionValidator{err: session.ErrSessionNotFound}
@@ -208,8 +205,6 @@ func TestHandler_Authorize_RedirectsToLogin(t *testing.T) {
 }
 
 func TestHandler_Authorize_Success(t *testing.T) {
-	t.Helper()
-
 	const (
 		clientID    = "client-success"
 		plainSecret = "test-secret"
@@ -264,8 +259,6 @@ func TestHandler_Authorize_Success(t *testing.T) {
 }
 
 func TestHandler_Token_AuthCode(t *testing.T) {
-	t.Helper()
-
 	const (
 		clientID    = "client-token"
 		plainSecret = "test-secret"
@@ -330,8 +323,6 @@ func TestHandler_Token_AuthCode(t *testing.T) {
 }
 
 func TestHandler_Token_Refresh(t *testing.T) {
-	t.Helper()
-
 	const (
 		clientID    = "client-refresh"
 		plainSecret = "test-secret"
@@ -413,8 +404,6 @@ func TestHandler_Token_Refresh(t *testing.T) {
 }
 
 func TestHandler_UserInfo_Valid(t *testing.T) {
-	t.Helper()
-
 	const (
 		clientID    = "client-userinfo"
 		plainSecret = "test-secret"
@@ -470,8 +459,6 @@ func TestHandler_UserInfo_Valid(t *testing.T) {
 }
 
 func TestHandler_UserInfo_NoToken(t *testing.T) {
-	t.Helper()
-
 	sv := &fakeSessionValidator{}
 	testApp := buildTestApp(t, "client-1", "secret", []string{"https://example.com/cb"})
 	testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
@@ -492,8 +479,6 @@ func TestHandler_UserInfo_NoToken(t *testing.T) {
 }
 
 func TestHandler_UserInfo_ExpiredToken(t *testing.T) {
-	t.Helper()
-
 	const (
 		clientID    = "client-expired"
 		plainSecret = "test-secret"
@@ -531,5 +516,67 @@ func TestHandler_UserInfo_ExpiredToken(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("UserInfo expired token: status %d, want 401", w.Code)
+	}
+}
+
+// TestHandler_Token_BasicAuth verifies that client credentials supplied via
+// HTTP Basic auth (RFC 6749 §2.3.1) work identically to form-body credentials.
+func TestHandler_Token_BasicAuth(t *testing.T) {
+	const (
+		clientID    = "client-basic-auth"
+		plainSecret = "test-secret-basic"
+		redirectURI = "https://example.com/callback"
+	)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(plainSecret), 10)
+	testApp := &app.App{
+		ClientID:         clientID,
+		ClientSecretHash: string(hash),
+		RedirectURIs:     []string{redirectURI},
+		OAuthEnabled:     true,
+	}
+	testUser := &user.User{Username: "frank", Email: "frank@example.com", Name: "Frank"}
+	sv := &fakeSessionValidator{}
+	stack := buildHandlerTestStack(t, sv, testApp, testUser)
+	sv.sess = &session.Session{ID: "sess-basic", UserID: testUser.ID}
+	sv.u = testUser
+
+	r := newTestRouter(stack.handler)
+
+	// Obtain a code via the service directly.
+	ctx := context.Background()
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-basic", testUser.ID)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+
+	// Exchange the code using HTTP Basic auth for client credentials (no form body client_id/secret).
+	form := url.Values{
+		"grant_type":   {"authorization_code"},
+		"code":         {code.Code},
+		"redirect_uri": {redirectURI},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(clientID, plainSecret)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Token BasicAuth: status %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp oauth.TokenResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Token BasicAuth: decode response: %v", err)
+	}
+	if resp.AccessToken == "" {
+		t.Error("Token BasicAuth: empty access_token")
+	}
+	if resp.IDToken == "" {
+		t.Error("Token BasicAuth: empty id_token")
+	}
+	if resp.TokenType != "Bearer" {
+		t.Errorf("Token BasicAuth token_type: got %q, want Bearer", resp.TokenType)
 	}
 }

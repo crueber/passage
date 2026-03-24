@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -85,16 +87,22 @@ func (s *SQLiteStore) GetCode(ctx context.Context, code string) (*Code, error) {
 	return &c, nil
 }
 
-// MarkCodeUsed sets the used_at timestamp on an authorization code.
+// MarkCodeUsed atomically marks the code as used if it has not already been used.
+// Returns ErrCodeUsed if the code was already used (concurrent double-spend protection).
 func (s *SQLiteStore) MarkCodeUsed(ctx context.Context, code string) error {
-	const query = `
-		UPDATE oauth_codes SET used_at = ?, updated_at = ?
-		WHERE code = ?`
-
-	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, query, now, now, code)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE oauth_codes SET used_at = datetime('now'), updated_at = datetime('now') WHERE code = ? AND used_at IS NULL`,
+		code,
+	)
 	if err != nil {
 		return fmt.Errorf("oauth store mark code used: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("oauth store mark code used rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrCodeUsed
 	}
 	return nil
 }
@@ -205,33 +213,38 @@ func (s *SQLiteStore) GetRefreshToken(ctx context.Context, token string) (*Refre
 	return &rt, nil
 }
 
-// MarkRefreshTokenUsed sets the used_at timestamp on a refresh token.
+// MarkRefreshTokenUsed atomically marks the refresh token as used if it has not already been used.
+// Returns ErrRefreshUsed if the token was already used (concurrent double-spend protection).
 func (s *SQLiteStore) MarkRefreshTokenUsed(ctx context.Context, token string) error {
-	const query = `
-		UPDATE oauth_refresh_tokens SET used_at = ?, updated_at = ?
-		WHERE token = ?`
-
-	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, query, now, now, token)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE oauth_refresh_tokens SET used_at = datetime('now'), updated_at = datetime('now') WHERE token = ? AND used_at IS NULL`,
+		token,
+	)
 	if err != nil {
 		return fmt.Errorf("oauth store mark refresh token used: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("oauth store mark refresh token used rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrRefreshUsed
 	}
 	return nil
 }
 
 // DeleteExpired removes all expired authorization codes, access tokens, and
-// refresh tokens from the database.
+// refresh tokens from the database. Used codes and refresh tokens are also
+// removed regardless of expiry, since they can never be reused.
 func (s *SQLiteStore) DeleteExpired(ctx context.Context) error {
-	now := time.Now().UTC()
-
 	queries := []string{
-		`DELETE FROM oauth_codes WHERE expires_at < ?`,
-		`DELETE FROM oauth_tokens WHERE expires_at < ?`,
-		`DELETE FROM oauth_refresh_tokens WHERE expires_at < ?`,
+		`DELETE FROM oauth_codes WHERE expires_at < datetime('now') OR used_at IS NOT NULL`,
+		`DELETE FROM oauth_tokens WHERE expires_at < datetime('now')`,
+		`DELETE FROM oauth_refresh_tokens WHERE expires_at < datetime('now') OR used_at IS NOT NULL`,
 	}
 
 	for _, q := range queries {
-		if _, err := s.db.ExecContext(ctx, q, now); err != nil {
+		if _, err := s.db.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("oauth store delete expired: %w", err)
 		}
 	}
@@ -241,22 +254,28 @@ func (s *SQLiteStore) DeleteExpired(ctx context.Context) error {
 // GetOrCreateRSAKey returns the stored RSA private key PEM from oidc_config,
 // creating and storing a new 2048-bit RSA key if none exists.
 // Uses INSERT OR IGNORE + read-back to be safe against concurrent startup.
-func (s *SQLiteStore) GetOrCreateRSAKey(ctx context.Context) ([]byte, error) {
+// The kid is derived deterministically from the public key's DER encoding
+// (SHA-256 thumbprint, base64url-encoded per RFC 7638).
+func (s *SQLiteStore) GetOrCreateRSAKey(ctx context.Context) (privateKeyPEM []byte, kid string, err error) {
 	// Try to read existing key first.
 	const selectQuery = `SELECT value FROM oidc_config WHERE key = 'rsa_private_key'`
 	var pemStr string
-	err := s.db.QueryRowContext(ctx, selectQuery).Scan(&pemStr)
+	err = s.db.QueryRowContext(ctx, selectQuery).Scan(&pemStr)
 	if err == nil {
-		return []byte(pemStr), nil
+		kid, err = deriveKID([]byte(pemStr))
+		if err != nil {
+			return nil, "", fmt.Errorf("oauth store derive kid: %w", err)
+		}
+		return []byte(pemStr), kid, nil
 	}
 	if err != sql.ErrNoRows {
-		return nil, fmt.Errorf("oauth store get rsa key: %w", err)
+		return nil, "", fmt.Errorf("oauth store get rsa key: %w", err)
 	}
 
 	// No key found — generate a new one.
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, fmt.Errorf("oauth store generate rsa key: %w", err)
+		return nil, "", fmt.Errorf("oauth store generate rsa key: %w", err)
 	}
 
 	pemBytes := pem.EncodeToMemory(&pem.Block{
@@ -271,13 +290,38 @@ func (s *SQLiteStore) GetOrCreateRSAKey(ctx context.Context) ([]byte, error) {
 
 	_, err = s.db.ExecContext(ctx, insertQuery, string(pemBytes), now, now)
 	if err != nil {
-		return nil, fmt.Errorf("oauth store insert rsa key: %w", err)
+		return nil, "", fmt.Errorf("oauth store insert rsa key: %w", err)
 	}
 
 	// Read back what was actually stored (another process may have won the race).
 	var stored string
 	if err := s.db.QueryRowContext(ctx, selectQuery).Scan(&stored); err != nil {
-		return nil, fmt.Errorf("oauth store read back rsa key: %w", err)
+		return nil, "", fmt.Errorf("oauth store read back rsa key: %w", err)
 	}
-	return []byte(stored), nil
+
+	kid, err = deriveKID([]byte(stored))
+	if err != nil {
+		return nil, "", fmt.Errorf("oauth store derive kid: %w", err)
+	}
+	return []byte(stored), kid, nil
+}
+
+// deriveKID computes a stable key ID from the RSA private key PEM.
+// It parses the PEM, extracts the public key DER encoding, and returns
+// base64url(sha256(DER(publicKey))) per RFC 7638.
+func deriveKID(privateKeyPEM []byte) (string, error) {
+	block, _ := pem.Decode(privateKeyPEM)
+	if block == nil {
+		return "", fmt.Errorf("deriveKID: failed to decode PEM block")
+	}
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("deriveKID: parse RSA private key: %w", err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("deriveKID: marshal public key: %w", err)
+	}
+	sum := sha256.Sum256(pubDER)
+	return base64.RawURLEncoding.EncodeToString(sum[:]), nil
 }

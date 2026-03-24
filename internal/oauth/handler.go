@@ -39,17 +39,19 @@ type Handler struct {
 	svc        oauthService
 	sessions   sessionValidator
 	privateKey *rsa.PrivateKey
+	keyID      string // kid included in JWKS and id_token header
 	baseURL    string
 	cookieName string
 	logger     *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(svc oauthService, sessions sessionValidator, privateKey *rsa.PrivateKey, baseURL, cookieName string, logger *slog.Logger) *Handler {
+func NewHandler(svc oauthService, sessions sessionValidator, privateKey *rsa.PrivateKey, keyID, baseURL, cookieName string, logger *slog.Logger) *Handler {
 	return &Handler{
 		svc:        svc,
 		sessions:   sessions,
 		privateKey: privateKey,
+		keyID:      keyID,
 		baseURL:    baseURL,
 		cookieName: cookieName,
 		logger:     logger,
@@ -82,7 +84,7 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "name", "email", "preferred_username"},
 	}
 
-	writeJSON(w, http.StatusOK, doc)
+	h.writeJSON(w, http.StatusOK, doc)
 }
 
 // JWKS returns the JSON Web Key Set containing the RSA public key used to
@@ -111,13 +113,14 @@ func (h *Handler) JWKS(w http.ResponseWriter, r *http.Request) {
 				"kty": "RSA",
 				"use": "sig",
 				"alg": "RS256",
+				"kid": h.keyID,
 				"n":   nEncoded,
 				"e":   eEncoded,
 			},
 		},
 	}
 
-	writeJSON(w, http.StatusOK, jwks)
+	h.writeJSON(w, http.StatusOK, jwks)
 }
 
 // Authorize handles the OAuth2 authorization endpoint.
@@ -135,15 +138,15 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 
 	// Validate required parameters.
 	if responseType != "code" {
-		writeJSONError(w, http.StatusBadRequest, "unsupported_response_type", "response_type must be \"code\"")
+		h.writeJSONError(w, http.StatusBadRequest, "unsupported_response_type", "response_type must be \"code\"")
 		return
 	}
 	if clientID == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "client_id is required")
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "client_id is required")
 		return
 	}
 	if redirectURI == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is required")
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is required")
 		return
 	}
 
@@ -165,18 +168,18 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, u.ID)
 	if err != nil {
 		if errors.Is(err, app.ErrRedirectURIMismatch) || errors.Is(err, app.ErrOAuthNotEnabled) {
-			writeJSONError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			h.writeJSONError(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
 		h.logger.Warn("oauth authorize: access denied", "user_id", u.ID, "error", err)
-		writeJSONError(w, http.StatusForbidden, "access_denied", err.Error())
+		h.writeJSONError(w, http.StatusForbidden, "access_denied", err.Error())
 		return
 	}
 
 	// Redirect to the redirect_uri with the authorization code.
 	redirectURL, err := url.Parse(redirectURI)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is malformed")
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is malformed")
 		return
 	}
 	qp := redirectURL.Query()
@@ -195,14 +198,14 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := r.ParseForm(); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "failed to parse request body")
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "failed to parse request body")
 		return
 	}
 
 	// Parse client credentials: Basic auth takes priority over form body.
 	clientID, clientSecret := extractClientCredentials(r)
 	if clientID == "" {
-		writeJSONError(w, http.StatusUnauthorized, "invalid_client", "client credentials are required")
+		h.writeJSONError(w, http.StatusUnauthorized, "invalid_client", "client credentials are required")
 		return
 	}
 
@@ -214,7 +217,7 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	case "refresh_token":
 		h.handleRefreshTokenGrant(ctx, w, r, clientID, clientSecret)
 	default:
-		writeJSONError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type must be authorization_code or refresh_token")
+		h.writeJSONError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type must be authorization_code or refresh_token")
 	}
 }
 
@@ -224,11 +227,11 @@ func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter
 	redirectURI := r.FormValue("redirect_uri")
 
 	if code == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "code is required")
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "code is required")
 		return
 	}
 	if redirectURI == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is required")
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is required")
 		return
 	}
 
@@ -238,14 +241,14 @@ func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter
 		return
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, resp)
 }
 
 // handleRefreshTokenGrant processes the refresh_token grant type.
 func (h *Handler) handleRefreshTokenGrant(ctx context.Context, w http.ResponseWriter, r *http.Request, clientID, clientSecret string) {
 	refreshToken := r.FormValue("refresh_token")
 	if refreshToken == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "refresh_token is required")
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "refresh_token is required")
 		return
 	}
 
@@ -255,10 +258,11 @@ func (h *Handler) handleRefreshTokenGrant(ctx context.Context, w http.ResponseWr
 		return
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, resp)
 }
 
 // writeTokenError maps service errors to RFC 6749 JSON error responses.
+// Error descriptions are fixed strings to avoid leaking internal details to clients.
 func (h *Handler) writeTokenError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrCodeNotFound),
@@ -268,13 +272,15 @@ func (h *Handler) writeTokenError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrRefreshUsed),
 		errors.Is(err, ErrRefreshExpired),
 		errors.Is(err, app.ErrRedirectURIMismatch):
-		writeJSONError(w, http.StatusBadRequest, "invalid_grant", err.Error())
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_grant",
+			"The provided authorization grant is invalid, expired, revoked, or does not match.")
 	case errors.Is(err, app.ErrInvalidClientSecret),
 		errors.Is(err, app.ErrOAuthNotEnabled):
-		writeJSONError(w, http.StatusUnauthorized, "invalid_client", err.Error())
+		h.writeJSONError(w, http.StatusUnauthorized, "invalid_client",
+			"Client authentication failed.")
 	default:
 		h.logger.Error("oauth token: unexpected error", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "server_error", "an internal error occurred")
+		h.writeJSONError(w, http.StatusInternalServerError, "server_error", "An unexpected error occurred.")
 	}
 }
 
@@ -286,26 +292,26 @@ func (h *Handler) UserInfo(w http.ResponseWriter, r *http.Request) {
 	// Extract Bearer token from Authorization header.
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeJSONError(w, http.StatusUnauthorized, "invalid_token", "Bearer token required")
+		w.Header().Set("WWW-Authenticate", `Bearer realm="passage"`)
+		h.writeJSONError(w, http.StatusUnauthorized, "invalid_token", "Bearer token required")
 		return
 	}
 
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	if token == "" {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeJSONError(w, http.StatusUnauthorized, "invalid_token", "Bearer token is empty")
+		w.Header().Set("WWW-Authenticate", `Bearer realm="passage"`)
+		h.writeJSONError(w, http.StatusUnauthorized, "invalid_token", "Bearer token is empty")
 		return
 	}
 
 	u, _, err := h.svc.ValidateAccessToken(ctx, token)
 	if err != nil {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeJSONError(w, http.StatusUnauthorized, "invalid_token", err.Error())
+		w.Header().Set("WWW-Authenticate", `Bearer realm="passage", error="invalid_token", error_description="token is expired or invalid"`)
+		h.writeJSONError(w, http.StatusUnauthorized, "invalid_token", "token is expired or invalid")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	h.writeJSON(w, http.StatusOK, map[string]string{
 		"sub":                u.ID,
 		"name":               u.Name,
 		"email":              u.Email,
@@ -334,18 +340,20 @@ func extractClientCredentials(r *http.Request) (clientID, clientSecret string) {
 }
 
 // writeJSON writes a JSON response with the given status code.
-func writeJSON(w http.ResponseWriter, status int, v any) {
+// Encoding errors are logged but cannot be returned to the client since
+// headers have already been sent.
+func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		// Headers already sent; nothing we can do.
-		_ = err
+		// Headers already sent; log the failure but cannot change the response.
+		h.logger.Error("oauth: failed to encode JSON response", "error", err)
 	}
 }
 
 // writeJSONError writes an RFC 6749-style JSON error response.
-func writeJSONError(w http.ResponseWriter, status int, errCode, description string) {
-	writeJSON(w, status, map[string]string{
+func (h *Handler) writeJSONError(w http.ResponseWriter, status int, errCode, description string) {
+	h.writeJSON(w, status, map[string]string{
 		"error":             errCode,
 		"error_description": description,
 	})

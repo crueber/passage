@@ -36,13 +36,14 @@ type Service struct {
 	apps       appClient
 	users      userReader
 	privateKey *rsa.PrivateKey
+	keyID      string // kid for id_token header and JWKS
 	baseURL    string
 	logger     *slog.Logger
 }
 
 // NewService constructs a Service, parsing the RSA private key PEM.
 // Returns an error if the PEM cannot be decoded or parsed.
-func NewService(store Store, apps appClient, users userReader, privateKeyPEM []byte, baseURL string, logger *slog.Logger) (*Service, error) {
+func NewService(store Store, apps appClient, users userReader, privateKeyPEM []byte, kid, baseURL string, logger *slog.Logger) (*Service, error) {
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
 		return nil, fmt.Errorf("oauth service: failed to decode RSA PEM block")
@@ -58,6 +59,7 @@ func NewService(store Store, apps appClient, users userReader, privateKeyPEM []b
 		apps:       apps,
 		users:      users,
 		privateKey: privateKey,
+		keyID:      kid,
 		baseURL:    baseURL,
 		logger:     logger,
 	}, nil
@@ -67,6 +69,12 @@ func NewService(store Store, apps appClient, users userReader, privateKeyPEM []b
 // public key in the JWKS endpoint.
 func (s *Service) PrivateKey() *rsa.PrivateKey {
 	return s.privateKey
+}
+
+// KeyID returns the kid (key ID) for the RSA key. Used by the handler to
+// include the kid in the JWKS endpoint and id_token header.
+func (s *Service) KeyID() string {
+	return s.keyID
 }
 
 // Authorize validates the OAuth2 authorization request and creates an
@@ -134,9 +142,7 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 	if err != nil {
 		return nil, err // already a sentinel error (ErrCodeNotFound)
 	}
-	if codeRecord.UsedAt != nil {
-		return nil, ErrCodeUsed
-	}
+	// Do not check UsedAt here — MarkCodeUsed handles double-spend atomically.
 	if time.Now().UTC().After(codeRecord.ExpiresAt) {
 		return nil, ErrCodeExpired
 	}
@@ -150,6 +156,7 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		return nil, fmt.Errorf("oauth exchange code: get app: %w", err)
 	}
 
+	// Check app ID before bcrypt to avoid an expensive hash on wrong client.
 	if a.ID != codeRecord.AppID {
 		return nil, fmt.Errorf("oauth exchange code: client_id does not match code's app")
 	}
@@ -164,9 +171,9 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		return nil, app.ErrRedirectURIMismatch
 	}
 
-	// Mark the code as used.
+	// Atomically mark the code as used — returns ErrCodeUsed on double-spend.
 	if err := s.store.MarkCodeUsed(ctx, code); err != nil {
-		return nil, fmt.Errorf("oauth exchange code: mark code used: %w", err)
+		return nil, err
 	}
 
 	// Look up the user.
@@ -222,9 +229,7 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 	if err != nil {
 		return nil, err // already a sentinel error (ErrRefreshNotFound)
 	}
-	if rt.UsedAt != nil {
-		return nil, ErrRefreshUsed
-	}
+	// Do not check UsedAt here — MarkRefreshTokenUsed handles double-spend atomically.
 	if time.Now().UTC().After(rt.ExpiresAt) {
 		return nil, ErrRefreshExpired
 	}
@@ -238,6 +243,7 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		return nil, fmt.Errorf("oauth refresh tokens: get app: %w", err)
 	}
 
+	// Check app ID before bcrypt to avoid an expensive hash on wrong client.
 	if a.ID != rt.AppID {
 		return nil, fmt.Errorf("oauth refresh tokens: client_id does not match refresh token's app")
 	}
@@ -247,9 +253,9 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		return nil, app.ErrInvalidClientSecret
 	}
 
-	// Mark old refresh token as used (rotation).
+	// Atomically mark old refresh token as used (rotation) — returns ErrRefreshUsed on double-spend.
 	if err := s.store.MarkRefreshTokenUsed(ctx, refreshToken); err != nil {
-		return nil, fmt.Errorf("oauth refresh tokens: mark refresh token used: %w", err)
+		return nil, err
 	}
 
 	// Look up the user.
@@ -318,13 +324,15 @@ func (s *Service) ValidateAccessToken(ctx context.Context, token string) (*user.
 
 // buildIDToken constructs and signs a JWT id_token using RS256.
 func (s *Service) buildIDToken(u *user.User, clientID string) (string, error) {
-	now := time.Now()
+	now := time.Now().UTC()
 	claims := jwtlib.MapClaims{
-		"iss":                s.baseURL,
-		"sub":                u.ID,
-		"aud":                jwtlib.ClaimStrings{clientID},
-		"exp":                now.Add(1 * time.Hour).Unix(),
-		"iat":                now.Unix(),
+		"iss": s.baseURL,
+		"sub": u.ID,
+		"aud": jwtlib.ClaimStrings{clientID},
+		"exp": now.Add(1 * time.Hour).Unix(),
+		"iat": now.Unix(),
+		// TODO: auth_time should be the session creation time, not the token issuance time.
+		// This requires storing auth_time in oauth_codes (Phase 2 limitation).
 		"auth_time":          now.Unix(),
 		"name":               u.Name,
 		"email":              u.Email,
@@ -332,6 +340,7 @@ func (s *Service) buildIDToken(u *user.User, clientID string) (string, error) {
 	}
 
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodRS256, claims)
+	token.Header["kid"] = s.keyID
 	signed, err := token.SignedString(s.privateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign id token: %w", err)

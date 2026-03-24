@@ -59,7 +59,7 @@ func newTestServiceWithDB(t *testing.T, db *sql.DB, testApp *app.App, testUser *
 
 	store := oauth.NewStore(db)
 
-	pemBytes, err := store.GetOrCreateRSAKey(context.Background())
+	pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
 	if err != nil {
 		t.Fatalf("newTestServiceWithDB: GetOrCreateRSAKey: %v", err)
 	}
@@ -74,7 +74,7 @@ func newTestServiceWithDB(t *testing.T, db *sql.DB, testApp *app.App, testUser *
 	apps := &fakeAppClient{app: testApp, access: true}
 	users := &fakeUserReader{u: testUser}
 
-	svc, err := oauth.NewService(store, apps, users, pemBytes, "https://auth.example.com", slog.Default())
+	svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
 	if err != nil {
 		t.Fatalf("newTestServiceWithDB: NewService: %v", err)
 	}
@@ -143,7 +143,6 @@ func buildTestApp(t *testing.T, clientID, plainSecret string, redirectURIs []str
 }
 
 func TestService_Authorize(t *testing.T) {
-	t.Helper()
 
 	const (
 		clientID    = "test-client"
@@ -199,13 +198,13 @@ func TestService_Authorize(t *testing.T) {
 			if !tc.setupAccess {
 				// Rebuild with access=false
 				store := oauth.NewStore(db)
-				pemBytes, err := store.GetOrCreateRSAKey(context.Background())
+				pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
 				if err != nil {
 					t.Fatalf("GetOrCreateRSAKey: %v", err)
 				}
 				apps := &fakeAppClient{app: testApp, access: false}
 				users := &fakeUserReader{u: testUser}
-				svc, err := oauth.NewService(store, apps, users, pemBytes, "https://auth.example.com", slog.Default())
+				svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
 				if err != nil {
 					t.Fatalf("NewService: %v", err)
 				}
@@ -244,13 +243,13 @@ func TestService_Authorize(t *testing.T) {
 
 		// Override apps to return not-found.
 		store := oauth.NewStore(db)
-		pemBytes, err := store.GetOrCreateRSAKey(context.Background())
+		pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
 		if err != nil {
 			t.Fatalf("GetOrCreateRSAKey: %v", err)
 		}
 		apps := &fakeAppClient{getErr: app.ErrNotFound}
 		users := &fakeUserReader{u: testUser}
-		svc, err := oauth.NewService(store, apps, users, pemBytes, "https://auth.example.com", slog.Default())
+		svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
 		if err != nil {
 			t.Fatalf("NewService: %v", err)
 		}
@@ -271,13 +270,13 @@ func TestService_Authorize(t *testing.T) {
 		sc := newTestServiceWithDB(t, db, disabledApp, testUser)
 
 		store := oauth.NewStore(db)
-		pemBytes, err := store.GetOrCreateRSAKey(context.Background())
+		pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
 		if err != nil {
 			t.Fatalf("GetOrCreateRSAKey: %v", err)
 		}
 		apps := &fakeAppClient{app: disabledApp, access: true}
 		users := &fakeUserReader{u: testUser}
-		svc, err := oauth.NewService(store, apps, users, pemBytes, "https://auth.example.com", slog.Default())
+		svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
 		if err != nil {
 			t.Fatalf("NewService: %v", err)
 		}
@@ -291,7 +290,6 @@ func TestService_Authorize(t *testing.T) {
 }
 
 func TestService_ExchangeCode(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 
 	const (
@@ -390,11 +388,11 @@ func TestService_ExchangeCode(t *testing.T) {
 		wrongApp := buildTestApp(t, "wrong-client", plainSecret, []string{redirectURI})
 		wrongApp.ID = "different-app-id" // this ID won't match the code's app_id
 		store := oauth.NewStore(db)
-		pemBytes, _ := store.GetOrCreateRSAKey(ctx)
+		pemBytes, kid, _ := store.GetOrCreateRSAKey(ctx)
 		svc2, _ := oauth.NewService(store,
 			&fakeAppClient{app: wrongApp, access: true},
 			&fakeUserReader{u: testUser},
-			pemBytes, "https://auth.example.com", slog.Default(),
+			pemBytes, kid, "https://auth.example.com", slog.Default(),
 		)
 
 		_, err = svc2.ExchangeCode(ctx, code.Code, "wrong-client", plainSecret, redirectURI)
@@ -439,7 +437,6 @@ func TestService_ExchangeCode(t *testing.T) {
 }
 
 func TestService_RefreshTokens(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 
 	const (
@@ -530,11 +527,11 @@ func TestService_RefreshTokens(t *testing.T) {
 		wrongApp := buildTestApp(t, "other-client", plainSecret, []string{redirectURI})
 		wrongApp.ID = "different-app-id"
 		store := oauth.NewStore(db)
-		pemBytes, _ := store.GetOrCreateRSAKey(ctx)
+		pemBytes, kid, _ := store.GetOrCreateRSAKey(ctx)
 		svc2, _ := oauth.NewService(store,
 			&fakeAppClient{app: wrongApp, access: true},
 			&fakeUserReader{u: testUser},
-			pemBytes, "https://auth.example.com", slog.Default(),
+			pemBytes, kid, "https://auth.example.com", slog.Default(),
 		)
 
 		_, err = svc2.RefreshTokens(ctx, tokenResp.RefreshToken, "other-client", plainSecret)
@@ -566,7 +563,6 @@ func TestService_RefreshTokens(t *testing.T) {
 }
 
 func TestService_ValidateAccessToken(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 
 	const (

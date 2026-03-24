@@ -82,6 +82,8 @@ type Store interface {
 	// Cleanup
 	DeleteExpired(ctx context.Context) error
 
-	// OIDC RSA key — generated once at startup, persisted in oidc_config
-	GetOrCreateRSAKey(ctx context.Context) (privateKeyPEM []byte, err error)
+	// OIDC RSA key — generated once at startup, persisted in oidc_config.
+	// Returns the PEM-encoded private key and a stable kid derived from the
+	// public key (base64url SHA-256 thumbprint per RFC 7638).
+	GetOrCreateRSAKey(ctx context.Context) (privateKeyPEM []byte, kid string, err error)
 }

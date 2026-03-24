@@ -13,7 +13,6 @@ import (
 )
 
 func TestSQLiteStore_Code(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
@@ -104,7 +103,6 @@ func TestSQLiteStore_Code(t *testing.T) {
 }
 
 func TestSQLiteStore_Token(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
@@ -182,7 +180,6 @@ func TestSQLiteStore_Token(t *testing.T) {
 }
 
 func TestSQLiteStore_RefreshToken(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
@@ -260,7 +257,6 @@ func TestSQLiteStore_RefreshToken(t *testing.T) {
 }
 
 func TestSQLiteStore_DeleteExpired(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
@@ -364,27 +360,32 @@ func TestSQLiteStore_DeleteExpired(t *testing.T) {
 }
 
 func TestSQLiteStore_GetOrCreateRSAKey(t *testing.T) {
-	t.Helper()
 	ctx := context.Background()
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
 
 	// First call: creates and stores the key.
-	pem1, err := store.GetOrCreateRSAKey(ctx)
+	pem1, kid1, err := store.GetOrCreateRSAKey(ctx)
 	if err != nil {
 		t.Fatalf("GetOrCreateRSAKey first call: %v", err)
 	}
 	if len(pem1) == 0 {
 		t.Fatal("GetOrCreateRSAKey: returned empty PEM")
 	}
+	if kid1 == "" {
+		t.Fatal("GetOrCreateRSAKey: returned empty kid")
+	}
 
 	// Second call: returns the same key (idempotent).
-	pem2, err := store.GetOrCreateRSAKey(ctx)
+	pem2, kid2, err := store.GetOrCreateRSAKey(ctx)
 	if err != nil {
 		t.Fatalf("GetOrCreateRSAKey second call: %v", err)
 	}
 	if string(pem1) != string(pem2) {
 		t.Error("GetOrCreateRSAKey: second call returned different PEM than first")
+	}
+	if kid1 != kid2 {
+		t.Error("GetOrCreateRSAKey: second call returned different kid than first")
 	}
 
 	// The PEM should be parseable as an RSA private key.
