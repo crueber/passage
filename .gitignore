@@ -1,6 +1,6 @@
 # Binaries
-passage
-passage.exe
+/passage
+/passage.exe
 
 # Build artifacts
 dist/

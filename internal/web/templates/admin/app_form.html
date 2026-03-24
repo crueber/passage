@@ -1,0 +1,55 @@
+{{define "admin-app-form"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{if .IsNew}}New App{{else}}Edit App{{end}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="admin-layout">
+    <header>
+      <span class="wordmark">passage admin</span>
+      <nav><a href="/logout">Sign out</a></nav>
+    </header>
+    {{template "admin-nav" .}}
+    <main class="admin-content">
+      {{template "admin-flash" .}}
+      <h2>{{if .IsNew}}New App{{else}}Edit App{{end}}</h2>
+      <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}" style="max-width:30rem">
+        <label for="slug">Slug</label>
+        <input type="text" id="slug" name="slug" required autocomplete="off"
+               value="{{if .EditApp}}{{.EditApp.Slug}}{{end}}">
+
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required autocomplete="off"
+               value="{{if .EditApp}}{{.EditApp.Name}}{{end}}">
+
+        <label for="description">Description</label>
+        <input type="text" id="description" name="description" autocomplete="off"
+               value="{{if .EditApp}}{{.EditApp.Description}}{{end}}">
+
+        <label for="host_pattern">Host Pattern</label>
+        <input type="text" id="host_pattern" name="host_pattern" autocomplete="off"
+               placeholder="e.g. grafana.home.example.com or *.home.example.com"
+               value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
+
+        <fieldset>
+          <label>
+            <input type="checkbox" name="is_active"
+                   {{if .IsNew}}checked{{else}}{{if .EditApp}}{{if .EditApp.IsActive}}checked{{end}}{{end}}{{end}}>
+            Active
+          </label>
+        </fieldset>
+
+        <button type="submit">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
+        <a href="/admin/apps">Cancel</a>
+      </form>
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

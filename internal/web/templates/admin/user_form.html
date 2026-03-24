@@ -1,0 +1,71 @@
+{{define "admin-user-form"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{if .IsNew}}New User{{else}}Edit User{{end}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="admin-layout">
+    <header>
+      <span class="wordmark">passage admin</span>
+      <nav><a href="/logout">Sign out</a></nav>
+    </header>
+    {{template "admin-nav" .}}
+    <main class="admin-content">
+      {{template "admin-flash" .}}
+      <h2>{{if .IsNew}}New User{{else}}Edit User{{end}}</h2>
+      <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}" style="max-width:30rem">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required autocomplete="off"
+               value="{{if .EditUser}}{{.EditUser.Username}}{{end}}">
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autocomplete="off"
+               value="{{if .EditUser}}{{.EditUser.Email}}{{end}}">
+
+        <label for="name">Display Name</label>
+        <input type="text" id="name" name="name" autocomplete="off"
+               value="{{if .EditUser}}{{.EditUser.Name}}{{end}}">
+
+        {{if .IsNew}}
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="new-password"
+               minlength="8">
+        {{end}}
+
+        <fieldset>
+          <label>
+            <input type="checkbox" name="is_admin"
+                   {{if .EditUser}}{{if .EditUser.IsAdmin}}checked{{end}}{{end}}>
+            Admin
+          </label>
+          <label>
+            <input type="checkbox" name="is_active"
+                   {{if .IsNew}}checked{{else}}{{if .EditUser}}{{if .EditUser.IsActive}}checked{{end}}{{end}}{{end}}>
+            Active
+          </label>
+        </fieldset>
+
+        <button type="submit">{{if .IsNew}}Create User{{else}}Save Changes{{end}}</button>
+        <a href="/admin/users">Cancel</a>
+      </form>
+
+      {{if not .IsNew}}
+      <hr>
+      <h3>Passkeys</h3>
+      {{if gt .PasskeyCount 0}}
+      <p>This user has <strong>{{.PasskeyCount}}</strong> passkey{{if gt .PasskeyCount 1}}s{{end}} registered.</p>
+      {{else}}
+      <p>This user has no passkeys registered.</p>
+      {{end}}
+      {{end}}
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

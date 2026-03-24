@@ -1,0 +1,40 @@
+{{define "admin-dashboard"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Passage Admin</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="admin-layout">
+    <header>
+      <span class="wordmark">passage admin</span>
+      <nav><a href="/logout">Sign out</a></nav>
+    </header>
+    {{template "admin-nav" .}}
+    <main class="admin-content">
+      {{template "admin-flash" .}}
+      <h2>Dashboard</h2>
+      <div class="stat-grid">
+        <div class="stat-tile">
+          <span class="stat-number">{{.UserCount}}</span>
+          <span class="stat-label">Users</span>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-number">{{.AppCount}}</span>
+          <span class="stat-label">Apps</span>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-number">{{.SessionCount}}</span>
+          <span class="stat-label">Active Sessions</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

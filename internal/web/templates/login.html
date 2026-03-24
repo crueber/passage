@@ -1,0 +1,32 @@
+{{template "layout" .}}
+
+{{define "title"}}Sign in{{end}}
+
+{{define "content"}}
+<script src="/static/passkey.js" defer></script>
+<h2>Sign in to continue</h2>
+<form method="POST" action="/login">
+  <input type="hidden" name="rd" value="{{.RedirectTo}}">
+
+  <label for="username">Username</label>
+  <input type="text" id="username" name="username" autocomplete="username"
+         required autofocus value="{{.Username}}">
+
+  <label for="password">Password</label>
+  <input type="password" id="password" name="password" autocomplete="current-password" required>
+
+  <button type="submit">Sign in</button>
+</form>
+
+<p>
+  <button type="button" id="passkey-login-btn">Sign in with a passkey</button>
+</p>
+<p id="passkey-login-status" aria-live="polite"></p>
+
+<p>
+  <a href="/reset">Forgot password?</a>
+  {{if .AllowRegistration}}
+  &nbsp;·&nbsp; <a href="/register">Create an account</a>
+  {{end}}
+</p>
+{{end}}

@@ -1,0 +1,21 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{block "title" .}}Passage{{end}} — Passage</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+  <main>
+    <h1 class="wordmark">passage</h1>
+    {{if .Flash}}
+    <div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
+    {{end}}
+    {{block "content" .}}{{end}}
+  </main>
+</body>
+</html>
+{{end}}

@@ -625,18 +625,18 @@ or as a dependency on handler structs (consistent with Go conventions — no glo
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go build ./...` compiles with zero errors, zero warnings
-- [ ] `go vet ./...` passes
-- [ ] `CGO_ENABLED=0 go build -o passage ./cmd/passage` produces a binary
-- [ ] Binary starts: `./passage --config passage.example.yaml`
-- [ ] Health check: `curl http://localhost:8080/healthz` returns HTTP 200 with `{"status":"ok"}`
-- [ ] SQLite DB file is created at configured path
-- [ ] `go test -race ./...` passes
+- [x] `go build ./...` compiles with zero errors, zero warnings
+- [x] `go vet ./...` passes
+- [x] `CGO_ENABLED=0 go build -o passage ./cmd/passage` produces a binary
+- [x] Binary starts: `./passage --config passage.example.yaml`
+- [x] Health check: `curl http://localhost:8080/healthz` returns HTTP 200 with `{"status":"ok"}`
+- [x] SQLite DB file is created at configured path
+- [x] `go test -race ./...` passes
 
 #### Manual Verification:
-- [ ] Binary starts cleanly, logs are structured JSON
-- [ ] Stopping with Ctrl-C logs a graceful shutdown message
-- [ ] Running without a config file prints a helpful error and exits non-zero
+- [x] Binary starts cleanly, logs are structured JSON
+- [x] Stopping with Ctrl-C logs a graceful shutdown message
+- [x] Running without a config file starts with defaults (no error — env vars and defaults apply)
 
 **Pause after Phase 1 for manual confirmation before proceeding.**
 
@@ -747,10 +747,10 @@ Inline with the user store (same `store.go` file):
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/user/...` passes
-- [ ] `go test -race ./internal/session/...` passes
-- [ ] `go test -race ./internal/email/...` passes (with SMTP mocked)
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/user/...` passes
+- [x] `go test -race ./internal/session/...` passes
+- [x] `go test -race ./internal/email/...` passes (with SMTP mocked)
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] Navigate to `http://localhost:8080/login` — login page renders
@@ -880,9 +880,9 @@ Provide ready-to-use configuration snippets users can drop into their reverse pr
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/forwardauth/...` passes
-- [ ] `go test -race ./internal/app/...` passes (including `TestResolveFromHost_Wildcard`, `TestResolveFromHost_Exact`, `TestResolveFromHost_NoMatch`)
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/forwardauth/...` passes
+- [x] `go test -race ./internal/app/...` passes (including `TestResolveFromHost_Wildcard`, `TestResolveFromHost_Exact`, `TestResolveFromHost_NoMatch`)
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] Configure Nginx with `auth_request` pointing at `http://localhost:8080/auth/nginx`
@@ -1002,8 +1002,8 @@ go func() {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/admin/...` passes
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/admin/...` passes
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] `/admin` redirects unauthenticated users to `/login`
@@ -1102,8 +1102,8 @@ via `passkey.js`. The password form remains the primary login path; passkeys are
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `go test -race ./internal/webauthn/...` passes
-- [ ] `go build ./...` passes
+- [x] `go test -race ./internal/webauthn/...` passes
+- [x] `go build ./...` passes
 
 #### Manual Verification:
 - [ ] Log in with password, navigate to `/passkeys`

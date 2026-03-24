@@ -1,0 +1,15 @@
+{{define "admin-nav"}}
+    <aside class="admin-sidebar">
+      <nav>
+        <a href="/admin" {{if eq .ActiveNav "dashboard"}}aria-current="page"{{end}}>Dashboard</a>
+        <a href="/admin/users" {{if eq .ActiveNav "users"}}aria-current="page"{{end}}>Users</a>
+        <a href="/admin/apps" {{if eq .ActiveNav "apps"}}aria-current="page"{{end}}>Apps</a>
+        <a href="/admin/sessions" {{if eq .ActiveNav "sessions"}}aria-current="page"{{end}}>Sessions</a>
+        <a href="/admin/settings" {{if eq .ActiveNav "settings"}}aria-current="page"{{end}}>Settings</a>
+      </nav>
+    </aside>
+{{end}}
+
+{{define "admin-flash"}}
+      {{if .Flash}}<div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>{{end}}
+{{end}}
