@@ -340,3 +340,165 @@ func TestResolveFromHost_MultiMatch(t *testing.T) {
 			got.ID, got.Slug, app1.ID, app1.Slug)
 	}
 }
+
+// TestService_GenerateClientCredentials verifies the GenerateClientCredentials
+// success path and error cases.
+func TestService_GenerateClientCredentials(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		run  func(t *testing.T, svc *app.Service)
+	}{
+		{
+			name: "success: oauth not yet enabled",
+			run: func(t *testing.T, svc *app.Service) {
+				t.Helper()
+				ctx := context.Background()
+				a := seedApp(t, svc, "myapp", "myapp.home.example.com")
+
+				secret, err := svc.GenerateClientCredentials(ctx, a.ID)
+				if err != nil {
+					t.Fatalf("GenerateClientCredentials: unexpected error: %v", err)
+				}
+				if secret == "" {
+					t.Error("GenerateClientCredentials: returned empty secret")
+				}
+
+				// Reload from store to confirm state was persisted.
+				updated, err := svc.GetByID(ctx, a.ID)
+				if err != nil {
+					t.Fatalf("GetByID after GenerateClientCredentials: %v", err)
+				}
+				if !updated.OAuthEnabled {
+					t.Error("GenerateClientCredentials: expected OAuthEnabled=true, got false")
+				}
+				if updated.ClientID != a.Slug {
+					t.Errorf("GenerateClientCredentials: ClientID=%q, want slug %q", updated.ClientID, a.Slug)
+				}
+				if updated.ClientSecretHash == "" {
+					t.Error("GenerateClientCredentials: ClientSecretHash is empty")
+				}
+			},
+		},
+		{
+			name: "error: app not found",
+			run: func(t *testing.T, svc *app.Service) {
+				t.Helper()
+				ctx := context.Background()
+
+				_, err := svc.GenerateClientCredentials(ctx, "nonexistent-id")
+				if err == nil {
+					t.Fatal("GenerateClientCredentials: expected error for nonexistent app, got nil")
+				}
+			},
+		},
+		{
+			name: "error: already enabled on second call",
+			run: func(t *testing.T, svc *app.Service) {
+				t.Helper()
+				ctx := context.Background()
+				a := seedApp(t, svc, "dup-oauth-app", "dup.home.example.com")
+
+				// First call should succeed.
+				if _, err := svc.GenerateClientCredentials(ctx, a.ID); err != nil {
+					t.Fatalf("GenerateClientCredentials (first call): unexpected error: %v", err)
+				}
+
+				// Second call on the same app should fail.
+				_, err := svc.GenerateClientCredentials(ctx, a.ID)
+				if err == nil {
+					t.Fatal("GenerateClientCredentials (second call): expected error, got nil")
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc, _ := newService(t)
+			tc.run(t, svc)
+		})
+	}
+}
+
+// TestService_RotateClientSecret verifies the RotateClientSecret success path
+// and error cases.
+func TestService_RotateClientSecret(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		run  func(t *testing.T, svc *app.Service)
+	}{
+		{
+			name: "success: oauth already enabled",
+			run: func(t *testing.T, svc *app.Service) {
+				t.Helper()
+				ctx := context.Background()
+				a := seedApp(t, svc, "rotateapp", "rotateapp.home.example.com")
+
+				// Enable OAuth first.
+				if _, err := svc.GenerateClientCredentials(ctx, a.ID); err != nil {
+					t.Fatalf("GenerateClientCredentials (setup): %v", err)
+				}
+				before, err := svc.GetByID(ctx, a.ID)
+				if err != nil {
+					t.Fatalf("GetByID before rotate: %v", err)
+				}
+
+				newSecret, err := svc.RotateClientSecret(ctx, a.ID)
+				if err != nil {
+					t.Fatalf("RotateClientSecret: unexpected error: %v", err)
+				}
+				if newSecret == "" {
+					t.Error("RotateClientSecret: returned empty secret")
+				}
+
+				after, err := svc.GetByID(ctx, a.ID)
+				if err != nil {
+					t.Fatalf("GetByID after rotate: %v", err)
+				}
+				if after.ClientSecretHash == before.ClientSecretHash {
+					t.Error("RotateClientSecret: ClientSecretHash did not change")
+				}
+			},
+		},
+		{
+			name: "error: oauth not enabled",
+			run: func(t *testing.T, svc *app.Service) {
+				t.Helper()
+				ctx := context.Background()
+				a := seedApp(t, svc, "nonoauthapp", "nonoauth.home.example.com")
+
+				_, err := svc.RotateClientSecret(ctx, a.ID)
+				if !errors.Is(err, app.ErrOAuthNotEnabled) {
+					t.Errorf("RotateClientSecret: got %v, want ErrOAuthNotEnabled", err)
+				}
+			},
+		},
+		{
+			name: "error: app not found",
+			run: func(t *testing.T, svc *app.Service) {
+				t.Helper()
+				ctx := context.Background()
+
+				_, err := svc.RotateClientSecret(ctx, "nonexistent-id")
+				if err == nil {
+					t.Fatal("RotateClientSecret: expected error for nonexistent app, got nil")
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc, _ := newService(t)
+			tc.run(t, svc)
+		})
+	}
+}

@@ -11,6 +11,10 @@ var (
 	ErrNotFound     = errors.New("app: not found")
 	ErrSlugTaken    = errors.New("app: slug already taken")
 	ErrNoAppForHost = errors.New("app: no registered app matches this host")
+
+	ErrOAuthNotEnabled     = errors.New("app: oauth is not enabled for this app")
+	ErrInvalidClientSecret = errors.New("app: invalid client secret")
+	ErrRedirectURIMismatch = errors.New("app: redirect_uri does not match registered URIs")
 )
 
 // App represents a downstream application registered with Passage.
@@ -23,6 +27,12 @@ type App struct {
 	IsActive    bool
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+
+	// OAuth client fields. Zero values mean OAuth is not enabled for this app.
+	ClientID         string
+	ClientSecretHash string
+	RedirectURIs     []string // stored as newline-separated in DB
+	OAuthEnabled     bool
 }
 
 // UserAccess represents a user's access grant to a specific app.
@@ -39,6 +49,7 @@ type Store interface {
 	Create(ctx context.Context, app *App) error
 	GetByID(ctx context.Context, id string) (*App, error)
 	GetBySlug(ctx context.Context, slug string) (*App, error)
+	GetByClientID(ctx context.Context, clientID string) (*App, error)
 	ListActive(ctx context.Context) ([]*App, error)
 	List(ctx context.Context) ([]*App, error)
 	Update(ctx context.Context, app *App) error
