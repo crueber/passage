@@ -74,6 +74,32 @@ func (s *SQLiteStore) ListByUser(ctx context.Context, userID string) ([]*Session
 	return sessions, nil
 }
 
+// ListAll returns all non-expired sessions ordered by creation time descending.
+func (s *SQLiteStore) ListAll(ctx context.Context) ([]*Session, error) {
+	const query = `
+		SELECT id, user_id, app_id, ip_address, user_agent, expires_at, created_at
+		FROM sessions WHERE expires_at > CURRENT_TIMESTAMP ORDER BY created_at DESC`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("session store list all: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []*Session
+	for rows.Next() {
+		sess, err := scanSession(rows)
+		if err != nil {
+			return nil, fmt.Errorf("session store list all scan: %w", err)
+		}
+		sessions = append(sessions, sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("session store list all rows: %w", err)
+	}
+	return sessions, nil
+}
+
 // Delete removes a session by its token ID.
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	const query = `DELETE FROM sessions WHERE id = ?`

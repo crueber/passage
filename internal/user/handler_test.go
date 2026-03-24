@@ -2,6 +2,7 @@ package user_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,14 @@ import (
 type noopSender struct{}
 
 func (noopSender) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
+
+// noopSettings satisfies the settingsReader interface with a no-op implementation.
+// Always returns an error so the handler falls back to the static config.
+type noopSettings struct{}
+
+func (noopSettings) Get(_ context.Context, _ string) (string, error) {
+	return "", errors.New("not found")
+}
 
 // newHandlerFixture builds a Handler wired to a real in-memory DB.
 // It returns the handler and cfg so tests can inspect cookie names.
@@ -53,7 +62,7 @@ func newHandlerFixture(t *testing.T, allowRegistration bool) (*user.Handler, *co
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, noopSender{}, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, sessionSvc, noopSettings{}, noopSender{}, tmpl, cfg, logger)
 	return h, cfg
 }
 
@@ -125,7 +134,7 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, noopSender{}, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, sessionSvc, noopSettings{}, noopSender{}, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "loginuser")
@@ -176,7 +185,7 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, noopSender{}, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, sessionSvc, noopSettings{}, noopSender{}, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "rduser")

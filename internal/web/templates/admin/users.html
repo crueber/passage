@@ -1,0 +1,65 @@
+{{define "admin-users"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users — Passage Admin</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="admin-layout">
+    <header>
+      <span class="wordmark">passage admin</span>
+      <nav><a href="/logout">Sign out</a></nav>
+    </header>
+    {{template "admin-nav" .}}
+    <main class="admin-content">
+      {{template "admin-flash" .}}
+      <h2>Users</h2>
+      <p><a href="/admin/users/new">+ New User</a></p>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Username</th>
+            <th scope="col">Email</th>
+            <th scope="col">Name</th>
+            <th scope="col">Admin</th>
+            <th scope="col">Active</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Users}}
+          <tr>
+            <td>{{.Username}}</td>
+            <td>{{.Email}}</td>
+            <td>{{.Name}}</td>
+            <td>{{if .IsAdmin}}Yes{{else}}No{{end}}</td>
+            <td>{{if .IsActive}}Yes{{else}}No{{end}}</td>
+            <td>
+              <a href="/admin/users/{{.ID}}">Edit</a>
+              &nbsp;
+              <form method="POST" action="/admin/users/{{.ID}}/reset-password" style="display:inline">
+                <button type="submit" class="btn-secondary btn-sm">Send Reset</button>
+              </form>
+              &nbsp;
+              <form method="POST" action="/admin/users/{{.ID}}/delete" style="display:inline">
+                <button type="submit" class="btn-danger btn-sm">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {{else}}
+          <tr>
+            <td colspan="6"><em>No users found.</em></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

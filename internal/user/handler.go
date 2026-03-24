@@ -33,10 +33,17 @@ type sessionCreator interface {
 	RevokeSession(ctx context.Context, token string) error
 }
 
+// settingsReader is the minimal interface for reading site settings.
+// Defined at the consumer boundary (user package) to avoid import cycles.
+type settingsReader interface {
+	Get(ctx context.Context, key string) (string, error)
+}
+
 // Handler handles user-facing HTTP flows: login, register, password reset, logout.
 type Handler struct {
 	users    *Service
 	sessions sessionCreator
+	settings settingsReader
 	mailer   email.Sender
 	tmpl     *template.Template
 	cfg      *config.Config
@@ -47,6 +54,7 @@ type Handler struct {
 func NewHandler(
 	users *Service,
 	sessions sessionCreator,
+	settings settingsReader,
 	mailer email.Sender,
 	tmpl *template.Template,
 	cfg *config.Config,
@@ -55,11 +63,27 @@ func NewHandler(
 	return &Handler{
 		users:    users,
 		sessions: sessions,
+		settings: settings,
 		mailer:   mailer,
 		tmpl:     tmpl,
 		cfg:      cfg,
 		logger:   logger,
 	}
+}
+
+// registrationAllowed checks the DB setting first, falling back to the static config.
+// If the DB setting is present and is "false", registration is disabled.
+// If missing (ErrNotFound or any error), fall back to h.cfg.Auth.AllowRegistration.
+func (h *Handler) registrationAllowed(ctx context.Context) bool {
+	if h.settings == nil {
+		return h.cfg.Auth.AllowRegistration
+	}
+	val, err := h.settings.Get(ctx, "allow_registration")
+	if err != nil {
+		// Setting not found or DB error — fall back to static config.
+		return h.cfg.Auth.AllowRegistration
+	}
+	return val == "true"
 }
 
 // loginData is the template data for the login page.
@@ -100,7 +124,7 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "login.html", loginData{
 		Flash:             flash,
 		RedirectTo:        rd,
-		AllowRegistration: h.cfg.Auth.AllowRegistration,
+		AllowRegistration: h.registrationAllowed(r.Context()),
 	})
 }
 
@@ -159,7 +183,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 
 // GetRegister renders the registration form.
 func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
-	if !h.cfg.Auth.AllowRegistration {
+	if !h.registrationAllowed(r.Context()) {
 		http.Redirect(w, r, "/login?flash=registration-disabled", http.StatusFound)
 		return
 	}
@@ -168,7 +192,7 @@ func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
 
 // PostRegister handles registration form submission.
 func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
-	if !h.cfg.Auth.AllowRegistration {
+	if !h.registrationAllowed(r.Context()) {
 		http.Redirect(w, r, "/login?flash=registration-disabled", http.StatusFound)
 		return
 	}
@@ -350,7 +374,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		Flash:             &Flash{Type: "error", Message: msg},
 		RedirectTo:        rd,
 		Username:          username,
-		AllowRegistration: h.cfg.Auth.AllowRegistration,
+		AllowRegistration: h.registrationAllowed(r.Context()),
 	})
 }
 

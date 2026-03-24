@@ -111,6 +111,16 @@ func (s *Service) RevokeSession(ctx context.Context, token string) error {
 	return nil
 }
 
+// ListAll returns all sessions ordered by creation time descending.
+// It delegates directly to the store.
+func (s *Service) ListAll(ctx context.Context) ([]*Session, error) {
+	sessions, err := s.store.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list all sessions: %w", err)
+	}
+	return sessions, nil
+}
+
 // SetCookie writes the session cookie to the response.
 func SetCookie(w http.ResponseWriter, token string, expiresAt time.Time, cfg *config.Config) {
 	http.SetCookie(w, &http.Cookie{

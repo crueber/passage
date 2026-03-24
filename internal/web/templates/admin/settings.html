@@ -1,0 +1,45 @@
+{{define "admin-settings"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Passage Admin</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="admin-layout">
+    <header>
+      <span class="wordmark">passage admin</span>
+      <nav><a href="/logout">Sign out</a></nav>
+    </header>
+    {{template "admin-nav" .}}
+    <main class="admin-content">
+      {{template "admin-flash" .}}
+      <h2>Settings</h2>
+      <form method="POST" action="/admin/settings" style="max-width:30rem">
+        <fieldset>
+          <input type="checkbox" id="allow_registration" name="allow_registration"
+                 {{if eq .AllowRegistration "true"}}checked{{end}}>
+          <label for="allow_registration">Allow public registration</label>
+        </fieldset>
+
+        <label for="session_duration_hours">Session Duration (hours)</label>
+        <input type="number" id="session_duration_hours" name="session_duration_hours"
+               min="1" max="8760" value="{{.SessionDurationHours}}">
+        <small>Requires restart to take effect.</small>
+
+        <label for="smtp_from">SMTP From Address</label>
+        <input type="email" id="smtp_from" name="smtp_from" autocomplete="off"
+               value="{{.SMTPFrom}}">
+        <small>Requires restart to take effect. Leave empty to use config file value.</small>
+
+        <button type="submit">Save Settings</button>
+      </form>
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

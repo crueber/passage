@@ -1,0 +1,61 @@
+{{define "admin-apps"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apps — Passage Admin</title>
+  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="admin-layout">
+    <header>
+      <span class="wordmark">passage admin</span>
+      <nav><a href="/logout">Sign out</a></nav>
+    </header>
+    {{template "admin-nav" .}}
+    <main class="admin-content">
+      {{template "admin-flash" .}}
+      <h2>Apps</h2>
+      <p><a href="/admin/apps/new">+ New App</a></p>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Slug</th>
+            <th scope="col">Name</th>
+            <th scope="col">Host Pattern</th>
+            <th scope="col">Active</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Apps}}
+          <tr>
+            <td>{{.Slug}}</td>
+            <td>{{.Name}}</td>
+            <td><code>{{.HostPattern}}</code></td>
+            <td>{{if .IsActive}}Yes{{else}}No{{end}}</td>
+            <td>
+              <a href="/admin/apps/{{.ID}}">Edit</a>
+              &nbsp;
+              <a href="/admin/apps/{{.ID}}/access">Access</a>
+              &nbsp;
+              <form method="POST" action="/admin/apps/{{.ID}}/delete" style="display:inline">
+                <button type="submit" class="btn-danger btn-sm">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {{else}}
+          <tr>
+            <td colspan="5"><em>No apps found.</em></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

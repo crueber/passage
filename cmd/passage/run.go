@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/crueber/passage/internal/admin"
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/db"
@@ -81,11 +82,32 @@ func run() error {
 	appStore := app.NewStore(database)
 	appSvc := app.NewService(appStore, appStore, logger)
 
+	// Start session cleanup background goroutine.
+	// Deletes expired sessions every hour; exits on context cancellation.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := sessionStore.DeleteExpired(ctx); err != nil {
+					logger.Error("session cleanup failed", "error", err)
+				}
+			}
+		}
+	}()
+
+	// Build admin handler.
+	settingsStore := admin.NewSQLiteSettingsStore(database)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, mailer, tmpl, cfg, logger)
+
 	// Build forward-auth handler.
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
 
 	// Build user handler.
-	userHandler := user.NewHandler(userSvc, sessionSvc, mailer, tmpl, cfg, logger)
+	userHandler := user.NewHandler(userSvc, sessionSvc, settingsStore, mailer, tmpl, cfg, logger)
 
 	// Prepare static file server from embedded FS.
 	staticFS, err := fs.Sub(web.StaticFS, "static")
@@ -139,6 +161,12 @@ func run() error {
 				fmt.Fprintln(w, "Hello! You are authenticated.")
 			}
 		})
+	})
+
+	// Admin routes — protected by RequireAdmin middleware.
+	r.Route("/admin", func(r chi.Router) {
+		r.Use(admin.RequireAdmin(sessionSvc, cfg))
+		adminHandler.Routes(r)
 	})
 
 	// Start the HTTP server.

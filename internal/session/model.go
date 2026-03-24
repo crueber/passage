@@ -29,6 +29,7 @@ type Store interface {
 	Create(ctx context.Context, session *Session) error
 	GetByID(ctx context.Context, id string) (*Session, error)
 	ListByUser(ctx context.Context, userID string) ([]*Session, error)
+	ListAll(ctx context.Context) ([]*Session, error)
 	Delete(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context) error
 }

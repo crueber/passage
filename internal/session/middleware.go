@@ -38,6 +38,14 @@ func RequireSession(svc *Service, cfg *config.Config) func(http.Handler) http.Ha
 	}
 }
 
+// WithUser returns a new context with the given user stored under the session
+// user context key. This allows the admin middleware to store an authenticated
+// admin user in the context using the same key as RequireSession, so that
+// session.UserFromContext works downstream in admin handlers.
+func WithUser(ctx context.Context, u *user.User) context.Context {
+	return context.WithValue(ctx, userContextKey, u)
+}
+
 // UserFromContext retrieves the authenticated user from the context.
 // Returns nil, false if no user is present.
 func UserFromContext(ctx context.Context) (*user.User, bool) {
