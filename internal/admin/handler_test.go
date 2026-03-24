@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1422,46 +1423,19 @@ func TestAdminApps_OAuth(t *testing.T) {
 		// Extract it and ensure the edit page does not contain it.
 		// A bcrypt hash starts with "$2a$" or "$2b$", so we look for any
 		// 64-char hex substring in the generate body.
-		const hexChars = "0123456789abcdefABCDEF"
-		secretCandidate := extractHexSecret(generateBody, 64, hexChars)
+		secretCandidate := extractHexSecret(generateBody)
+		if secretCandidate == "" {
+			t.Log("extractHexSecret: no 64-char hex run found in generate body — secret-not-shown check skipped")
+		}
 		if secretCandidate != "" && strings.Contains(editBody, secretCandidate) {
 			t.Errorf("edit page: contains plaintext secret %q — must not be shown after initial generation", secretCandidate)
 		}
 	})
 }
 
-// extractHexSecret scans body for a contiguous run of exactly targetLen
-// characters all drawn from hexChars and returns the first such run found.
-// Returns "" if no such run exists.
-func extractHexSecret(body string, targetLen int, hexChars string) string {
-	inHex := func(ch byte) bool {
-		for i := 0; i < len(hexChars); i++ {
-			if hexChars[i] == ch {
-				return true
-			}
-		}
-		return false
-	}
-
-	start := -1
-	for i := 0; i < len(body); i++ {
-		if inHex(body[i]) {
-			if start == -1 {
-				start = i
-			}
-			if i-start+1 == targetLen {
-				// Check that the next character is not also a hex char
-				// (we want exactly targetLen, not a longer run).
-				if i+1 < len(body) && inHex(body[i+1]) {
-					// Longer run — reset and keep scanning.
-					start = -1
-					continue
-				}
-				return body[start : i+1]
-			}
-		} else {
-			start = -1
-		}
-	}
-	return ""
+// extractHexSecret finds the first 64-character lowercase hex run in s.
+// The production client secret is always 32 bytes of crypto/rand encoded as 64 hex chars.
+func extractHexSecret(s string) string {
+	re := regexp.MustCompile(`[0-9a-f]{64}`)
+	return re.FindString(s)
 }

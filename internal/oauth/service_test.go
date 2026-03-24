@@ -737,8 +737,11 @@ func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
 	if username, _ := claims["preferred_username"].(string); username != testUser.Username {
 		t.Errorf("id_token preferred_username: got %q, want %q", username, testUser.Username)
 	}
-	if _, present := claims["is_admin"]; !present {
-		t.Error("id_token is_admin: claim is missing")
+	isAdmin, ok := claims["is_admin"].(bool)
+	if !ok {
+		t.Errorf("id_token is_admin: expected bool, got %T", claims["is_admin"])
+	} else if isAdmin != testUser.IsAdmin {
+		t.Errorf("id_token is_admin: got %v, want %v", isAdmin, testUser.IsAdmin)
 	}
 
 	// Step 5: Verify the RS256 signature using the service's public key.

@@ -691,14 +691,15 @@ func TestHandler_AuthCodeFlow_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("userinfo: status %d, want 200; body: %s", w.Code, w.Body.String())
 	}
-	var userInfo map[string]string
+	var userInfo map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&userInfo); err != nil {
 		t.Fatalf("userinfo: decode: %v", err)
 	}
-	if userInfo["sub"] != testUser.ID {
-		t.Errorf("userinfo sub: got %q, want %q", userInfo["sub"], testUser.ID)
+	sub, _ := userInfo["sub"].(string)
+	if sub != testUser.ID {
+		t.Errorf("userinfo sub: got %q, want %q", sub, testUser.ID)
 	}
-	if userInfo["email"] == "" {
+	if email, _ := userInfo["email"].(string); email == "" {
 		t.Error("userinfo: empty email")
 	}
 
@@ -727,6 +728,12 @@ func TestHandler_AuthCodeFlow_EndToEnd(t *testing.T) {
 	}
 	if refreshResp.RefreshToken == oldRefreshToken {
 		t.Error("refresh: refresh_token was not rotated")
+	}
+	if refreshResp.RefreshToken == "" {
+		t.Error("refresh: new refresh_token is empty")
+	}
+	if refreshResp.AccessToken == "" {
+		t.Error("refresh: new access_token is empty")
 	}
 
 	// ── Step 5: Replay old refresh token → expect 400 + invalid_grant ──
