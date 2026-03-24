@@ -5,9 +5,12 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/oauth"
 	"github.com/crueber/passage/internal/testutil"
 )
@@ -395,5 +398,49 @@ func TestSQLiteStore_GetOrCreateRSAKey(t *testing.T) {
 	}
 	if _, err := x509.ParsePKCS1PrivateKey(block.Bytes); err != nil {
 		t.Errorf("GetOrCreateRSAKey: PEM is not a valid RSA private key: %v", err)
+	}
+}
+
+// TestSQLiteStore_GetOrCreateRSAKey_Persistence verifies that the RSA key
+// survives a simulated service restart (new db.Open on the same file).
+func TestSQLiteStore_GetOrCreateRSAKey_Persistence(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Open the database for the first time and generate the RSA key.
+	db1, err := db.Open(ctx, dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("db.Open (first): %v", err)
+	}
+	store1 := oauth.NewStore(db1)
+	pem1, kid1, err := store1.GetOrCreateRSAKey(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreateRSAKey (first): %v", err)
+	}
+	if err := db1.Close(); err != nil {
+		t.Fatalf("db1.Close: %v", err)
+	}
+
+	// Re-open the same file — simulates a process restart.
+	db2, err := db.Open(ctx, dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("db.Open (second): %v", err)
+	}
+	store2 := oauth.NewStore(db2)
+	pem2, kid2, err := store2.GetOrCreateRSAKey(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreateRSAKey (second): %v", err)
+	}
+	if err := db2.Close(); err != nil {
+		t.Fatalf("db2.Close: %v", err)
+	}
+
+	// The key must be identical across restarts.
+	if string(pem1) != string(pem2) {
+		t.Error("GetOrCreateRSAKey persistence: PEM differs after re-open")
+	}
+	if kid1 != kid2 {
+		t.Errorf("GetOrCreateRSAKey persistence: kid differs: first=%q, second=%q", kid1, kid2)
 	}
 }

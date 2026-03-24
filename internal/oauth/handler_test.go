@@ -175,6 +175,13 @@ func TestHandler_JWKS(t *testing.T) {
 	if _, ok := key["e"]; !ok {
 		t.Error("JWKS key: missing e (exponent)")
 	}
+	if key["use"] != "sig" {
+		t.Errorf("JWKS key use: got %v, want sig", key["use"])
+	}
+	kid, ok := key["kid"].(string)
+	if !ok || kid == "" {
+		t.Errorf("JWKS key kid: got %v, want non-empty string", key["kid"])
+	}
 }
 
 func TestHandler_Authorize_RedirectsToLogin(t *testing.T) {
@@ -579,5 +586,248 @@ func TestHandler_Token_BasicAuth(t *testing.T) {
 	}
 	if resp.TokenType != "Bearer" {
 		t.Errorf("Token BasicAuth token_type: got %q, want Bearer", resp.TokenType)
+	}
+}
+
+// TestHandler_AuthCodeFlow_EndToEnd exercises the full OAuth2 authorization
+// code flow in sequence: authorize → token exchange → userinfo → refresh →
+// replay of consumed refresh token.
+func TestHandler_AuthCodeFlow_EndToEnd(t *testing.T) {
+	const (
+		clientID    = "client-e2e"
+		plainSecret = "e2e-secret"
+		redirectURI = "https://example.com/e2e-callback"
+	)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(plainSecret), 10)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	testApp := &app.App{
+		ClientID:         clientID,
+		ClientSecretHash: string(hash),
+		RedirectURIs:     []string{redirectURI},
+		OAuthEnabled:     true,
+	}
+	testUser := &user.User{Username: "e2euser", Email: "e2e@example.com", Name: "E2E User"}
+
+	sv := &fakeSessionValidator{}
+	stack := buildHandlerTestStack(t, sv, testApp, testUser)
+	sv.sess = &session.Session{ID: "sess-e2e", UserID: testUser.ID}
+	sv.u = testUser
+
+	r := newTestRouter(stack.handler)
+
+	// ── Step 1: GET /oauth/authorize with valid session → expect 302 + code ──
+	reqURL := fmt.Sprintf(
+		"/oauth/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&state=test-state",
+		clientID,
+		url.QueryEscape(redirectURI),
+		url.QueryEscape("openid profile email"),
+	)
+	req := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	req.AddCookie(&http.Cookie{Name: "passage_session", Value: "sess-token-e2e"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("authorize: status %d, want 302; body: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	parsed, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("authorize: parse redirect: %v", err)
+	}
+	code := parsed.Query().Get("code")
+	if code == "" {
+		t.Fatalf("authorize: no code in redirect location %q", loc)
+	}
+	if parsed.Query().Get("state") != "test-state" {
+		t.Errorf("authorize: state %q, want test-state", parsed.Query().Get("state"))
+	}
+
+	// ── Step 2: POST /oauth/token (authorization_code) → expect 200 + tokens ──
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {clientID},
+		"client_secret": {plainSecret},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("token exchange: status %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var tokenResp oauth.TokenResponse
+	if err := json.NewDecoder(w.Body).Decode(&tokenResp); err != nil {
+		t.Fatalf("token exchange: decode: %v", err)
+	}
+	if tokenResp.AccessToken == "" {
+		t.Error("token exchange: empty access_token")
+	}
+	if tokenResp.IDToken == "" {
+		t.Error("token exchange: empty id_token")
+	}
+	if tokenResp.RefreshToken == "" {
+		t.Error("token exchange: empty refresh_token")
+	}
+	if tokenResp.TokenType != "Bearer" {
+		t.Errorf("token exchange: token_type %q, want Bearer", tokenResp.TokenType)
+	}
+	if tokenResp.ExpiresIn <= 0 {
+		t.Errorf("token exchange: expires_in %d, want > 0", tokenResp.ExpiresIn)
+	}
+
+	// ── Step 3: GET /oauth/userinfo with Bearer token → expect 200 + sub/email ──
+	req = httptest.NewRequest(http.MethodGet, "/oauth/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("userinfo: status %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var userInfo map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&userInfo); err != nil {
+		t.Fatalf("userinfo: decode: %v", err)
+	}
+	if userInfo["sub"] != testUser.ID {
+		t.Errorf("userinfo sub: got %q, want %q", userInfo["sub"], testUser.ID)
+	}
+	if userInfo["email"] == "" {
+		t.Error("userinfo: empty email")
+	}
+
+	// ── Step 4: POST /oauth/token (refresh_token) → expect 200 + NEW tokens ──
+	oldRefreshToken := tokenResp.RefreshToken
+	form = url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {oldRefreshToken},
+		"client_id":     {clientID},
+		"client_secret": {plainSecret},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("refresh: status %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var refreshResp oauth.TokenResponse
+	if err := json.NewDecoder(w.Body).Decode(&refreshResp); err != nil {
+		t.Fatalf("refresh: decode: %v", err)
+	}
+	if refreshResp.AccessToken == tokenResp.AccessToken {
+		t.Error("refresh: access_token was not rotated")
+	}
+	if refreshResp.RefreshToken == oldRefreshToken {
+		t.Error("refresh: refresh_token was not rotated")
+	}
+
+	// ── Step 5: Replay old refresh token → expect 400 + invalid_grant ──
+	form = url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {oldRefreshToken},
+		"client_id":     {clientID},
+		"client_secret": {plainSecret},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("replay refresh: status %d, want 400", w.Code)
+	}
+	var errResp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatalf("replay refresh: decode error: %v", err)
+	}
+	if errResp["error"] != "invalid_grant" {
+		t.Errorf("replay refresh: error %q, want invalid_grant", errResp["error"])
+	}
+}
+
+// TestHandler_Token_InvalidRequests verifies that malformed token requests
+// return HTTP 400 with a non-empty JSON error field.
+func TestHandler_Token_InvalidRequests(t *testing.T) {
+	sv := &fakeSessionValidator{}
+	testApp := buildTestApp(t, "client-invalid", "secret", []string{"https://example.com/cb"})
+	testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
+	stack := buildHandlerTestStack(t, sv, testApp, testUser)
+	r := newTestRouter(stack.handler)
+
+	// validOAuthErrorCodes is the set of RFC 6749 error codes we accept.
+	validOAuthErrorCodes := map[string]bool{
+		"invalid_request":        true,
+		"invalid_client":         true,
+		"invalid_grant":          true,
+		"unauthorized_client":    true,
+		"unsupported_grant_type": true,
+		"invalid_scope":          true,
+	}
+
+	tests := []struct {
+		name string
+		body url.Values
+	}{
+		{
+			name: "missing grant_type",
+			body: url.Values{"client_id": {"x"}, "client_secret": {"y"}},
+		},
+		{
+			name: "unknown grant_type",
+			body: url.Values{
+				"grant_type":    {"client_credentials"},
+				"client_id":     {"x"},
+				"client_secret": {"y"},
+			},
+		},
+		{
+			name: "missing code for auth_code grant",
+			body: url.Values{
+				"grant_type":    {"authorization_code"},
+				"client_id":     {"x"},
+				"client_secret": {"y"},
+				"redirect_uri":  {"http://x"},
+			},
+		},
+		{
+			name: "missing refresh_token for refresh grant",
+			body: url.Values{
+				"grant_type":    {"refresh_token"},
+				"client_id":     {"x"},
+				"client_secret": {"y"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(tc.body.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("%s: status %d, want 400; body: %s", tc.name, w.Code, w.Body.String())
+			}
+
+			var errBody map[string]string
+			if err := json.NewDecoder(w.Body).Decode(&errBody); err != nil {
+				t.Fatalf("%s: decode error body: %v", tc.name, err)
+			}
+			errCode := errBody["error"]
+			if errCode == "" {
+				t.Errorf("%s: error field is empty in response", tc.name)
+			} else if !validOAuthErrorCodes[errCode] {
+				t.Errorf("%s: error %q is not a valid RFC 6749 error code", tc.name, errCode)
+			}
+		})
 	}
 }

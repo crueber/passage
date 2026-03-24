@@ -2,12 +2,17 @@ package oauth_test
 
 import (
 	"context"
+	"crypto/rsa"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
+	jwtlib "github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/crueber/passage/internal/app"
@@ -631,4 +636,123 @@ func TestService_ValidateAccessToken(t *testing.T) {
 			t.Errorf("ValidateAccessToken expired: got %v, want ErrTokenExpired", err)
 		}
 	})
+}
+
+// TestService_ExchangeCode_IDTokenClaims verifies that the id_token JWT
+// produced by ExchangeCode contains the correct claims and a valid RS256 signature.
+func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
+	const (
+		clientID    = "test-client-claims"
+		plainSecret = "test-secret-claims"
+		redirectURI = "https://example.com/callback"
+		baseURL     = "https://auth.example.com"
+	)
+
+	db := testutil.NewTestDB(t)
+	testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+	testUser := &user.User{
+		Username: "claimsuser",
+		Email:    "claims@example.com",
+		Name:     "Claims User",
+		IsAdmin:  false,
+	}
+	sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+	ctx := context.Background()
+
+	// Step 1: Get an authorization code.
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid profile email", "", testUser.ID)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+
+	// Step 2: Exchange it for a TokenResponse containing an id_token.
+	tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI)
+	if err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+
+	// Step 3: Decode the id_token JWT payload (without verifying signature yet).
+	parts := strings.Split(tokenResp.IDToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("id_token: expected 3 parts, got %d", len(parts))
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("id_token: base64 decode payload: %v", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		t.Fatalf("id_token: unmarshal payload: %v", err)
+	}
+
+	// Step 4: Assert standard OIDC claims.
+	now := time.Now().Unix()
+
+	if sub, _ := claims["sub"].(string); sub != testUser.ID {
+		t.Errorf("id_token sub: got %q, want %q", sub, testUser.ID)
+	}
+	if iss, _ := claims["iss"].(string); iss != baseURL {
+		t.Errorf("id_token iss: got %q, want %q", iss, baseURL)
+	}
+
+	// aud may be a string or []any depending on the JWT library serialisation.
+	switch aud := claims["aud"].(type) {
+	case string:
+		if aud != clientID {
+			t.Errorf("id_token aud (string): got %q, want %q", aud, clientID)
+		}
+	case []any:
+		found := false
+		for _, v := range aud {
+			if v == clientID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("id_token aud (array): %v does not contain %q", aud, clientID)
+		}
+	default:
+		t.Errorf("id_token aud: unexpected type %T: %v", claims["aud"], claims["aud"])
+	}
+
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		t.Errorf("id_token exp: not a number: %T", claims["exp"])
+	} else if int64(exp) <= now {
+		t.Errorf("id_token exp: %d is not in the future (now=%d)", int64(exp), now)
+	}
+
+	iat, ok := claims["iat"].(float64)
+	if !ok {
+		t.Errorf("id_token iat: not a number: %T", claims["iat"])
+	} else if int64(iat) > now {
+		t.Errorf("id_token iat: %d is in the future (now=%d)", int64(iat), now)
+	}
+
+	if email, _ := claims["email"].(string); email != testUser.Email {
+		t.Errorf("id_token email: got %q, want %q", email, testUser.Email)
+	}
+	if username, _ := claims["preferred_username"].(string); username != testUser.Username {
+		t.Errorf("id_token preferred_username: got %q, want %q", username, testUser.Username)
+	}
+	if _, present := claims["is_admin"]; !present {
+		t.Error("id_token is_admin: claim is missing")
+	}
+
+	// Step 5: Verify the RS256 signature using the service's public key.
+	pubKey := sc.svc.PrivateKey().Public().(*rsa.PublicKey)
+	parsed, err := jwtlib.Parse(tokenResp.IDToken, func(token *jwtlib.Token) (any, error) {
+		if _, ok := token.Method.(*jwtlib.SigningMethodRSA); !ok {
+			return nil, jwtlib.ErrSignatureInvalid
+		}
+		return pubKey, nil
+	})
+	if err != nil {
+		t.Errorf("id_token RS256 signature verification failed: %v", err)
+	}
+	if parsed != nil && !parsed.Valid {
+		t.Error("id_token: parsed token is not valid")
+	}
 }

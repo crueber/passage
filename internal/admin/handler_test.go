@@ -1360,4 +1360,108 @@ func TestAdminApps_OAuth(t *testing.T) {
 			t.Errorf("update redirect_uris: second URI = %q, want %q", updated.RedirectURIs[1], "https://app.example.com/callback2")
 		}
 	})
+
+	t.Run("secret not visible on reload", func(t *testing.T) {
+		// Create a fresh app and generate OAuth credentials.
+		a := &app.App{
+			Slug:        "oauth-secret-reload",
+			Name:        "OAuth Secret Reload",
+			HostPattern: "oauth-secret-reload.example.com",
+			IsActive:    true,
+		}
+		if err := f.appSvc.Create(ctx, a); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		created, err := f.appStore.GetBySlug(ctx, "oauth-secret-reload")
+		if err != nil {
+			t.Fatalf("get app by slug: %v", err)
+		}
+
+		// POST to generate OAuth credentials; the response body shows the
+		// plaintext secret exactly once.
+		rec := adminRequest(t, router, http.MethodPost,
+			"/admin/apps/"+created.ID+"/oauth/generate", token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("generate oauth: unexpected status %d", rec.Result().StatusCode)
+		}
+
+		// Extract the plaintext secret from the generate response body.
+		// The secret is a 64-char hex string rendered inside the page.
+		generateBody := rec.Body.String()
+
+		// Retrieve the stored client_id so we know what to look for.
+		updatedApp, err := f.appStore.GetByID(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("get updated app: %v", err)
+		}
+
+		// The generate page must have shown "Copy the secret" and the client ID.
+		if !strings.Contains(generateBody, updatedApp.ClientID) {
+			t.Errorf("generate page: does not contain client_id %q", updatedApp.ClientID)
+		}
+
+		// Now GET the edit page for the same app.
+		rec = adminRequest(t, router, http.MethodGet,
+			"/admin/apps/"+created.ID, token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("GET app edit: unexpected status %d", rec.Result().StatusCode)
+		}
+		editBody := rec.Body.String()
+
+		// The edit page must contain the client ID (so we can verify it loaded).
+		if !strings.Contains(editBody, updatedApp.ClientID) {
+			t.Errorf("edit page: does not contain client_id %q", updatedApp.ClientID)
+		}
+
+		// The edit page must NOT expose the ClientSecretHash.
+		if strings.Contains(editBody, updatedApp.ClientSecretHash) {
+			t.Error("edit page: exposes the ClientSecretHash — secret must not be shown on reload")
+		}
+
+		// The generate response body contained some 64-char hex secret.
+		// Extract it and ensure the edit page does not contain it.
+		// A bcrypt hash starts with "$2a$" or "$2b$", so we look for any
+		// 64-char hex substring in the generate body.
+		const hexChars = "0123456789abcdefABCDEF"
+		secretCandidate := extractHexSecret(generateBody, 64, hexChars)
+		if secretCandidate != "" && strings.Contains(editBody, secretCandidate) {
+			t.Errorf("edit page: contains plaintext secret %q — must not be shown after initial generation", secretCandidate)
+		}
+	})
+}
+
+// extractHexSecret scans body for a contiguous run of exactly targetLen
+// characters all drawn from hexChars and returns the first such run found.
+// Returns "" if no such run exists.
+func extractHexSecret(body string, targetLen int, hexChars string) string {
+	inHex := func(ch byte) bool {
+		for i := 0; i < len(hexChars); i++ {
+			if hexChars[i] == ch {
+				return true
+			}
+		}
+		return false
+	}
+
+	start := -1
+	for i := 0; i < len(body); i++ {
+		if inHex(body[i]) {
+			if start == -1 {
+				start = i
+			}
+			if i-start+1 == targetLen {
+				// Check that the next character is not also a hex char
+				// (we want exactly targetLen, not a longer run).
+				if i+1 < len(body) && inHex(body[i+1]) {
+					// Longer run — reset and keep scanning.
+					start = -1
+					continue
+				}
+				return body[start : i+1]
+			}
+		} else {
+			start = -1
+		}
+	}
+	return ""
 }
