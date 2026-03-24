@@ -3,6 +3,8 @@
 server:
   host: "0.0.0.0"
   port: 8080
+  # Required — used for email links, WebAuthn, and OIDC discovery.
+  # Must match the public URL that clients use to reach Passage.
   base_url: "https://auth.home.example.com"
 
 database:
