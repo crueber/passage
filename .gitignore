@@ -27,6 +27,7 @@ vendor/
 .env
 *.env.local
 .env.*
+!.env.example
 
 # Air live-reload
 tmp/

@@ -1,0 +1,49 @@
+# Build artifacts
+/passage
+/passage.exe
+dist/
+
+# Database files — never bake the DB into the image
+*.db
+*.db-shm
+*.db-wal
+
+# Test artifacts
+*.test
+*.out
+coverage.out
+
+# Go module download cache
+vendor/
+
+# Editor and IDE metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git internals (not needed by go build)
+.git/
+.gitignore
+.worktrees/
+
+# CI/CD and local tooling
+.github/
+tmp/
+
+# Docker files themselves (avoid redundant COPY)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+.env
+*.env.local
+.env.*
+
+# Documentation and plans (not needed in the binary)
+docs/
+plans/
+README.md
+LICENSE
+passage.example.yaml
