@@ -2,6 +2,7 @@ package oauth_test
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -67,7 +68,7 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 		t.Fatalf("buildHandlerTestStack: NewService: %v", err)
 	}
 
-	h := oauth.NewHandler(svc, sv, svc.PrivateKey(), svc.KeyID(), "https://auth.example.com", "passage_session", slog.Default())
+	h := oauth.NewHandler(svc, sv, svc.PrivateKey().Public().(*rsa.PublicKey), svc.KeyID(), "https://auth.example.com", "passage_session", slog.Default())
 	return &handlerTestStack{
 		handler: h,
 		svc:     svc,

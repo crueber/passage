@@ -38,7 +38,7 @@ type sessionValidator interface {
 type Handler struct {
 	svc        oauthService
 	sessions   sessionValidator
-	privateKey *rsa.PrivateKey
+	publicKey  *rsa.PublicKey
 	keyID      string // kid included in JWKS and id_token header
 	baseURL    string
 	cookieName string
@@ -46,11 +46,11 @@ type Handler struct {
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(svc oauthService, sessions sessionValidator, privateKey *rsa.PrivateKey, keyID, baseURL, cookieName string, logger *slog.Logger) *Handler {
+func NewHandler(svc oauthService, sessions sessionValidator, publicKey *rsa.PublicKey, keyID, baseURL, cookieName string, logger *slog.Logger) *Handler {
 	return &Handler{
 		svc:        svc,
 		sessions:   sessions,
-		privateKey: privateKey,
+		publicKey:  publicKey,
 		keyID:      keyID,
 		baseURL:    baseURL,
 		cookieName: cookieName,
@@ -90,7 +90,7 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 // JWKS returns the JSON Web Key Set containing the RSA public key used to
 // verify id_token signatures.
 func (h *Handler) JWKS(w http.ResponseWriter, r *http.Request) {
-	pub := h.privateKey.Public().(*rsa.PublicKey)
+	pub := h.publicKey
 
 	// Encode the modulus (n) as base64url with no padding.
 	nBytes := pub.N.Bytes()

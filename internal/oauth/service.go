@@ -337,6 +337,7 @@ func (s *Service) buildIDToken(u *user.User, clientID string) (string, error) {
 		"name":               u.Name,
 		"email":              u.Email,
 		"preferred_username": u.Username,
+		"is_admin":           u.IsAdmin,
 	}
 
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodRS256, claims)
