@@ -53,6 +53,8 @@ type appServiceOps interface {
 	ListUsersWithAccess(ctx context.Context, appID string) ([]*app.UserAccess, error)
 	GrantAccess(ctx context.Context, userID, appID string) error
 	RevokeAccess(ctx context.Context, userID, appID string) error
+	GenerateClientCredentials(ctx context.Context, appID string) (clientSecret string, err error)
+	RotateClientSecret(ctx context.Context, appID string) (clientSecret string, err error)
 }
 
 // sessionServiceOps is the minimal interface for session management.
@@ -134,6 +136,8 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Get("/apps/{id}/access", h.GetAppAccess)
 	r.Post("/apps/{id}/access", h.PostGrantAccess)
 	r.Post("/apps/{id}/access/{userId}/revoke", h.PostRevokeAccess)
+	r.Post("/apps/{id}/oauth/generate", h.PostGenerateOAuthCredentials)
+	r.Post("/apps/{id}/oauth/rotate", h.PostRotateOAuthSecret)
 
 	// Sessions
 	r.Get("/sessions", h.GetSessions)
@@ -169,6 +173,10 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "Access granted."}
 	case "access-revoked":
 		return &Flash{Type: "success", Message: "Access revoked."}
+	case "oauth-generated":
+		return &Flash{Type: "success", Message: "OAuth credentials generated."}
+	case "oauth-rotated":
+		return &Flash{Type: "success", Message: "OAuth client secret rotated."}
 	case "self-delete-forbidden":
 		return &Flash{Type: "error", Message: "You cannot delete your own account."}
 	case "error":
@@ -512,8 +520,9 @@ func (h *Handler) GetApps(w http.ResponseWriter, r *http.Request) {
 
 type appFormData struct {
 	basePage
-	EditApp *app.App
-	IsNew   bool
+	EditApp         *app.App
+	IsNew           bool
+	NewClientSecret string // non-empty only when just generated or rotated; shown once
 }
 
 // GetNewApp renders the new app form.
@@ -614,6 +623,17 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	a.HostPattern = strings.TrimSpace(r.FormValue("host_pattern"))
 	a.IsActive = r.FormValue("is_active") == "on"
 
+	// Parse redirect_uris from textarea (one per line, trim whitespace, drop blanks).
+	rawURIs := r.FormValue("redirect_uris")
+	var uris []string
+	for _, line := range strings.Split(rawURIs, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			uris = append(uris, line)
+		}
+	}
+	a.RedirectURIs = uris
+
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Slug and name are required."}},
@@ -648,6 +668,79 @@ func (h *Handler) PostDeleteApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/admin/apps?flash=deleted", http.StatusFound)
+}
+
+// PostGenerateOAuthCredentials enables OAuth for an app and generates its
+// initial client_id and client_secret. The plaintext secret is shown once in
+// the form; it is not stored.
+func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	a, err := h.apps.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			http.Redirect(w, r, "/admin/apps", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get app for oauth generate", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	secret, err := h.apps.GenerateClientCredentials(ctx, id)
+	if err != nil {
+		msg := "Failed to generate OAuth credentials."
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			EditApp:  a,
+		})
+		return
+	}
+
+	// Re-fetch to get the updated ClientID and OAuthEnabled flag.
+	a, _ = h.apps.GetByID(ctx, id)
+	h.render(w, r, "admin-app-form", appFormData{
+		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}},
+		EditApp:         a,
+		NewClientSecret: secret,
+	})
+}
+
+// PostRotateOAuthSecret rotates the client secret for an OAuth-enabled app.
+// The new plaintext secret is shown once in the form; it is not stored.
+func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	a, err := h.apps.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			http.Redirect(w, r, "/admin/apps", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get app for oauth rotate", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	secret, err := h.apps.RotateClientSecret(ctx, id)
+	if err != nil {
+		msg := "Failed to rotate OAuth client secret."
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			EditApp:  a,
+		})
+		return
+	}
+
+	// Re-fetch to get the updated state.
+	a, _ = h.apps.GetByID(ctx, id)
+	h.render(w, r, "admin-app-form", appFormData{
+		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}},
+		EditApp:         a,
+		NewClientSecret: secret,
+	})
 }
 
 // ─── App Access ───────────────────────────────────────────────────────────────
