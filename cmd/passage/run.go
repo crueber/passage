@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/forwardauth"
+	"github.com/crueber/passage/internal/oauth"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
@@ -85,6 +87,18 @@ func run() error {
 	appStore := app.NewStore(database)
 	appSvc := app.NewService(appStore, appStore, logger)
 
+	// Load or generate the OIDC RSA signing key.
+	oauthStore := oauth.NewStore(database)
+	oauthKeyPEM, oauthKID, err := oauthStore.GetOrCreateRSAKey(ctx)
+	if err != nil {
+		return fmt.Errorf("init oauth signing key: %w", err)
+	}
+	oauthSvc, err := oauth.NewService(oauthStore, appStore, userStore, oauthKeyPEM, oauthKID, cfg.Server.BaseURL, logger)
+	if err != nil {
+		return fmt.Errorf("init oauth service: %w", err)
+	}
+	oauthHandler := oauth.NewHandler(oauthSvc, sessionSvc, oauthSvc.PrivateKey().Public().(*rsa.PublicKey), oauthSvc.KeyID(), cfg.Server.BaseURL, cfg.Session.CookieName, logger)
+
 	// Build WebAuthn credential store and challenge store.
 	credStore := webauthn.NewSQLiteCredentialStore(database)
 	challenges := webauthn.NewChallengeStore()
@@ -123,6 +137,23 @@ func run() error {
 				return
 			case <-ticker.C:
 				challenges.Cleanup()
+			}
+		}
+	}()
+
+	// Start OAuth token/code cleanup goroutine.
+	// Removes expired authorization codes, access tokens, and refresh tokens every hour.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := oauthStore.DeleteExpired(ctx); err != nil {
+					logger.Error("oauth cleanup failed", "error", err)
+				}
 			}
 		}
 	}()
@@ -178,6 +209,9 @@ func run() error {
 
 	// Forward-auth endpoints (consumed by reverse proxy).
 	faHandler.Routes(r)
+
+	// OAuth 2.0 / OIDC endpoints (public — handler performs its own session checks).
+	oauthHandler.Routes(r)
 
 	// User-facing auth routes (no session middleware).
 	r.Get("/login", userHandler.GetLogin)

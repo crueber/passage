@@ -37,6 +37,13 @@
                placeholder="e.g. grafana.home.example.com or *.home.example.com"
                value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
 
+        {{if not .IsNew}}
+        <label for="redirect_uris">Redirect URIs <small>(one per line)</small></label>
+        <textarea id="redirect_uris" name="redirect_uris" rows="4" style="font-family: monospace;">{{range .EditApp.RedirectURIs}}{{.}}
+{{end}}</textarea>
+        <small>List every allowed OAuth callback URL. Exact match required.</small>
+        {{end}}
+
         <fieldset>
           <label>
             <input type="checkbox" name="is_active"
@@ -48,6 +55,32 @@
         <button type="submit">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
         <a href="/admin/apps">Cancel</a>
       </form>
+
+      {{if not .IsNew}}
+      <hr>
+      <h3>OAuth Client</h3>
+
+      {{if .NewClientSecret}}
+      <div role="alert" class="notice">
+        <strong>New client secret (copy now — it will not be shown again):</strong><br>
+        <code style="font-size: 1.1em; word-break: break-all;">{{.NewClientSecret}}</code>
+        <button type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
+      </div>
+      {{end}}
+
+      {{if .EditApp.OAuthEnabled}}
+      <p><strong>Client ID:</strong> <code>{{.EditApp.ClientID}}</code></p>
+      <p><strong>Client Secret:</strong> •••••••••• (set)</p>
+      <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
+        <button type="submit" onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">Rotate Secret</button>
+      </form>
+      {{else}}
+      <p>OAuth is not enabled for this app.</p>
+      <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/generate">
+        <button type="submit">Enable OAuth &amp; Generate Credentials</button>
+      </form>
+      {{end}}
+      {{end}}
     </main>
   </div>
 </body>

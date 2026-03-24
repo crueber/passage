@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+// selectAppColumns is the ordered list of columns returned by all app SELECT
+// queries. It must stay in sync with scanApp.
+const selectAppColumns = `id, slug, name, description, host_pattern, is_active, created_at, updated_at,
+		client_id, client_secret_hash, redirect_uris, oauth_enabled`
+
+// selectAppColumnsAliased is the same column list but prefixed with a table
+// alias "a." for use in queries that JOIN other tables to avoid ambiguity.
+const selectAppColumnsAliased = `a.id, a.slug, a.name, a.description, a.host_pattern, a.is_active, a.created_at, a.updated_at,
+		a.client_id, a.client_secret_hash, a.redirect_uris, a.oauth_enabled`
+
 // SQLiteStore implements Store and AccessStore using a SQLite database.
 type SQLiteStore struct {
 	db *sql.DB
@@ -47,12 +57,15 @@ func (s *SQLiteStore) Create(ctx context.Context, a *App) error {
 	a.UpdatedAt = now
 
 	const query = `
-		INSERT INTO apps (id, slug, name, description, host_pattern, is_active, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO apps (id, slug, name, description, host_pattern, is_active, created_at, updated_at,
+		                  client_id, client_secret_hash, redirect_uris, oauth_enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		a.ID, a.Slug, a.Name, a.Description, a.HostPattern,
 		boolToInt(a.IsActive), a.CreatedAt, a.UpdatedAt,
+		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
+		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
 	)
 	if err != nil {
 		return mapAppConstraintError(err)
@@ -63,7 +76,7 @@ func (s *SQLiteStore) Create(ctx context.Context, a *App) error {
 // GetByID looks up an app by its UUID.
 func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*App, error) {
 	const query = `
-		SELECT id, slug, name, description, host_pattern, is_active, created_at, updated_at
+		SELECT ` + selectAppColumns + `
 		FROM apps WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, query, id)
 	a, err := scanApp(row)
@@ -76,7 +89,7 @@ func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*App, error) {
 // GetBySlug looks up an app by its slug.
 func (s *SQLiteStore) GetBySlug(ctx context.Context, slug string) (*App, error) {
 	const query = `
-		SELECT id, slug, name, description, host_pattern, is_active, created_at, updated_at
+		SELECT ` + selectAppColumns + `
 		FROM apps WHERE slug = ?`
 	row := s.db.QueryRowContext(ctx, query, slug)
 	a, err := scanApp(row)
@@ -86,10 +99,23 @@ func (s *SQLiteStore) GetBySlug(ctx context.Context, slug string) (*App, error) 
 	return a, nil
 }
 
+// GetByClientID looks up an app by its OAuth client_id.
+func (s *SQLiteStore) GetByClientID(ctx context.Context, clientID string) (*App, error) {
+	const query = `
+		SELECT ` + selectAppColumns + `
+		FROM apps WHERE client_id = ?`
+	row := s.db.QueryRowContext(ctx, query, clientID)
+	a, err := scanApp(row)
+	if err != nil {
+		return nil, fmt.Errorf("app store get by client id: %w", err)
+	}
+	return a, nil
+}
+
 // ListActive returns all active apps ordered by creation time ascending.
 func (s *SQLiteStore) ListActive(ctx context.Context) ([]*App, error) {
 	const query = `
-		SELECT id, slug, name, description, host_pattern, is_active, created_at, updated_at
+		SELECT ` + selectAppColumns + `
 		FROM apps WHERE is_active = 1 ORDER BY created_at ASC`
 	return s.queryApps(ctx, query)
 }
@@ -97,7 +123,7 @@ func (s *SQLiteStore) ListActive(ctx context.Context) ([]*App, error) {
 // List returns all apps ordered by name.
 func (s *SQLiteStore) List(ctx context.Context) ([]*App, error) {
 	const query = `
-		SELECT id, slug, name, description, host_pattern, is_active, created_at, updated_at
+		SELECT ` + selectAppColumns + `
 		FROM apps ORDER BY name`
 	return s.queryApps(ctx, query)
 }
@@ -130,12 +156,16 @@ func (s *SQLiteStore) Update(ctx context.Context, a *App) error {
 
 	const query = `
 		UPDATE apps
-		SET slug = ?, name = ?, description = ?, host_pattern = ?, is_active = ?, updated_at = ?
+		SET slug = ?, name = ?, description = ?, host_pattern = ?, is_active = ?, updated_at = ?,
+		    client_id = ?, client_secret_hash = ?, redirect_uris = ?, oauth_enabled = ?
 		WHERE id = ?`
 
 	res, err := s.db.ExecContext(ctx, query,
 		a.Slug, a.Name, a.Description, a.HostPattern,
-		boolToInt(a.IsActive), a.UpdatedAt, a.ID,
+		boolToInt(a.IsActive), a.UpdatedAt,
+		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
+		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
+		a.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("app store update: %w", mapAppConstraintError(err))
@@ -233,7 +263,7 @@ func (s *SQLiteStore) ListUsersWithAccess(ctx context.Context, appID string) ([]
 // ListAppsForUser returns all apps the given user has access to.
 func (s *SQLiteStore) ListAppsForUser(ctx context.Context, userID string) ([]*App, error) {
 	const query = `
-		SELECT a.id, a.slug, a.name, a.description, a.host_pattern, a.is_active, a.created_at, a.updated_at
+		SELECT ` + selectAppColumnsAliased + `
 		FROM apps a
 		INNER JOIN user_app_access uaa ON uaa.app_id = a.id
 		WHERE uaa.user_id = ?
@@ -250,9 +280,14 @@ type appScanner interface {
 func scanApp(s appScanner) (*App, error) {
 	var a App
 	var isActive int
+	var oauthEnabled int
+	var clientID sql.NullString
+	var clientSecretHash sql.NullString
+	var redirectURIsRaw string
 	err := s.Scan(
 		&a.ID, &a.Slug, &a.Name, &a.Description, &a.HostPattern,
 		&isActive, &a.CreatedAt, &a.UpdatedAt,
+		&clientID, &clientSecretHash, &redirectURIsRaw, &oauthEnabled,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -261,7 +296,43 @@ func scanApp(s appScanner) (*App, error) {
 		return nil, err
 	}
 	a.IsActive = isActive != 0
+	a.OAuthEnabled = oauthEnabled != 0
+	a.ClientID = clientID.String
+	a.ClientSecretHash = clientSecretHash.String
+	a.RedirectURIs = splitRedirectURIs(redirectURIsRaw)
 	return &a, nil
+}
+
+// nullableString converts an empty string to a NULL sql.NullString, and a
+// non-empty string to a valid sql.NullString. This is used for columns that
+// are UNIQUE DEFAULT NULL (client_id, client_secret_hash) so that multiple
+// rows with an empty value do not violate the UNIQUE constraint.
+func nullableString(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// joinRedirectURIs joins a []string into a newline-separated string for DB storage.
+func joinRedirectURIs(uris []string) string {
+	return strings.Join(uris, "\n")
+}
+
+// splitRedirectURIs splits a newline-separated string into a []string,
+// filtering out empty strings that arise from an empty DB value.
+func splitRedirectURIs(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, "\n")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // boolToInt converts a bool to a SQLite-friendly integer (0 or 1).

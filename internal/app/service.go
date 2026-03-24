@@ -2,10 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"path"
 	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Service implements business logic for app management and host resolution.
@@ -218,4 +222,75 @@ func (s *Service) ListAppsForUser(ctx context.Context, userID string) ([]*App, e
 		return nil, fmt.Errorf("app service list apps for user: %w", err)
 	}
 	return apps, nil
+}
+
+// GenerateClientCredentials sets a client_id (equal to the app's slug),
+// generates a new random 32-byte client secret, bcrypt-hashes it (cost 12),
+// stores the hash, enables OAuth for the app, and returns the plaintext secret.
+// The plaintext secret is shown only once and not stored.
+func (s *Service) GenerateClientCredentials(ctx context.Context, appID string) (string, error) {
+	a, err := s.store.GetByID(ctx, appID)
+	if err != nil {
+		return "", fmt.Errorf("app service generate client credentials get app: %w", err)
+	}
+
+	if a.OAuthEnabled && a.ClientID != "" {
+		return "", fmt.Errorf("app service generate client credentials: oauth already enabled, use RotateClientSecret to rotate the secret")
+	}
+
+	secret, hash, err := generateSecretAndHash()
+	if err != nil {
+		return "", fmt.Errorf("app service generate client credentials: %w", err)
+	}
+
+	a.ClientID = a.Slug
+	a.ClientSecretHash = hash
+	a.OAuthEnabled = true
+
+	if err := s.store.Update(ctx, a); err != nil {
+		return "", fmt.Errorf("app service generate client credentials update: %w", err)
+	}
+	return secret, nil
+}
+
+// RotateClientSecret generates a new random 32-byte client secret, bcrypt-hashes
+// it (cost 12), stores the hash, and returns the plaintext secret.
+// The plaintext secret is shown only once and not stored.
+func (s *Service) RotateClientSecret(ctx context.Context, appID string) (string, error) {
+	a, err := s.store.GetByID(ctx, appID)
+	if err != nil {
+		return "", fmt.Errorf("app service rotate client secret get app: %w", err)
+	}
+
+	if !a.OAuthEnabled || a.ClientID == "" {
+		return "", fmt.Errorf("app service rotate client secret: %w", ErrOAuthNotEnabled)
+	}
+
+	secret, hash, err := generateSecretAndHash()
+	if err != nil {
+		return "", fmt.Errorf("app service rotate client secret: %w", err)
+	}
+
+	a.ClientSecretHash = hash
+
+	if err := s.store.Update(ctx, a); err != nil {
+		return "", fmt.Errorf("app service rotate client secret update: %w", err)
+	}
+	return secret, nil
+}
+
+// generateSecretAndHash generates a cryptographically random 32-byte secret
+// encoded as a hex string, bcrypt-hashes it at cost 12, and returns both.
+func generateSecretAndHash() (plaintext, hash string, err error) {
+	var raw [32]byte
+	if _, err = rand.Read(raw[:]); err != nil {
+		return "", "", fmt.Errorf("generate random secret: %w", err)
+	}
+	plaintext = hex.EncodeToString(raw[:])
+
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(plaintext), 12)
+	if err != nil {
+		return "", "", fmt.Errorf("bcrypt hash secret: %w", err)
+	}
+	return plaintext, string(hashBytes), nil
 }

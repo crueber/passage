@@ -24,6 +24,11 @@ func TestOpen_CreatesSchema(t *testing.T) {
 		"password_reset_tokens",
 		"webauthn_credentials",
 		"settings",
+		// OAuth tables added in migration 002.
+		"oauth_codes",
+		"oauth_tokens",
+		"oauth_refresh_tokens",
+		"oidc_config",
 	}
 
 	for _, table := range tables {
@@ -36,6 +41,50 @@ func TestOpen_CreatesSchema(t *testing.T) {
 			).Scan(&name)
 			if err != nil {
 				t.Errorf("table %q not found in schema: %v", table, err)
+			}
+		})
+	}
+}
+
+func TestOpen_OAuthColumnsInApps(t *testing.T) {
+	database, err := db.Open(context.Background(), ":memory:", slog.Default())
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer database.Close()
+
+	// Query all column names in the apps table.
+	rows, err := database.QueryContext(context.Background(), "PRAGMA table_info(apps)")
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(apps): %v", err)
+	}
+	defer rows.Close()
+
+	colNames := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, dfltValue, pk any
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan column row: %v", err)
+		}
+		colNames[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
+	}
+
+	// Verify the 4 OAuth columns added by migration 002 are present.
+	oauthColumns := []string{
+		"client_id",
+		"client_secret_hash",
+		"redirect_uris",
+		"oauth_enabled",
+	}
+	for _, col := range oauthColumns {
+		t.Run(col, func(t *testing.T) {
+			if !colNames[col] {
+				t.Errorf("column %q not found in apps table", col)
 			}
 		})
 	}

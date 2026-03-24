@@ -22,6 +22,7 @@ On `401`, the reverse proxy redirects the browser to Passage's login page, which
 
 - **Username + password login** — bcrypt-hashed credentials stored in SQLite (cost configurable, default 12)
 - **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and log in without a password
+- **OAuth 2.0 / OIDC Provider** — act as an OpenID Connect identity provider for downstream apps (Grafana, Gitea, etc.)
 - **Per-app access control** — grant or revoke each user's access to each registered application independently
 - **Admin web UI** — manage users, apps, sessions, and settings without touching config files
 - **Self-registration** — optionally let users create their own accounts (togglable by admin at runtime)
@@ -45,6 +46,7 @@ All five implementation phases are complete:
 | 3 — Forward Auth | ✅ Complete | `/auth/nginx`, `/auth/traefik`, app model, host-pattern matching, access grants |
 | 4 — Admin UI | ✅ Complete | Full admin dashboard: users, apps, sessions, settings, htmx enhancements |
 | 5 — Passkeys | ✅ Complete | WebAuthn registration and authentication, per-user credential management |
+| 6 — OAuth/OIDC | ✅ Complete | OAuth 2.0 authorization code flow, OIDC discovery, JWKS, id_token (RS256) |
 
 > **Pre-release**: APIs and configuration format may change before v1.0.
 
@@ -90,7 +92,7 @@ Passage is configured via a YAML file plus `PASSAGE_*` environment variable over
 server:
   host: "0.0.0.0"      # bind address
   port: 8080            # listen port
-  base_url: "https://auth.home.example.com"  # required — used for email links and WebAuthn
+  base_url: "https://auth.home.example.com"  # required — used for email links, WebAuthn, and OIDC discovery
 
 database:
   path: "./passage.db"  # path to SQLite file; created on first run
@@ -211,6 +213,51 @@ See [`docs/traefik-example.yaml`](docs/traefik-example.yaml) for the full annota
 
 ---
 
+## OAuth 2.0 / OIDC Provider
+
+Passage can act as an OpenID Connect identity provider for downstream applications (Grafana, Gitea, Nextcloud, etc.) using the standard authorization code flow.
+
+> **Requirement**: `server.base_url` (or `PASSAGE_SERVER_BASE_URL`) must be set to Passage's public URL for OIDC discovery to work correctly.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/.well-known/openid-configuration` | `GET` | OIDC discovery document |
+| `/.well-known/jwks.json` | `GET` | JSON Web Key Set (RSA public key for id_token verification) |
+| `/oauth/authorize` | `GET` | Authorization endpoint — redirects to login if no session |
+| `/oauth/token` | `POST` | Token endpoint — `authorization_code` and `refresh_token` grants |
+| `/oauth/userinfo` | `GET` | UserInfo endpoint — requires `Bearer` access token |
+
+The RSA signing key is auto-generated on first start and stored in the database — no manual key management is required.
+
+### Setting up a client
+
+1. In the Passage admin UI, open an application and enable OAuth. Generate OAuth credentials to receive a `client_id` and `client_secret`.
+2. Add the downstream app's callback URL(s) as allowed redirect URIs.
+3. Use the `client_id` and `client_secret` in the downstream application's OAuth/OIDC configuration, pointing at Passage's `base_url`.
+
+### Grafana example (Generic OAuth)
+
+```ini
+[auth.generic_oauth]
+enabled           = true
+name              = Passage
+client_id         = <your-client-id>
+client_secret     = <your-client-secret>
+scopes            = openid profile email
+auth_url          = https://auth.home.example.com/oauth/authorize
+token_url         = https://auth.home.example.com/oauth/token
+api_url           = https://auth.home.example.com/oauth/userinfo
+use_id_token      = true
+# Map Passage is_admin claim to Grafana admin role (optional)
+role_attribute_path = is_admin && 'Admin' || 'Viewer'
+```
+
+id_tokens are signed with RS256. Grafana (and any OIDC-compliant library) can verify them automatically via the JWKS endpoint.
+
+---
+
 ## Development
 
 ### Build
@@ -239,6 +286,7 @@ go test -race ./internal/app/...
 go test -race ./internal/forwardauth/...
 go test -race ./internal/admin/...
 go test -race ./internal/webauthn/...
+go test -race ./internal/oauth/...
 ```
 
 Tests use a real in-memory SQLite database — no mocks at the database layer. The `internal/testutil` package provides `NewTestDB(t)` for setting up a fully migrated test database.
