@@ -1,0 +1,91 @@
+# docs/traefik-compose-example.yml
+#
+# EXAMPLE ONLY — not a production-ready deployment.
+#
+# This file shows how to integrate Passage with Traefik v3 as the reverse
+# proxy on a home-lab host. It runs:
+#   - Traefik (reverse proxy + TLS via ACME/Let's Encrypt)
+#   - Passage (forward-auth provider)
+#   - whoami (sample protected app)
+#
+# Prerequisites:
+#   - A domain pointing at this host (e.g. home.example.com)
+#   - Ports 80 and 443 open on the host
+#
+# Usage:
+#   cp .env.example .env && nano .env
+#   docker compose -f docs/traefik-compose-example.yml up -d
+
+services:
+
+  traefik:
+    image: traefik:v3.3
+    restart: unless-stopped
+    command:
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.le.acme.httpchallenge=true"
+      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.le.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+
+  passage:
+    image: ghcr.io/crueber/passage:latest
+    restart: unless-stopped
+    environment:
+      PASSAGE_SERVER_BASE_URL: "https://auth.${DOMAIN}"
+      PASSAGE_DATABASE_PATH: "/data/passage.db"
+      PASSAGE_SMTP_HOST: "${PASSAGE_SMTP_HOST:-}"
+      PASSAGE_SMTP_PORT: "${PASSAGE_SMTP_PORT:-587}"
+      PASSAGE_SMTP_USERNAME: "${PASSAGE_SMTP_USERNAME:-}"
+      PASSAGE_SMTP_PASSWORD: "${PASSAGE_SMTP_PASSWORD:-}"
+      PASSAGE_SMTP_FROM: "${PASSAGE_SMTP_FROM:-}"
+      PASSAGE_SMTP_TLS: "${PASSAGE_SMTP_TLS:-starttls}"
+      PASSAGE_SESSION_COOKIE_SECURE: "true"
+      PASSAGE_LOG_FORMAT: "json"
+    volumes:
+      - passage_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.passage.rule=Host(`auth.${DOMAIN}`)"
+      - "traefik.http.routers.passage.entrypoints=websecure"
+      - "traefik.http.routers.passage.tls.certresolver=le"
+      - "traefik.http.services.passage.loadbalancer.server.port=8080"
+      # Define the forwardAuth middleware pointing at Passage's /auth/traefik endpoint.
+      - "traefik.http.middlewares.passage-auth.forwardauth.address=http://passage:8080/auth/traefik"
+      - "traefik.http.middlewares.passage-auth.forwardauth.authResponseHeaders=X-Passage-Username,X-Passage-Email,X-Passage-Name,X-Passage-User-ID,X-Passage-Is-Admin"
+      - "traefik.http.middlewares.passage-auth.forwardauth.trustForwardHeader=true"
+
+  # Sample protected app — replace with your actual services.
+  whoami:
+    image: traefik/whoami:latest
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami.rule=Host(`whoami.${DOMAIN}`)"
+      - "traefik.http.routers.whoami.entrypoints=websecure"
+      - "traefik.http.routers.whoami.tls.certresolver=le"
+      - "traefik.http.routers.whoami.middlewares=passage-auth"
+      - "traefik.http.services.whoami.loadbalancer.server.port=80"
+
+volumes:
+  letsencrypt:
+  passage_data:
+    driver: local

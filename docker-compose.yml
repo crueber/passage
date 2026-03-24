@@ -1,0 +1,54 @@
+# docker-compose.yml — Standalone Passage deployment
+#
+# Usage:
+#   1. cp .env.example .env
+#   2. Edit .env with your values
+#   3. docker compose up -d
+#
+# Passage will listen on port 8080 by default. Put it behind your
+# existing reverse proxy (Nginx, Traefik, Caddy) for TLS termination.
+
+services:
+  passage:
+    image: ghcr.io/crueber/passage:latest
+    # Uncomment to build from source instead:
+    # build: .
+    restart: unless-stopped
+    ports:
+      - "${PASSAGE_PORT:-8080}:8080"
+    environment:
+      # Server
+      PASSAGE_SERVER_BASE_URL: "${PASSAGE_SERVER_BASE_URL}"
+      PASSAGE_SERVER_HOST: "0.0.0.0"
+      PASSAGE_SERVER_PORT: "8080"
+      # Database — always points into the named volume
+      PASSAGE_DATABASE_PATH: "/data/passage.db"
+      # Session
+      PASSAGE_SESSION_DURATION_HOURS: "${PASSAGE_SESSION_DURATION_HOURS:-24}"
+      PASSAGE_SESSION_COOKIE_NAME: "${PASSAGE_SESSION_COOKIE_NAME:-passage_session}"
+      PASSAGE_SESSION_COOKIE_SECURE: "${PASSAGE_SESSION_COOKIE_SECURE:-true}"
+      # SMTP (optional — omit host to disable email features)
+      PASSAGE_SMTP_HOST: "${PASSAGE_SMTP_HOST:-}"
+      PASSAGE_SMTP_PORT: "${PASSAGE_SMTP_PORT:-587}"
+      PASSAGE_SMTP_USERNAME: "${PASSAGE_SMTP_USERNAME:-}"
+      PASSAGE_SMTP_PASSWORD: "${PASSAGE_SMTP_PASSWORD:-}"
+      PASSAGE_SMTP_FROM: "${PASSAGE_SMTP_FROM:-}"
+      PASSAGE_SMTP_TLS: "${PASSAGE_SMTP_TLS:-starttls}"
+      # Auth
+      PASSAGE_AUTH_ALLOW_REGISTRATION: "${PASSAGE_AUTH_ALLOW_REGISTRATION:-true}"
+      PASSAGE_AUTH_BCRYPT_COST: "${PASSAGE_AUTH_BCRYPT_COST:-12}"
+      # Logging
+      PASSAGE_LOG_LEVEL: "${PASSAGE_LOG_LEVEL:-info}"
+      PASSAGE_LOG_FORMAT: "${PASSAGE_LOG_FORMAT:-json}"
+    volumes:
+      - passage_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  passage_data:
+    driver: local
