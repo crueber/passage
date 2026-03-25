@@ -70,11 +70,24 @@
 }
 
 /* ─── Admin layout ───────────────────────────────────────────────────────── */
+
+/*
+ * Simple.css sets: body { display: grid; grid-template-columns: 1fr min(45rem,90%) 1fr }
+ * and body > * { grid-column: 2 }  — which boxes everything into a narrow center column.
+ * .admin-layout must break out of that constraint to fill the full viewport.
+ */
+body:has(.admin-layout) {
+  display: block;   /* cancel Simple.css body grid entirely for admin pages */
+  margin: 0;
+  padding: 0;
+}
+
 .admin-layout {
   display: grid;
-  grid-template-columns: 13rem 1fr;
+  grid-template-columns: 14rem 1fr;
   grid-template-rows: auto 1fr;
   min-height: 100vh;
+  width: 100%;
 }
 
 /* Top header bar — spans full width */
@@ -90,16 +103,19 @@
   position: sticky;
   top: 0;
   z-index: 100;
+  /* Reset any Simple.css header styles */
+  text-align: left;
+  margin: 0;
 }
 
-/* Suppress Simple.css header padding/margin inside .admin-layout */
+/* Suppress Simple.css header child padding/margin */
 .admin-layout > header > * { margin: 0; padding: 0; }
 
 .admin-header-brand {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 1.1rem;
+  gap: 0.25rem;
+  font-size: 1.05rem;
   font-weight: 700;
   color: var(--accent);
   letter-spacing: -0.02em;
@@ -109,16 +125,16 @@
 .admin-header-brand:hover { color: var(--accent-hover); text-decoration: none; }
 
 .admin-header-brand .brand-sep {
-  opacity: 0.45;
+  opacity: 0.4;
   font-weight: 400;
-  margin: 0 0.1em;
+  padding: 0 0.15em;
 }
 
 /* Header nav — override Simple.css nav styles */
 .admin-layout > header nav {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   background: none;
   padding: 0;
   border: none;
@@ -131,7 +147,6 @@
 
 /* Sidebar navigation */
 .admin-sidebar {
-  padding: 0.75rem 0;
   border-right: 1px solid var(--border);
   background-color: var(--bg);
   position: sticky;
@@ -139,18 +154,17 @@
   max-height: calc(100vh - 3.5rem);
   overflow-y: auto;
   align-self: start;
+  padding: 0.5rem 0;
 }
 
 .admin-sidebar nav a {
   display: block;
-  padding: 0.55rem 1.25rem;
+  padding: 0.6rem 1.25rem;
   color: var(--text);
   text-decoration: none;
   font-size: 0.9rem;
   border-left: 3px solid transparent;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* No truncation — sidebar is wide enough for all nav labels */
   transition: background-color 0.1s, border-left-color 0.1s, color 0.1s;
 }
 
@@ -179,7 +193,46 @@
   .admin-sidebar nav a { transition: none; }
 }
 
-.admin-content { padding: 1.5rem 2rem; }
+.admin-content {
+  padding: 1.5rem 2rem;
+  /* Prevent Simple.css from constraining content width via body grid */
+  min-width: 0;
+}
+
+/* ─── Dashboard stat tiles ───────────────────────────────────────────────── */
+.stat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 2rem;
+  min-width: 8rem;
+  background-color: var(--accent-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--standard-border-radius, 5px);
+  gap: 0.25rem;
+}
+
+.stat-number {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 
 /* ─── Destructive action buttons ─────────────────────────────────────────── */
 button.danger,
