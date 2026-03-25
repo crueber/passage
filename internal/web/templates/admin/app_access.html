@@ -5,28 +5,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Access — {{.App.Name}} — Passage Admin</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-shell">
-    {{template "admin-header" .}}
-    <div class="admin-layout">
-      {{template "admin-nav" .}}
-      <main class="admin-content">
+<div class="passage-admin">
+  {{template "admin-header" .}}
+  <div class="passage-admin-body">
+    {{template "admin-nav" .}}
+    <main class="passage-admin-content">
       {{template "admin-flash" .}}
-      <h2>Access: {{.App.Name}}</h2>
-      <p><a href="/admin/apps/{{.App.ID}}">← Back to app</a></p>
+      <h1 class="title is-4">Access: {{.App.Name}}</h1>
+      <p class="mb-4"><a href="/admin/apps/{{.App.ID}}">← Back to app</a></p>
 
-      <section>
-        <h3>Users with access</h3>
-        <table>
+      <h2 class="title is-5">Users with access</h2>
+      <div class="table-container mb-6">
+        <table class="table is-fullwidth is-striped is-hoverable">
           <thead>
             <tr>
               <th scope="col">Username</th>
               <th scope="col">Email</th>
-              <th scope="col">Actions</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>
@@ -40,27 +40,27 @@
                       hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
                       hx-target="closest tr"
                       hx-swap="outerHTML">
-                  <button type="submit" class="btn-danger btn-sm">Revoke</button>
+                  <button type="submit" class="button is-danger is-small is-light">Revoke</button>
                 </form>
               </td>
             </tr>
             {{else}}
             <tr>
-              <td colspan="3"><em>No users have access.</em></td>
+              <td colspan="3" class="has-text-grey-light"><em>No users have access.</em></td>
             </tr>
             {{end}}
           </tbody>
         </table>
-      </section>
+      </div>
 
-      <section>
-        <h3>Users without access</h3>
-        <table>
+      <h2 class="title is-5">Users without access</h2>
+      <div class="table-container">
+        <table class="table is-fullwidth is-striped is-hoverable">
           <thead>
             <tr>
               <th scope="col">Username</th>
               <th scope="col">Email</th>
-              <th scope="col">Actions</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>
@@ -71,21 +71,21 @@
               <td>
                 <form method="POST" action="/admin/apps/{{$.App.ID}}/access">
                   <input type="hidden" name="user_id" value="{{.ID}}">
-                  <button type="submit" class="btn-secondary btn-sm">Grant</button>
+                  <button type="submit" class="button is-primary is-small is-light">Grant</button>
                 </form>
               </td>
             </tr>
             {{else}}
             <tr>
-              <td colspan="3"><em>All users already have access.</em></td>
+              <td colspan="3" class="has-text-grey-light"><em>All users already have access.</em></td>
             </tr>
             {{end}}
           </tbody>
         </table>
-      </section>
+      </div>
     </main>
-    </div>
   </div>
+</div>
 </body>
 </html>
 {{end}}

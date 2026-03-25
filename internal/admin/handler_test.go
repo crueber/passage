@@ -230,7 +230,7 @@ func TestAdminDashboard(t *testing.T) {
 		t.Errorf("dashboard: response does not contain 'Dashboard'")
 	}
 	// Should contain stat tiles.
-	if !strings.Contains(body, "stat-tile") || !strings.Contains(body, "stat-number") {
+	if !strings.Contains(body, "passage-stat") || !strings.Contains(body, "passage-stat-number") {
 		t.Errorf("dashboard: response does not contain stat tiles")
 	}
 }

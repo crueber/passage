@@ -1,28 +1,35 @@
 {{define "admin-header"}}
-    <header>
-      <div class="admin-header-inner">
-        <a href="/admin" class="admin-header-brand" aria-label="Passage Admin home">
-          <strong>passage</strong><span aria-hidden="true" class="brand-sep">/</span><span>admin</span>
-        </a>
-        <nav aria-label="Account actions">
-          <a href="/logout">Sign out</a>
-        </nav>
-      </div>
-    </header>
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold" href="/admin" aria-label="Passage Admin home"
+       style="font-size:1.05rem;letter-spacing:-0.02em;">
+      passage<span class="has-text-grey-light mx-1" aria-hidden="true">/</span>admin
+    </a>
+  </div>
+  <div class="navbar-end">
+    <div class="navbar-item">
+      <a class="button is-small is-light" href="/logout">Sign out</a>
+    </div>
+  </div>
+</nav>
 {{end}}
 
 {{define "admin-nav"}}
-    <aside class="admin-sidebar">
-      <nav aria-label="Admin navigation">
-        <a href="/admin"          {{if eq .ActiveNav "dashboard"}}aria-current="page"{{end}}>Dashboard</a>
-        <a href="/admin/users"    {{if eq .ActiveNav "users"}}aria-current="page"{{end}}>Users</a>
-        <a href="/admin/apps"     {{if eq .ActiveNav "apps"}}aria-current="page"{{end}}>Apps</a>
-        <a href="/admin/sessions" {{if eq .ActiveNav "sessions"}}aria-current="page"{{end}}>Sessions</a>
-        <a href="/admin/settings" {{if eq .ActiveNav "settings"}}aria-current="page"{{end}}>Settings</a>
-      </nav>
-    </aside>
+<nav class="passage-admin-sidebar menu" aria-label="Admin navigation">
+  <ul class="menu-list">
+    <li><a href="/admin"          {{if eq .ActiveNav "dashboard"}}class="is-active"{{end}}>Dashboard</a></li>
+    <li><a href="/admin/users"    {{if eq .ActiveNav "users"}}class="is-active"{{end}}>Users</a></li>
+    <li><a href="/admin/apps"     {{if eq .ActiveNav "apps"}}class="is-active"{{end}}>Apps</a></li>
+    <li><a href="/admin/sessions" {{if eq .ActiveNav "sessions"}}class="is-active"{{end}}>Sessions</a></li>
+    <li><a href="/admin/settings" {{if eq .ActiveNav "settings"}}class="is-active"{{end}}>Settings</a></li>
+  </ul>
+</nav>
 {{end}}
 
 {{define "admin-flash"}}
-      {{if .Flash}}<div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>{{end}}
+{{if .Flash}}
+<div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light mb-4">
+  {{.Flash.Message}}
+</div>
+{{end}}
 {{end}}

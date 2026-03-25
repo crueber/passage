@@ -5,35 +5,41 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard — Passage Admin</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-shell">
-    {{template "admin-header" .}}
-    <div class="admin-layout">
-      {{template "admin-nav" .}}
-      <main class="admin-content">
+<div class="passage-admin">
+  {{template "admin-header" .}}
+  <div class="passage-admin-body">
+    {{template "admin-nav" .}}
+    <main class="passage-admin-content">
       {{template "admin-flash" .}}
-      <h2>Dashboard</h2>
-      <div class="stat-grid">
-        <div class="stat-tile">
-          <span class="stat-number">{{.UserCount}}</span>
-          <span class="stat-label">Users</span>
+      <h1 class="title is-4">Dashboard</h1>
+      <div class="columns">
+        <div class="column is-narrow">
+          <div class="box passage-stat">
+            <p class="passage-stat-number">{{.UserCount}}</p>
+            <p class="passage-stat-label">Users</p>
+          </div>
         </div>
-        <div class="stat-tile">
-          <span class="stat-number">{{.AppCount}}</span>
-          <span class="stat-label">Apps</span>
+        <div class="column is-narrow">
+          <div class="box passage-stat">
+            <p class="passage-stat-number">{{.AppCount}}</p>
+            <p class="passage-stat-label">Apps</p>
+          </div>
         </div>
-        <div class="stat-tile">
-          <span class="stat-number">{{.SessionCount}}</span>
-          <span class="stat-label">Active Sessions</span>
+        <div class="column is-narrow">
+          <div class="box passage-stat">
+            <p class="passage-stat-number">{{.SessionCount}}</p>
+            <p class="passage-stat-label">Active Sessions</p>
+          </div>
         </div>
       </div>
     </main>
-    </div>
   </div>
+</div>
 </body>
 </html>
 {{end}}

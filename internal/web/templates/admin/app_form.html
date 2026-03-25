@@ -5,83 +5,121 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{if .IsNew}}New App{{else}}Edit App{{end}} — Passage Admin</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-shell">
-    {{template "admin-header" .}}
-    <div class="admin-layout">
-      {{template "admin-nav" .}}
-      <main class="admin-content">
+<div class="passage-admin">
+  {{template "admin-header" .}}
+  <div class="passage-admin-body">
+    {{template "admin-nav" .}}
+    <main class="passage-admin-content">
       {{template "admin-flash" .}}
-      <h2>{{if .IsNew}}New App{{else}}Edit App{{end}}</h2>
-      <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}" style="max-width:30rem">
-        <label for="slug">Slug</label>
-        <input type="text" id="slug" name="slug" required autocomplete="off"
-               value="{{if .EditApp}}{{.EditApp.Slug}}{{end}}">
+      <h1 class="title is-4">{{if .IsNew}}New App{{else}}Edit App{{end}}</h1>
 
-        <label for="name">Name</label>
-        <input type="text" id="name" name="name" required autocomplete="off"
-               value="{{if .EditApp}}{{.EditApp.Name}}{{end}}">
+      <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}" style="max-width:32rem">
+        <div class="field">
+          <label class="label" for="slug">Slug</label>
+          <div class="control">
+            <input class="input" type="text" id="slug" name="slug" required autocomplete="off"
+                   value="{{if .EditApp}}{{.EditApp.Slug}}{{end}}">
+          </div>
+        </div>
 
-        <label for="description">Description</label>
-        <input type="text" id="description" name="description" autocomplete="off"
-               value="{{if .EditApp}}{{.EditApp.Description}}{{end}}">
+        <div class="field">
+          <label class="label" for="name">Name</label>
+          <div class="control">
+            <input class="input" type="text" id="name" name="name" required autocomplete="off"
+                   value="{{if .EditApp}}{{.EditApp.Name}}{{end}}">
+          </div>
+        </div>
 
-        <label for="host_pattern">Host Pattern</label>
-        <input type="text" id="host_pattern" name="host_pattern" autocomplete="off"
-               placeholder="e.g. grafana.home.example.com or *.home.example.com"
-               value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
+        <div class="field">
+          <label class="label" for="description">Description</label>
+          <div class="control">
+            <input class="input" type="text" id="description" name="description" autocomplete="off"
+                   value="{{if .EditApp}}{{.EditApp.Description}}{{end}}">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="host_pattern">Host Pattern</label>
+          <div class="control">
+            <input class="input" type="text" id="host_pattern" name="host_pattern" autocomplete="off"
+                   placeholder="e.g. grafana.home.example.com or *.home.example.com"
+                   value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
+          </div>
+        </div>
 
         {{if not .IsNew}}
-        <label for="redirect_uris">Redirect URIs <small>(one per line)</small></label>
-        <textarea id="redirect_uris" name="redirect_uris" rows="4" style="font-family: monospace;">{{range .EditApp.RedirectURIs}}{{.}}
+        <div class="field">
+          <label class="label" for="redirect_uris">Redirect URIs <span class="has-text-weight-normal is-size-7">(one per line)</span></label>
+          <div class="control">
+            <textarea class="textarea" id="redirect_uris" name="redirect_uris" rows="4"
+                      style="font-family: monospace;">{{range .EditApp.RedirectURIs}}{{.}}
 {{end}}</textarea>
-        <small>List every allowed OAuth callback URL. Exact match required.</small>
+          </div>
+          <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
+        </div>
         {{end}}
 
-        <fieldset>
-          <label>
-            <input type="checkbox" name="is_active"
-                   {{if .IsNew}}checked{{else}}{{if .EditApp}}{{if .EditApp.IsActive}}checked{{end}}{{end}}{{end}}>
-            Active
-          </label>
-        </fieldset>
+        <div class="field">
+          <div class="control">
+            <label class="checkbox">
+              <input type="checkbox" name="is_active"
+                     {{if .IsNew}}checked{{else}}{{if .EditApp}}{{if .EditApp.IsActive}}checked{{end}}{{end}}{{end}}>
+              Active
+            </label>
+          </div>
+        </div>
 
-        <button type="submit">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
-        <a href="/admin/apps">Cancel</a>
+        <div class="field is-grouped">
+          <div class="control">
+            <button type="submit" class="button is-primary">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
+          </div>
+          <div class="control">
+            <a class="button is-light" href="/admin/apps">Cancel</a>
+          </div>
+        </div>
       </form>
 
       {{if not .IsNew}}
       <hr>
-      <h3>OAuth Client</h3>
+      <h2 class="title is-5">OAuth Client</h2>
 
       {{if .NewClientSecret}}
-      <div role="alert" class="notice">
-        <strong>New client secret (copy now — it will not be shown again):</strong><br>
-        <code style="font-size: 1.1em; word-break: break-all;">{{.NewClientSecret}}</code>
-        <button type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
+      <div class="notification is-success is-light" role="alert">
+        <p><strong>New client secret — copy now, it will not be shown again:</strong></p>
+        <p>
+          <code style="font-size:1.05em; word-break:break-all;">{{.NewClientSecret}}</code>
+          <button type="button" class="button is-small is-light ml-2"
+                  onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
+        </p>
       </div>
       {{end}}
 
       {{if .EditApp.OAuthEnabled}}
-      <p><strong>Client ID:</strong> <code>{{.EditApp.ClientID}}</code></p>
-      <p><strong>Client Secret:</strong> •••••••••• (set)</p>
+      <div class="content">
+        <p><strong>Client ID:</strong> <code>{{.EditApp.ClientID}}</code></p>
+        <p><strong>Client Secret:</strong> •••••••••• (set)</p>
+      </div>
       <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
-        <button type="submit" onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">Rotate Secret</button>
+        <button type="submit" class="button is-warning is-light"
+                onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">
+          Rotate Secret
+        </button>
       </form>
       {{else}}
-      <p>OAuth is not enabled for this app.</p>
+      <p class="mb-3">OAuth is not enabled for this app.</p>
       <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/generate">
-        <button type="submit">Enable OAuth &amp; Generate Credentials</button>
+        <button type="submit" class="button is-info is-light">Enable OAuth &amp; Generate Credentials</button>
       </form>
       {{end}}
       {{end}}
     </main>
-    </div>
   </div>
+</div>
 </body>
 </html>
 {{end}}

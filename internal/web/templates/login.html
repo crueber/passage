@@ -5,42 +5,69 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sign in — Passage</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/passkey.js" defer></script>
 </head>
 <body>
-  <main>
-    <h1 class="wordmark">passage</h1>
-    {{if .Flash}}
-    <div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
-    {{end}}
-    <script src="/static/passkey.js" defer></script>
-    <h2>Sign in to continue</h2>
-    <form method="POST" action="/login">
-      <input type="hidden" name="rd" value="{{.RedirectTo}}">
+<div class="passage-auth">
+  <span class="passage-wordmark">passage</span>
 
-      <label for="username">Username</label>
-      <input type="text" id="username" name="username" autocomplete="username"
-             required autofocus value="{{.Username}}">
+  {{if .Flash}}
+  <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
+    {{.Flash.Message}}
+  </div>
+  {{end}}
 
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required>
+  <div class="card">
+    <div class="card-content">
+      <h1 class="title is-5">Sign in to continue</h1>
 
-      <button type="submit">Sign in</button>
-    </form>
+      <form method="POST" action="/login">
+        <input type="hidden" name="rd" value="{{.RedirectTo}}">
 
-    <p>
-      <button type="button" id="passkey-login-btn">Sign in with a passkey</button>
-    </p>
-    <p id="passkey-login-status" aria-live="polite"></p>
+        <div class="field">
+          <label class="label" for="username">Username</label>
+          <div class="control">
+            <input class="input" type="text" id="username" name="username"
+                   autocomplete="username" required autofocus value="{{.Username}}">
+          </div>
+        </div>
 
-    <p>
-      <a href="/reset">Forgot password?</a>
-      {{if .AllowRegistration}}
-      &nbsp;·&nbsp; <a href="/register">Create an account</a>
-      {{end}}
-    </p>
-  </main>
+        <div class="field">
+          <label class="label" for="password">Password</label>
+          <div class="control">
+            <input class="input" type="password" id="password" name="password"
+                   autocomplete="current-password" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="control">
+            <button type="submit" class="button is-primary is-fullwidth">Sign in</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="field mt-4">
+        <div class="control">
+          <button type="button" id="passkey-login-btn" class="button is-light is-fullwidth">
+            Sign in with a passkey
+          </button>
+        </div>
+        <p id="passkey-login-status" class="help mt-1" aria-live="polite"></p>
+      </div>
+
+      <div class="has-text-centered mt-4 is-size-7">
+        <a href="/reset">Forgot password?</a>
+        {{if .AllowRegistration}}
+        &nbsp;·&nbsp;
+        <a href="/register">Create an account</a>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
 {{end}}

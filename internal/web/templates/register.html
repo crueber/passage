@@ -5,33 +5,61 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Create account — Passage</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
 </head>
 <body>
-  <main>
-    <h1 class="wordmark">passage</h1>
-    {{if .Flash}}
-    <div role="alert" class="flash flash-{{.Flash.Type}}">{{.Flash.Message}}</div>
-    {{end}}
-    <h2>Create an account</h2>
-    <form method="POST" action="/register">
-      <label for="username">Username</label>
-      <input type="text" id="username" name="username" autocomplete="username"
-             required autofocus value="{{.Username}}">
+<div class="passage-auth">
+  <span class="passage-wordmark">passage</span>
 
-      <label for="email">Email address</label>
-      <input type="email" id="email" name="email" autocomplete="email"
-             required value="{{.Email}}">
+  {{if .Flash}}
+  <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
+    {{.Flash.Message}}
+  </div>
+  {{end}}
 
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password"
-             autocomplete="new-password" required minlength="8">
+  <div class="card">
+    <div class="card-content">
+      <h1 class="title is-5">Create an account</h1>
 
-      <button type="submit">Create account</button>
-    </form>
-    <p><a href="/login">Already have an account? Sign in</a></p>
-  </main>
+      <form method="POST" action="/register">
+        <div class="field">
+          <label class="label" for="username">Username</label>
+          <div class="control">
+            <input class="input" type="text" id="username" name="username"
+                   autocomplete="username" required autofocus value="{{.Username}}">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="email">Email address</label>
+          <div class="control">
+            <input class="input" type="email" id="email" name="email"
+                   autocomplete="email" required value="{{.Email}}">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="password">Password</label>
+          <div class="control">
+            <input class="input" type="password" id="password" name="password"
+                   autocomplete="new-password" required minlength="8">
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="control">
+            <button type="submit" class="button is-primary is-fullwidth">Create account</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="has-text-centered mt-4 is-size-7">
+        <a href="/login">Already have an account? Sign in</a>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
 {{end}}

@@ -5,57 +5,59 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sessions — Passage Admin</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-shell">
-    {{template "admin-header" .}}
-    <div class="admin-layout">
-      {{template "admin-nav" .}}
-      <main class="admin-content">
+<div class="passage-admin">
+  {{template "admin-header" .}}
+  <div class="passage-admin-body">
+    {{template "admin-nav" .}}
+    <main class="passage-admin-content">
       {{template "admin-flash" .}}
-      <h2>Active Sessions</h2>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Username</th>
-            <th scope="col">IP Address</th>
-            <th scope="col">User Agent</th>
-            <th scope="col">Expires</th>
-            <th scope="col">Created</th>
-            <th scope="col">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{range .Sessions}}
-          <tr>
-            <td>{{.Username}}</td>
-            <td>{{.Session.IPAddress}}</td>
-            <td>{{.Session.UserAgent}}</td>
-            <td>{{.Session.ExpiresAt.Format "2006-01-02 15:04"}}</td>
-            <td>{{.Session.CreatedAt.Format "2006-01-02 15:04"}}</td>
-            <td>
-              <form method="POST"
-                    action="/admin/sessions/{{.Session.ID}}/revoke"
-                    hx-post="/admin/sessions/{{.Session.ID}}/revoke"
-                    hx-target="closest tr"
-                    hx-swap="outerHTML">
-                <button type="submit" class="btn-danger btn-sm">Revoke</button>
-              </form>
-            </td>
-          </tr>
-          {{else}}
-          <tr>
-            <td colspan="6"><em>No active sessions.</em></td>
-          </tr>
-          {{end}}
-        </tbody>
-      </table>
+      <h1 class="title is-4">Active Sessions</h1>
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-striped">
+          <thead>
+            <tr>
+              <th scope="col">Username</th>
+              <th scope="col">IP Address</th>
+              <th scope="col">User Agent</th>
+              <th scope="col">Expires</th>
+              <th scope="col">Created</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Sessions}}
+            <tr>
+              <td>{{.Username}}</td>
+              <td>{{.Session.IPAddress}}</td>
+              <td class="is-size-7">{{.Session.UserAgent}}</td>
+              <td>{{.Session.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+              <td>{{.Session.CreatedAt.Format "2006-01-02 15:04"}}</td>
+              <td>
+                <form method="POST"
+                      action="/admin/sessions/{{.Session.ID}}/revoke"
+                      hx-post="/admin/sessions/{{.Session.ID}}/revoke"
+                      hx-target="closest tr"
+                      hx-swap="outerHTML">
+                  <button type="submit" class="button is-small is-danger is-light">Revoke</button>
+                </form>
+              </td>
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="6"><em>No active sessions.</em></td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
     </main>
-    </div>
   </div>
+</div>
 </body>
 </html>
 {{end}}

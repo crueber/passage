@@ -1,285 +1,157 @@
-/* internal/web/static/passage.css
-   Palette overrides for Simple.css and admin sidebar layout. */
-
-/* ─── Light mode palette ─────────────────────────────────────────────────── */
-:root {
-  --accent:       #2e6b4f;   /* deep forest green — institutional, trustworthy */
-  --accent-hover: #245840;   /* slightly darker on hover */
-  --accent-bg:    #f3f7f5;   /* near-white with a faint green tint */
-  --text:         #1a1f1c;   /* near-black with slight green warmth */
-  --text-light:   #5a6b62;   /* muted text for secondary labels */
-  --bg:           #ffffff;
-  --border:       #c8d5cd;   /* cool grey-green border */
-  --code-bg:      #eef3f0;
-  --admin-sidebar-width: 200px;
-  --admin-max-width:     1200px;
-}
-
-/* ─── Dark mode palette (auto-applied via prefers-color-scheme) ───────────── */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --accent:       #5ba882;   /* lighter green — readable on dark bg */
-    --accent-hover: #6dbf96;
-    --accent-bg:    #1a2620;   /* very dark green-tinted surface */
-    --text:         #dde8e2;
-    --text-light:   #8aaa97;
-    --bg:           #141917;
-    --border:       #3a4f44;
-    --code-bg:      #1f2e27;
-  }
-}
-
-/* ─── Wordmark ───────────────────────────────────────────────────────────── */
-.wordmark {
-  color: var(--accent);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-/* ─── Flash / alert messages ─────────────────────────────────────────────── */
-.flash {
-  padding: 0.75rem 1rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-  border-left: 4px solid var(--border);
-}
-.flash-error {
-  border-left-color: #c0392b;
-  background-color: #fdf3f2;
-  color: #7b241c;
-}
-.flash-success {
-  border-left-color: var(--accent);
-  background-color: var(--accent-bg);
-  color: var(--text);
-}
-.flash-info {
-  border-left-color: var(--accent);
-  background-color: var(--accent-bg);
-  color: var(--text);
-}
-
-@media (prefers-color-scheme: dark) {
-  .flash-error {
-    background-color: #3b1a18;
-    color: #f1948a;
-  }
-  .flash-success,
-  .flash-info {
-    background-color: var(--accent-bg);
-    color: var(--text);
-  }
-}
-
-/* ─── Admin layout ───────────────────────────────────────────────────────── */
-
-/*
- * Simple.css sets: body { display: grid; grid-template-columns: 1fr min(45rem,90%) 1fr }
- * and body > * { grid-column: 2 }  — which boxes everything into a narrow center column.
+/* passage.css — theme overrides on top of Bulma 1.0.2
  *
- * body:has(.admin-shell) cancels that body grid entirely so we own the layout.
+ * Bulma 1.0+ uses CSS custom properties for every colour and size.
+ * We override only the variables we care about here; everything else
+ * inherits from Bulma's defaults. This file must stay minimal.
  *
- * Structure:
- *   .admin-shell          — full-height flex column, cancels Simple.css body grid
- *     header              — full-viewport-width sticky bar; inner content constrained
- *       .admin-header-inner — centered content wrapper (max-width)
- *     .admin-layout       — centered max-width 2-col grid (sidebar | content)
- *       .admin-sidebar    — sticky sidebar nav
- *       .admin-content    — main page content
- *
- * --admin-sidebar-width and --admin-max-width are declared in :root above.
- * px units avoid rem-scaling surprises from Simple.css base font (1.15rem).
+ * Colour palette: deep forest green, institutional, trustworthy.
  */
 
-body:has(.admin-shell) {
-  display: block;   /* cancel Simple.css body grid for admin pages */
-  margin: 0;
-  padding: 0;
+/* ─── Light-mode theme variables ────────────────────────────────────────── */
+:root {
+  /* Primary brand colour — drives Bulma's "is-primary" modifier everywhere */
+  --bulma-primary-h:          152deg;
+  --bulma-primary-s:          41%;
+  --bulma-primary-l:          30%;
+
+  /* Link colour matches primary */
+  --bulma-link-h:             152deg;
+  --bulma-link-s:             41%;
+  --bulma-link-l:             30%;
+
+  /* Navbar */
+  --bulma-navbar-background-color:            #f3f7f5;
+  --bulma-navbar-item-color:                  #1a1f1c;
+  --bulma-navbar-item-hover-color:            #2e6b4f;
+  --bulma-navbar-item-hover-background-color: #e6efea;
+
+  /* Menu (sidebar) */
+  --bulma-menu-item-color:                    #1a1f1c;
+  --bulma-menu-item-hover-color:              #2e6b4f;
+  --bulma-menu-item-hover-background-color:   #e6efea;
+  --bulma-menu-item-active-color:             #2e6b4f;
+  --bulma-menu-item-active-background-color:  #d4e8dc;
+
+  /* Project-specific tokens */
+  --passage-sidebar-bg:     #f3f7f5;
+  --passage-sidebar-border: #c8d5cd;
+  --passage-stat-label-color: #6b7280;
 }
 
-/* Full-height shell — owns the whole page */
-.admin-shell {
-  display: flex;
-  flex-direction: column;
+/* ─── Dark-mode overrides (auto via prefers-color-scheme) ───────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bulma-primary-h: 152deg;
+    --bulma-primary-s: 35%;
+    --bulma-primary-l: 55%;
+
+    --bulma-link-h: 152deg;
+    --bulma-link-s: 35%;
+    --bulma-link-l: 55%;
+
+    --bulma-navbar-background-color:            #1a2620;
+    --bulma-navbar-item-color:                  #dde8e2;
+    --bulma-navbar-item-hover-color:            #5ba882;
+    --bulma-navbar-item-hover-background-color: #223328;
+
+    --bulma-menu-item-color:                    #dde8e2;
+    --bulma-menu-item-hover-color:              #5ba882;
+    --bulma-menu-item-hover-background-color:   #223328;
+    --bulma-menu-item-active-color:             #5ba882;
+    --bulma-menu-item-active-background-color:  #1a2e25;
+
+    --passage-sidebar-bg:     #1a2620;
+    --passage-sidebar-border: #3a4f44;
+    --passage-stat-label-color: #9ab8aa;
+  }
+}
+
+/* ─── Auth pages — vertically-centred card ──────────────────────────────── */
+.passage-auth {
   min-height: 100vh;
-}
-
-/* Full-bleed sticky header bar */
-.admin-shell > header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  height: 3.5rem;
-  background-color: var(--accent-bg);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  /* Reset Simple.css header styles */
-  text-align: left;
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-/* Inner wrapper — constrains header content to max-width, centered */
-.admin-header-inner {
-  width: 100%;
-  max-width: var(--admin-max-width);
-  margin: 0 auto;
-  padding: 0 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Suppress Simple.css header child margin/padding bleed */
-.admin-shell > header > * { margin: 0; padding: 0; }
-
-/* Centered max-width 2-column grid — sidebar + content */
-.admin-layout {
-  max-width: var(--admin-max-width);
-  width: 100%;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: var(--admin-sidebar-width) 1fr;
-  flex: 1;
-}
-
-.admin-header-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: -0.02em;
-  text-decoration: none;
-}
-
-.admin-header-brand:hover { color: var(--accent-hover); text-decoration: none; }
-
-.admin-header-brand .brand-sep {
-  opacity: 0.4;
-  font-weight: 400;
-  padding: 0 0.15em;
-}
-
-/* Header nav — override Simple.css nav styles */
-.admin-shell > header nav {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: none;
-  padding: 0;
-  border: none;
-}
-
-.admin-shell > header nav a,
-.admin-shell > header nav button {
-  font-size: 0.875rem;
-}
-
-/* Sidebar navigation */
-.admin-sidebar {
-  width: var(--admin-sidebar-width);   /* explicit width — never shrinks */
-  border-right: 1px solid var(--border);
-  background-color: var(--bg);
-  position: sticky;
-  top: 3.5rem;             /* match header height */
-  max-height: calc(100vh - 3.5rem);
-  overflow-y: auto;
-  align-self: start;
-  padding: 0.5rem 0;
-  box-sizing: border-box;
-}
-
-.admin-sidebar nav a {
-  display: block;
-  padding: 0.6rem 1.25rem;
-  color: var(--text);
-  text-decoration: none;
-  font-size: 0.9rem;
-  border-left: 3px solid transparent;
-  /* No truncation — sidebar is wide enough for all nav labels */
-  transition: background-color 0.1s, border-left-color 0.1s, color 0.1s;
-}
-
-.admin-sidebar nav a:hover {
-  background-color: var(--accent-bg);
-  color: var(--accent);
-  border-left-color: var(--accent-hover);
-}
-
-.admin-sidebar nav a[aria-current="page"] {
-  background-color: var(--accent-bg);
-  color: var(--accent);
-  border-left-color: var(--accent);
-  font-weight: 600;
-}
-
-/* Focus rings — WCAG AA */
-.admin-sidebar nav a:focus-visible,
-.admin-shell > header nav a:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* Suppress transitions for users who prefer reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  .admin-sidebar nav a { transition: none; }
-}
-
-.admin-content {
-  padding: 1.5rem 2rem;
-  /* Prevent Simple.css from constraining content width via body grid */
-  min-width: 0;
-}
-
-/* ─── Dashboard stat tiles ───────────────────────────────────────────────── */
-.stat-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.stat-tile {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem 2rem;
-  min-width: 8rem;
-  background-color: var(--accent-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--standard-border-radius, 5px);
-  gap: 0.25rem;
+  padding: 1.5rem;
 }
 
-.stat-number {
+.passage-auth .passage-wordmark {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--bulma-primary);
+  letter-spacing: -0.03em;
+  margin-bottom: 1.5rem;
+  display: block;
+  text-align: center;
+}
+
+.passage-auth .card {
+  width: 100%;
+  max-width: 26rem;
+}
+
+.passage-auth .notification {
+  width: 100%;
+  max-width: 26rem;
+  margin-bottom: 1rem;
+}
+
+/* ─── Admin shell ───────────────────────────────────────────────────────── */
+.passage-admin {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.passage-admin > .navbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid var(--passage-sidebar-border);
+}
+
+.passage-admin-body {
+  display: flex;
+  flex: 1;
+}
+
+.passage-admin-sidebar {
+  width: 13rem;
+  flex-shrink: 0;
+  background-color: var(--passage-sidebar-bg);
+  border-right: 1px solid var(--passage-sidebar-border);
+  padding: 1rem 0.75rem;
+  position: sticky;
+  top: 3.25rem; /* Bulma navbar height */
+  max-height: calc(100vh - 3.25rem);
+  overflow-y: auto;
+}
+
+.passage-admin-content {
+  flex: 1;
+  min-width: 0;
+  padding: 1.5rem 2rem;
+  max-width: 72rem;
+}
+
+/* ─── Dashboard stat tiles ──────────────────────────────────────────────── */
+.passage-stat {
+  text-align: center;
+  padding: 1.5rem 1rem;
+}
+
+.passage-stat-number {
   font-size: 2.5rem;
   font-weight: 700;
   line-height: 1;
-  color: var(--accent);
+  color: var(--bulma-primary);
 }
 
-.stat-label {
-  font-size: 0.8rem;
-  color: var(--text-light);
+.passage-stat-label {
+  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-/* ─── Destructive action buttons ─────────────────────────────────────────── */
-button.danger,
-input[type="submit"].danger {
-  border-color: #c0392b;
-  color: #c0392b;
-  background: transparent;
-}
-button.danger:hover,
-input[type="submit"].danger:hover {
-  background-color: #c0392b;
-  color: #fff;
+  letter-spacing: 0.06em;
+  color: var(--passage-stat-label-color, var(--bulma-text-weak, #6b7280));
+  margin-top: 0.35rem;
 }

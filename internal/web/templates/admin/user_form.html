@@ -5,66 +5,91 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{if .IsNew}}New User{{else}}Edit User{{end}} — Passage Admin</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-shell">
-    {{template "admin-header" .}}
-    <div class="admin-layout">
-      {{template "admin-nav" .}}
-      <main class="admin-content">
+<div class="passage-admin">
+  {{template "admin-header" .}}
+  <div class="passage-admin-body">
+    {{template "admin-nav" .}}
+    <main class="passage-admin-content">
       {{template "admin-flash" .}}
-      <h2>{{if .IsNew}}New User{{else}}Edit User{{end}}</h2>
-      <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}" style="max-width:30rem">
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" required autocomplete="off"
-               value="{{if .EditUser}}{{.EditUser.Username}}{{end}}">
+      <h1 class="title is-4">{{if .IsNew}}New User{{else}}Edit User{{end}}</h1>
 
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" required autocomplete="off"
-               value="{{if .EditUser}}{{.EditUser.Email}}{{end}}">
+      <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}" style="max-width:32rem">
+        <div class="field">
+          <label class="label" for="username">Username</label>
+          <div class="control">
+            <input class="input" type="text" id="username" name="username" required autocomplete="off"
+                   value="{{if .EditUser}}{{.EditUser.Username}}{{end}}">
+          </div>
+        </div>
 
-        <label for="name">Display Name</label>
-        <input type="text" id="name" name="name" autocomplete="off"
-               value="{{if .EditUser}}{{.EditUser.Name}}{{end}}">
+        <div class="field">
+          <label class="label" for="email">Email</label>
+          <div class="control">
+            <input class="input" type="email" id="email" name="email" required autocomplete="off"
+                   value="{{if .EditUser}}{{.EditUser.Email}}{{end}}">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="name">Display Name</label>
+          <div class="control">
+            <input class="input" type="text" id="name" name="name" autocomplete="off"
+                   value="{{if .EditUser}}{{.EditUser.Name}}{{end}}">
+          </div>
+        </div>
 
         {{if .IsNew}}
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required autocomplete="new-password"
-               minlength="8">
+        <div class="field">
+          <label class="label" for="password">Password</label>
+          <div class="control">
+            <input class="input" type="password" id="password" name="password"
+                   required autocomplete="new-password" minlength="8">
+          </div>
+        </div>
         {{end}}
 
-        <fieldset>
-          <label>
-            <input type="checkbox" name="is_admin"
-                   {{if .EditUser}}{{if .EditUser.IsAdmin}}checked{{end}}{{end}}>
-            Admin
-          </label>
-          <label>
-            <input type="checkbox" name="is_active"
-                   {{if .IsNew}}checked{{else}}{{if .EditUser}}{{if .EditUser.IsActive}}checked{{end}}{{end}}{{end}}>
-            Active
-          </label>
-        </fieldset>
+        <div class="field">
+          <div class="control">
+            <label class="checkbox mr-4">
+              <input type="checkbox" name="is_admin"
+                     {{if .EditUser}}{{if .EditUser.IsAdmin}}checked{{end}}{{end}}>
+              Admin
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="is_active"
+                     {{if .IsNew}}checked{{else}}{{if .EditUser}}{{if .EditUser.IsActive}}checked{{end}}{{end}}{{end}}>
+              Active
+            </label>
+          </div>
+        </div>
 
-        <button type="submit">{{if .IsNew}}Create User{{else}}Save Changes{{end}}</button>
-        <a href="/admin/users">Cancel</a>
+        <div class="field is-grouped">
+          <div class="control">
+            <button type="submit" class="button is-primary">{{if .IsNew}}Create User{{else}}Save Changes{{end}}</button>
+          </div>
+          <div class="control">
+            <a class="button is-light" href="/admin/users">Cancel</a>
+          </div>
+        </div>
       </form>
 
       {{if not .IsNew}}
       <hr>
-      <h3>Passkeys</h3>
+      <h2 class="title is-5">Passkeys</h2>
       {{if gt .PasskeyCount 0}}
       <p>This user has <strong>{{.PasskeyCount}}</strong> passkey{{if gt .PasskeyCount 1}}s{{end}} registered.</p>
       {{else}}
-      <p>This user has no passkeys registered.</p>
+      <p class="has-text-grey">This user has no passkeys registered.</p>
       {{end}}
       {{end}}
     </main>
-    </div>
   </div>
+</div>
 </body>
 </html>
 {{end}}

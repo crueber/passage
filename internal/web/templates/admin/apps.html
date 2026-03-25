@@ -5,56 +5,64 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Apps — Passage Admin</title>
-  <link rel="stylesheet" href="/static/simple.min.css">
+  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-shell">
-    {{template "admin-header" .}}
-    <div class="admin-layout">
-      {{template "admin-nav" .}}
-      <main class="admin-content">
+<div class="passage-admin">
+  {{template "admin-header" .}}
+  <div class="passage-admin-body">
+    {{template "admin-nav" .}}
+    <main class="passage-admin-content">
       {{template "admin-flash" .}}
-      <h2>Apps</h2>
-      <p><a href="/admin/apps/new">+ New App</a></p>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Slug</th>
-            <th scope="col">Name</th>
-            <th scope="col">Host Pattern</th>
-            <th scope="col">Active</th>
-            <th scope="col">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{range .Apps}}
-          <tr>
-            <td>{{.Slug}}</td>
-            <td>{{.Name}}</td>
-            <td><code>{{.HostPattern}}</code></td>
-            <td>{{if .IsActive}}Yes{{else}}No{{end}}</td>
-            <td>
-              <a href="/admin/apps/{{.ID}}">Edit</a>
-              &nbsp;
-              <a href="/admin/apps/{{.ID}}/access">Access</a>
-              &nbsp;
-              <form method="POST" action="/admin/apps/{{.ID}}/delete" style="display:inline">
-                <button type="submit" class="btn-danger btn-sm">Delete</button>
-              </form>
-            </td>
-          </tr>
-          {{else}}
-          <tr>
-            <td colspan="5"><em>No apps found.</em></td>
-          </tr>
-          {{end}}
-        </tbody>
-      </table>
+      <div class="level mb-4">
+        <div class="level-left">
+          <h1 class="title is-4 mb-0">Apps</h1>
+        </div>
+        <div class="level-right">
+          <a class="button is-primary is-small" href="/admin/apps/new">+ New App</a>
+        </div>
+      </div>
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-striped">
+          <thead>
+            <tr>
+              <th scope="col">Slug</th>
+              <th scope="col">Name</th>
+              <th scope="col">Host Pattern</th>
+              <th scope="col">Active</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Apps}}
+            <tr>
+              <td>{{.Slug}}</td>
+              <td>{{.Name}}</td>
+              <td><code>{{.HostPattern}}</code></td>
+              <td>{{if .IsActive}}<span class="tag is-info is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
+              <td>
+                <div class="buttons are-small">
+                  <a class="button is-light" href="/admin/apps/{{.ID}}">Edit</a>
+                  <a class="button is-light" href="/admin/apps/{{.ID}}/access">Access</a>
+                  <form method="POST" action="/admin/apps/{{.ID}}/delete">
+                    <button type="submit" class="button is-danger is-light">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="5"><em>No apps found.</em></td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
     </main>
-    </div>
   </div>
+</div>
 </body>
 </html>
 {{end}}
