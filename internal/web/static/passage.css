@@ -76,8 +76,109 @@
   grid-template-rows: auto 1fr;
   min-height: 100vh;
 }
-.admin-layout > header { grid-column: 1 / -1; }
-.admin-sidebar { padding: 1rem 0; border-right: 1px solid var(--border); }
+
+/* Top header bar — spans full width */
+.admin-layout > header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  height: 3.5rem;
+  background-color: var(--accent-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+/* Suppress Simple.css header padding/margin inside .admin-layout */
+.admin-layout > header > * { margin: 0; padding: 0; }
+
+.admin-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.admin-header-brand:hover { color: var(--accent-hover); text-decoration: none; }
+
+.admin-header-brand .brand-sep {
+  opacity: 0.45;
+  font-weight: 400;
+  margin: 0 0.1em;
+}
+
+/* Header nav — override Simple.css nav styles */
+.admin-layout > header nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  padding: 0;
+  border: none;
+}
+
+.admin-layout > header nav a,
+.admin-layout > header nav button {
+  font-size: 0.875rem;
+}
+
+/* Sidebar navigation */
+.admin-sidebar {
+  padding: 0.75rem 0;
+  border-right: 1px solid var(--border);
+  background-color: var(--bg);
+  position: sticky;
+  top: 3.5rem;             /* match header height */
+  max-height: calc(100vh - 3.5rem);
+  overflow-y: auto;
+  align-self: start;
+}
+
+.admin-sidebar nav a {
+  display: block;
+  padding: 0.55rem 1.25rem;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.9rem;
+  border-left: 3px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 0.1s, border-left-color 0.1s, color 0.1s;
+}
+
+.admin-sidebar nav a:hover {
+  background-color: var(--accent-bg);
+  color: var(--accent);
+  border-left-color: var(--accent-hover);
+}
+
+.admin-sidebar nav a[aria-current="page"] {
+  background-color: var(--accent-bg);
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+/* Focus rings — WCAG AA */
+.admin-sidebar nav a:focus-visible,
+.admin-layout > header nav a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Suppress transitions for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar nav a { transition: none; }
+}
+
 .admin-content { padding: 1.5rem 2rem; }
 
 /* ─── Destructive action buttons ─────────────────────────────────────────── */

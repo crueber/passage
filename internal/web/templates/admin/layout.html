@@ -1,9 +1,20 @@
+{{define "admin-header"}}
+    <header>
+      <a href="/admin" class="admin-header-brand" aria-label="Passage Admin home">
+        <strong>passage</strong><span aria-hidden="true" class="brand-sep">/</span><span>admin</span>
+      </a>
+      <nav aria-label="Account actions">
+        <a href="/logout">Sign out</a>
+      </nav>
+    </header>
+{{end}}
+
 {{define "admin-nav"}}
     <aside class="admin-sidebar">
-      <nav>
-        <a href="/admin" {{if eq .ActiveNav "dashboard"}}aria-current="page"{{end}}>Dashboard</a>
-        <a href="/admin/users" {{if eq .ActiveNav "users"}}aria-current="page"{{end}}>Users</a>
-        <a href="/admin/apps" {{if eq .ActiveNav "apps"}}aria-current="page"{{end}}>Apps</a>
+      <nav aria-label="Admin navigation">
+        <a href="/admin"          {{if eq .ActiveNav "dashboard"}}aria-current="page"{{end}}>Dashboard</a>
+        <a href="/admin/users"    {{if eq .ActiveNav "users"}}aria-current="page"{{end}}>Users</a>
+        <a href="/admin/apps"     {{if eq .ActiveNav "apps"}}aria-current="page"{{end}}>Apps</a>
         <a href="/admin/sessions" {{if eq .ActiveNav "sessions"}}aria-current="page"{{end}}>Sessions</a>
         <a href="/admin/settings" {{if eq .ActiveNav "settings"}}aria-current="page"{{end}}>Settings</a>
       </nav>

@@ -11,10 +11,7 @@
 </head>
 <body>
   <div class="admin-layout">
-    <header>
-      <span class="wordmark">passage admin</span>
-      <nav><a href="/logout">Sign out</a></nav>
-    </header>
+    {{template "admin-header" .}}
     {{template "admin-nav" .}}
     <main class="admin-content">
       {{template "admin-flash" .}}
