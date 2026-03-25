@@ -2,7 +2,7 @@
  *
  * Bulma 1.0+ uses CSS custom properties for every colour and size.
  * We override only the variables we care about here; everything else
- * inherits from Bulma's defaults. This file must stay minimal.
+ * inherits from Bulma's defaults.
  *
  * Colour palette: deep forest green, institutional, trustworthy.
  */
@@ -33,8 +33,8 @@
   --bulma-menu-item-active-background-color:  #d4e8dc;
 
   /* Project-specific tokens */
-  --passage-sidebar-bg:     #f3f7f5;
-  --passage-sidebar-border: #c8d5cd;
+  --passage-sidebar-bg:       #f3f7f5;
+  --passage-sidebar-border:   #c8d5cd;
   --passage-stat-label-color: #6b7280;
 }
 
@@ -60,79 +60,74 @@
     --bulma-menu-item-active-color:             #5ba882;
     --bulma-menu-item-active-background-color:  #1a2e25;
 
-    --passage-sidebar-bg:     #1a2620;
-    --passage-sidebar-border: #3a4f44;
+    --passage-sidebar-bg:       #1a2620;
+    --passage-sidebar-border:   #3a4f44;
     --passage-stat-label-color: #9ab8aa;
   }
 }
 
-/* ─── Auth pages — vertically-centred card ──────────────────────────────── */
-.passage-auth {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-}
-
-.passage-auth .passage-wordmark {
+/* ─── Brand wordmark (shared between auth and admin navbar) ─────────────── */
+.passage-wordmark {
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--bulma-primary);
   letter-spacing: -0.03em;
-  margin-bottom: 1.5rem;
   display: block;
   text-align: center;
+  margin-bottom: 1.5rem;
 }
 
-.passage-auth .card {
-  width: 100%;
-  max-width: 26rem;
-}
-
-.passage-auth .notification {
-  width: 100%;
-  max-width: 26rem;
-  margin-bottom: 1rem;
-}
-
-/* ─── Admin shell ───────────────────────────────────────────────────────── */
-.passage-admin {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.passage-admin > .navbar {
+/* ─── Admin sticky navbar ───────────────────────────────────────────────── */
+.passage-navbar {
   position: sticky;
   top: 0;
   z-index: 30;
   border-bottom: 1px solid var(--passage-sidebar-border);
 }
 
-.passage-admin-body {
-  display: flex;
-  flex: 1;
+/* Admin navbar brand wordmark */
+.passage-admin-brand {
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
 }
 
+/* ─── Admin sidebar ─────────────────────────────────────────────────────── */
+/*
+ * The sidebar is a `column is-narrow` inside a `columns is-gapless` wrapper.
+ * On tablet+ it sits beside the content column. On mobile (< 769 px) Bulma
+ * stacks columns vertically, so the sidebar naturally moves above the content.
+ */
 .passage-admin-sidebar {
   width: 13rem;
-  flex-shrink: 0;
   background-color: var(--passage-sidebar-bg);
   border-right: 1px solid var(--passage-sidebar-border);
-  padding: 1rem 0.75rem;
+  padding: 1.25rem 0.875rem;
+  /* Stick under the navbar and scroll independently */
   position: sticky;
-  top: 3.25rem; /* Bulma navbar height */
-  max-height: calc(100vh - 3.25rem);
+  top: 3.25rem;                        /* Bulma navbar height */
+  height: calc(100vh - 3.25rem);
   overflow-y: auto;
 }
 
+@media screen and (max-width: 768px) {
+  .passage-admin-sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--passage-sidebar-border);
+  }
+}
+
+/* ─── Admin content padding ─────────────────────────────────────────────── */
 .passage-admin-content {
-  flex: 1;
-  min-width: 0;
   padding: 1.5rem 2rem;
-  max-width: 72rem;
+}
+
+@media screen and (max-width: 768px) {
+  .passage-admin-content {
+    padding: 1rem;
+  }
 }
 
 /* ─── Dashboard stat tiles ──────────────────────────────────────────────── */
@@ -152,6 +147,6 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--passage-stat-label-color, var(--bulma-text-weak, #6b7280));
+  color: var(--passage-stat-label-color, #6b7280);
   margin-top: 0.35rem;
 }

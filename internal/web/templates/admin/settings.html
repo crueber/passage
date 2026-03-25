@@ -10,48 +10,52 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<div class="passage-admin">
-  {{template "admin-header" .}}
-  <div class="passage-admin-body">
+{{template "admin-header" .}}
+<div class="container is-widescreen">
+  <div class="columns is-gapless">
     {{template "admin-nav" .}}
-    <main class="passage-admin-content">
+    <main class="column passage-admin-content">
       {{template "admin-flash" .}}
       <h1 class="title is-4">Settings</h1>
-      <form method="POST" action="/admin/settings" style="max-width:32rem">
-        <div class="field">
-          <div class="control">
-            <label class="checkbox">
-              <input type="checkbox" id="allow_registration" name="allow_registration"
-                     {{if eq .AllowRegistration "true"}}checked{{end}}>
-              Allow public registration
-            </label>
-          </div>
-        </div>
+      <div class="columns">
+        <div class="column is-half-tablet is-one-third-desktop">
+          <form method="POST" action="/admin/settings">
+            <div class="field">
+              <div class="control">
+                <label class="checkbox">
+                  <input type="checkbox" id="allow_registration" name="allow_registration"
+                         {{if eq .AllowRegistration "true"}}checked{{end}}>
+                  Allow public registration
+                </label>
+              </div>
+            </div>
 
-        <div class="field">
-          <label class="label" for="session_duration_hours">Session Duration (hours)</label>
-          <div class="control">
-            <input class="input" type="number" id="session_duration_hours" name="session_duration_hours"
-                   min="1" max="8760" value="{{.SessionDurationHours}}">
-          </div>
-          <p class="help">Requires restart to take effect.</p>
-        </div>
+            <div class="field">
+              <label class="label" for="session_duration_hours">Session Duration (hours)</label>
+              <div class="control">
+                <input class="input" type="number" id="session_duration_hours" name="session_duration_hours"
+                       min="1" max="8760" value="{{.SessionDurationHours}}">
+              </div>
+              <p class="help">Requires restart to take effect.</p>
+            </div>
 
-        <div class="field">
-          <label class="label" for="smtp_from">SMTP From Address</label>
-          <div class="control">
-            <input class="input" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
-                   value="{{.SMTPFrom}}">
-          </div>
-          <p class="help">Requires restart to take effect. Leave empty to use config file value.</p>
-        </div>
+            <div class="field">
+              <label class="label" for="smtp_from">SMTP From Address</label>
+              <div class="control">
+                <input class="input" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
+                       value="{{.SMTPFrom}}">
+              </div>
+              <p class="help">Requires restart to take effect. Leave empty to use config file value.</p>
+            </div>
 
-        <div class="field">
-          <div class="control">
-            <button type="submit" class="button is-primary">Save Settings</button>
-          </div>
+            <div class="field">
+              <div class="control">
+                <button type="submit" class="button is-primary">Save Settings</button>
+              </div>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
     </main>
   </div>
 </div>

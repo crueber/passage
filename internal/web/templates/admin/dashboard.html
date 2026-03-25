@@ -10,11 +10,11 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<div class="passage-admin">
-  {{template "admin-header" .}}
-  <div class="passage-admin-body">
+{{template "admin-header" .}}
+<div class="container is-widescreen">
+  <div class="columns is-gapless">
     {{template "admin-nav" .}}
-    <main class="passage-admin-content">
+    <main class="column passage-admin-content">
       {{template "admin-flash" .}}
       <h1 class="title is-4">Dashboard</h1>
       <div class="columns">

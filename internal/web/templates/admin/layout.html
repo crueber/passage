@@ -1,21 +1,42 @@
 {{define "admin-header"}}
-<nav class="navbar" role="navigation" aria-label="main navigation">
-  <div class="navbar-brand">
-    <a class="navbar-item has-text-weight-bold" href="/admin" aria-label="Passage Admin home"
-       style="font-size:1.05rem;letter-spacing:-0.02em;">
-      passage<span class="has-text-grey-light mx-1" aria-hidden="true">/</span>admin
-    </a>
-  </div>
-  <div class="navbar-end">
-    <div class="navbar-item">
-      <a class="button is-small is-light" href="/logout">Sign out</a>
+<nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
+  <div class="container is-widescreen">
+    <div class="navbar-brand">
+      <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/admin" aria-label="Passage Admin home">
+        passage<span class="has-text-grey-light mx-1" aria-hidden="true">/</span>admin
+      </a>
+      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
+         data-target="admin-navbar-menu">
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </a>
+    </div>
+    <div id="admin-navbar-menu" class="navbar-menu">
+      <div class="navbar-end">
+        <div class="navbar-item">
+          <a class="button is-small is-light" href="/logout">Sign out</a>
+        </div>
+      </div>
     </div>
   </div>
 </nav>
+<script>
+  (function(){
+    var burger = document.querySelector('.navbar-burger[data-target="admin-navbar-menu"]');
+    if (!burger) return;
+    burger.addEventListener('click', function(){
+      var target = document.getElementById(burger.dataset.target);
+      var active = burger.classList.toggle('is-active');
+      target.classList.toggle('is-active', active);
+      burger.setAttribute('aria-expanded', String(active));
+    });
+  }());
+</script>
 {{end}}
 
 {{define "admin-nav"}}
-<nav class="passage-admin-sidebar menu" aria-label="Admin navigation">
+<nav class="passage-admin-sidebar menu column is-narrow" aria-label="Admin navigation">
   <ul class="menu-list">
     <li><a href="/admin"          {{if eq .ActiveNav "dashboard"}}class="is-active"{{end}}>Dashboard</a></li>
     <li><a href="/admin/users"    {{if eq .ActiveNav "users"}}class="is-active"{{end}}>Users</a></li>

@@ -10,73 +10,77 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<div class="passage-admin">
-  {{template "admin-header" .}}
-  <div class="passage-admin-body">
+{{template "admin-header" .}}
+<div class="container is-widescreen">
+  <div class="columns is-gapless">
     {{template "admin-nav" .}}
-    <main class="passage-admin-content">
+    <main class="column passage-admin-content">
       {{template "admin-flash" .}}
       <h1 class="title is-4">{{if .IsNew}}New User{{else}}Edit User{{end}}</h1>
 
-      <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}" style="max-width:32rem">
-        <div class="field">
-          <label class="label" for="username">Username</label>
-          <div class="control">
-            <input class="input" type="text" id="username" name="username" required autocomplete="off"
-                   value="{{if .EditUser}}{{.EditUser.Username}}{{end}}">
-          </div>
-        </div>
+      <div class="columns">
+        <div class="column is-half-tablet is-one-third-desktop">
+          <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}">
+            <div class="field">
+              <label class="label" for="username">Username</label>
+              <div class="control">
+                <input class="input" type="text" id="username" name="username" required autocomplete="off"
+                       value="{{if .EditUser}}{{.EditUser.Username}}{{end}}">
+              </div>
+            </div>
 
-        <div class="field">
-          <label class="label" for="email">Email</label>
-          <div class="control">
-            <input class="input" type="email" id="email" name="email" required autocomplete="off"
-                   value="{{if .EditUser}}{{.EditUser.Email}}{{end}}">
-          </div>
-        </div>
+            <div class="field">
+              <label class="label" for="email">Email</label>
+              <div class="control">
+                <input class="input" type="email" id="email" name="email" required autocomplete="off"
+                       value="{{if .EditUser}}{{.EditUser.Email}}{{end}}">
+              </div>
+            </div>
 
-        <div class="field">
-          <label class="label" for="name">Display Name</label>
-          <div class="control">
-            <input class="input" type="text" id="name" name="name" autocomplete="off"
-                   value="{{if .EditUser}}{{.EditUser.Name}}{{end}}">
-          </div>
-        </div>
+            <div class="field">
+              <label class="label" for="name">Display Name</label>
+              <div class="control">
+                <input class="input" type="text" id="name" name="name" autocomplete="off"
+                       value="{{if .EditUser}}{{.EditUser.Name}}{{end}}">
+              </div>
+            </div>
 
-        {{if .IsNew}}
-        <div class="field">
-          <label class="label" for="password">Password</label>
-          <div class="control">
-            <input class="input" type="password" id="password" name="password"
-                   required autocomplete="new-password" minlength="8">
-          </div>
-        </div>
-        {{end}}
+            {{if .IsNew}}
+            <div class="field">
+              <label class="label" for="password">Password</label>
+              <div class="control">
+                <input class="input" type="password" id="password" name="password"
+                       required autocomplete="new-password" minlength="8">
+              </div>
+            </div>
+            {{end}}
 
-        <div class="field">
-          <div class="control">
-            <label class="checkbox mr-4">
-              <input type="checkbox" name="is_admin"
-                     {{if .EditUser}}{{if .EditUser.IsAdmin}}checked{{end}}{{end}}>
-              Admin
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" name="is_active"
-                     {{if .IsNew}}checked{{else}}{{if .EditUser}}{{if .EditUser.IsActive}}checked{{end}}{{end}}{{end}}>
-              Active
-            </label>
-          </div>
-        </div>
+            <div class="field">
+              <div class="control">
+                <label class="checkbox mr-4">
+                  <input type="checkbox" name="is_admin"
+                         {{if .EditUser}}{{if .EditUser.IsAdmin}}checked{{end}}{{end}}>
+                  Admin
+                </label>
+                <label class="checkbox">
+                  <input type="checkbox" name="is_active"
+                         {{if .IsNew}}checked{{else}}{{if .EditUser}}{{if .EditUser.IsActive}}checked{{end}}{{end}}{{end}}>
+                  Active
+                </label>
+              </div>
+            </div>
 
-        <div class="field is-grouped">
-          <div class="control">
-            <button type="submit" class="button is-primary">{{if .IsNew}}Create User{{else}}Save Changes{{end}}</button>
-          </div>
-          <div class="control">
-            <a class="button is-light" href="/admin/users">Cancel</a>
-          </div>
+            <div class="field is-grouped">
+              <div class="control">
+                <button type="submit" class="button is-primary">{{if .IsNew}}Create User{{else}}Save Changes{{end}}</button>
+              </div>
+              <div class="control">
+                <a class="button is-light" href="/admin/users">Cancel</a>
+              </div>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
 
       {{if not .IsNew}}
       <hr>

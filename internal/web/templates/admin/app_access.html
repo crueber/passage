@@ -10,11 +10,11 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<div class="passage-admin">
-  {{template "admin-header" .}}
-  <div class="passage-admin-body">
+{{template "admin-header" .}}
+<div class="container is-widescreen">
+  <div class="columns is-gapless">
     {{template "admin-nav" .}}
-    <main class="passage-admin-content">
+    <main class="column passage-admin-content">
       {{template "admin-flash" .}}
       <h1 class="title is-4">Access: {{.App.Name}}</h1>
       <p class="mb-4"><a href="/admin/apps/{{.App.ID}}">← Back to app</a></p>

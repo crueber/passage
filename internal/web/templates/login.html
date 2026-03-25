@@ -10,64 +10,72 @@
   <script src="/static/passkey.js" defer></script>
 </head>
 <body>
-<div class="passage-auth">
-  <span class="passage-wordmark">passage</span>
+<section class="hero is-fullheight">
+  <div class="hero-body">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-narrow">
+          <p class="passage-wordmark">passage</p>
 
-  {{if .Flash}}
-  <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
-    {{.Flash.Message}}
-  </div>
-  {{end}}
+          {{if .Flash}}
+          <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
+            {{.Flash.Message}}
+          </div>
+          {{end}}
 
-  <div class="card">
-    <div class="card-content">
-      <h1 class="title is-5">Sign in to continue</h1>
+          <div class="card" style="min-width:22rem;max-width:26rem;">
+            <div class="card-content">
+              <h1 class="title is-5">Sign in to continue</h1>
 
-      <form method="POST" action="/login">
-        <input type="hidden" name="rd" value="{{.RedirectTo}}">
+              <form method="POST" action="/login">
+                <input type="hidden" name="rd" value="{{.RedirectTo}}">
 
-        <div class="field">
-          <label class="label" for="username">Username</label>
-          <div class="control">
-            <input class="input" type="text" id="username" name="username"
-                   autocomplete="username" required autofocus value="{{.Username}}">
+                <div class="field">
+                  <label class="label" for="username">Username</label>
+                  <div class="control">
+                    <input class="input" type="text" id="username" name="username"
+                           autocomplete="username" required autofocus value="{{.Username}}">
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="password">Password</label>
+                  <div class="control">
+                    <input class="input" type="password" id="password" name="password"
+                           autocomplete="current-password" required>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <div class="control">
+                    <button type="submit" class="button is-primary is-fullwidth">Sign in</button>
+                  </div>
+                </div>
+              </form>
+
+              <div class="field mt-4">
+                <div class="control">
+                  <button type="button" id="passkey-login-btn" class="button is-light is-fullwidth">
+                    Sign in with a passkey
+                  </button>
+                </div>
+                <p id="passkey-login-status" class="help mt-1" aria-live="polite"></p>
+              </div>
+
+              <div class="has-text-centered mt-4 is-size-7">
+                <a href="/reset">Forgot password?</a>
+                {{if .AllowRegistration}}
+                &nbsp;·&nbsp;
+                <a href="/register">Create an account</a>
+                {{end}}
+              </div>
+            </div>
           </div>
         </div>
-
-        <div class="field">
-          <label class="label" for="password">Password</label>
-          <div class="control">
-            <input class="input" type="password" id="password" name="password"
-                   autocomplete="current-password" required>
-          </div>
-        </div>
-
-        <div class="field">
-          <div class="control">
-            <button type="submit" class="button is-primary is-fullwidth">Sign in</button>
-          </div>
-        </div>
-      </form>
-
-      <div class="field mt-4">
-        <div class="control">
-          <button type="button" id="passkey-login-btn" class="button is-light is-fullwidth">
-            Sign in with a passkey
-          </button>
-        </div>
-        <p id="passkey-login-status" class="help mt-1" aria-live="polite"></p>
-      </div>
-
-      <div class="has-text-centered mt-4 is-size-7">
-        <a href="/reset">Forgot password?</a>
-        {{if .AllowRegistration}}
-        &nbsp;·&nbsp;
-        <a href="/register">Create an account</a>
-        {{end}}
       </div>
     </div>
   </div>
-</div>
+</section>
 </body>
 </html>
 {{end}}

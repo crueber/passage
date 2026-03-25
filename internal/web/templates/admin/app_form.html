@@ -10,79 +10,83 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<div class="passage-admin">
-  {{template "admin-header" .}}
-  <div class="passage-admin-body">
+{{template "admin-header" .}}
+<div class="container is-widescreen">
+  <div class="columns is-gapless">
     {{template "admin-nav" .}}
-    <main class="passage-admin-content">
+    <main class="column passage-admin-content">
       {{template "admin-flash" .}}
       <h1 class="title is-4">{{if .IsNew}}New App{{else}}Edit App{{end}}</h1>
 
-      <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}" style="max-width:32rem">
-        <div class="field">
-          <label class="label" for="slug">Slug</label>
-          <div class="control">
-            <input class="input" type="text" id="slug" name="slug" required autocomplete="off"
-                   value="{{if .EditApp}}{{.EditApp.Slug}}{{end}}">
-          </div>
-        </div>
+      <div class="columns">
+        <div class="column is-half-tablet is-one-third-desktop">
+          <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}">
+            <div class="field">
+              <label class="label" for="slug">Slug</label>
+              <div class="control">
+                <input class="input" type="text" id="slug" name="slug" required autocomplete="off"
+                       value="{{if .EditApp}}{{.EditApp.Slug}}{{end}}">
+              </div>
+            </div>
 
-        <div class="field">
-          <label class="label" for="name">Name</label>
-          <div class="control">
-            <input class="input" type="text" id="name" name="name" required autocomplete="off"
-                   value="{{if .EditApp}}{{.EditApp.Name}}{{end}}">
-          </div>
-        </div>
+            <div class="field">
+              <label class="label" for="name">Name</label>
+              <div class="control">
+                <input class="input" type="text" id="name" name="name" required autocomplete="off"
+                       value="{{if .EditApp}}{{.EditApp.Name}}{{end}}">
+              </div>
+            </div>
 
-        <div class="field">
-          <label class="label" for="description">Description</label>
-          <div class="control">
-            <input class="input" type="text" id="description" name="description" autocomplete="off"
-                   value="{{if .EditApp}}{{.EditApp.Description}}{{end}}">
-          </div>
-        </div>
+            <div class="field">
+              <label class="label" for="description">Description</label>
+              <div class="control">
+                <input class="input" type="text" id="description" name="description" autocomplete="off"
+                       value="{{if .EditApp}}{{.EditApp.Description}}{{end}}">
+              </div>
+            </div>
 
-        <div class="field">
-          <label class="label" for="host_pattern">Host Pattern</label>
-          <div class="control">
-            <input class="input" type="text" id="host_pattern" name="host_pattern" autocomplete="off"
-                   placeholder="e.g. grafana.home.example.com or *.home.example.com"
-                   value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
-          </div>
-        </div>
+            <div class="field">
+              <label class="label" for="host_pattern">Host Pattern</label>
+              <div class="control">
+                <input class="input" type="text" id="host_pattern" name="host_pattern" autocomplete="off"
+                       placeholder="e.g. grafana.home.example.com or *.home.example.com"
+                       value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
+              </div>
+            </div>
 
-        {{if not .IsNew}}
-        <div class="field">
-          <label class="label" for="redirect_uris">Redirect URIs <span class="has-text-weight-normal is-size-7">(one per line)</span></label>
-          <div class="control">
-            <textarea class="textarea" id="redirect_uris" name="redirect_uris" rows="4"
-                      style="font-family: monospace;">{{range .EditApp.RedirectURIs}}{{.}}
+            {{if not .IsNew}}
+            <div class="field">
+              <label class="label" for="redirect_uris">Redirect URIs <span class="has-text-weight-normal is-size-7">(one per line)</span></label>
+              <div class="control">
+                <textarea class="textarea" id="redirect_uris" name="redirect_uris" rows="4"
+                          style="font-family: monospace;">{{range .EditApp.RedirectURIs}}{{.}}
 {{end}}</textarea>
-          </div>
-          <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
-        </div>
-        {{end}}
+              </div>
+              <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
+            </div>
+            {{end}}
 
-        <div class="field">
-          <div class="control">
-            <label class="checkbox">
-              <input type="checkbox" name="is_active"
-                     {{if .IsNew}}checked{{else}}{{if .EditApp}}{{if .EditApp.IsActive}}checked{{end}}{{end}}{{end}}>
-              Active
-            </label>
-          </div>
-        </div>
+            <div class="field">
+              <div class="control">
+                <label class="checkbox">
+                  <input type="checkbox" name="is_active"
+                         {{if .IsNew}}checked{{else}}{{if .EditApp}}{{if .EditApp.IsActive}}checked{{end}}{{end}}{{end}}>
+                  Active
+                </label>
+              </div>
+            </div>
 
-        <div class="field is-grouped">
-          <div class="control">
-            <button type="submit" class="button is-primary">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
-          </div>
-          <div class="control">
-            <a class="button is-light" href="/admin/apps">Cancel</a>
-          </div>
+            <div class="field is-grouped">
+              <div class="control">
+                <button type="submit" class="button is-primary">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
+              </div>
+              <div class="control">
+                <a class="button is-light" href="/admin/apps">Cancel</a>
+              </div>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
 
       {{if not .IsNew}}
       <hr>

@@ -9,72 +9,80 @@
   <link rel="stylesheet" href="/static/passage.css">
 </head>
 <body>
-<div class="passage-auth">
-  <span class="passage-wordmark">passage</span>
+<section class="hero is-fullheight">
+  <div class="hero-body">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-narrow">
+          <p class="passage-wordmark">passage</p>
 
-  {{if .Flash}}
-  <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
-    {{.Flash.Message}}
-  </div>
-  {{end}}
-
-  <div class="card">
-    <div class="card-content">
-      <h1 class="title is-5">Initial Setup</h1>
-      <p class="mb-4">No admin account exists yet. Enter the setup token printed in the server logs to create the first admin account.</p>
-
-      <form method="POST" action="/setup">
-        <div class="field">
-          <label class="label" for="setup_token">Setup Token</label>
-          <div class="control">
-            <input class="input" type="text" id="setup_token" name="setup_token"
-                   autocomplete="off" required autofocus
-                   aria-describedby="setup_token_hint">
+          {{if .Flash}}
+          <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
+            {{.Flash.Message}}
           </div>
-          <p class="help" id="setup_token_hint">Copy this from the server startup logs.</p>
-        </div>
+          {{end}}
 
-        <div class="field">
-          <label class="label" for="username">Username</label>
-          <div class="control">
-            <input class="input" type="text" id="username" name="username"
-                   autocomplete="username" required>
+          <div class="card" style="min-width:22rem;max-width:26rem;">
+            <div class="card-content">
+              <h1 class="title is-5">Initial Setup</h1>
+              <p class="mb-4">No admin account exists yet. Enter the setup token printed in the server logs to create the first admin account.</p>
+
+              <form method="POST" action="/setup">
+                <div class="field">
+                  <label class="label" for="setup_token">Setup Token</label>
+                  <div class="control">
+                    <input class="input" type="text" id="setup_token" name="setup_token"
+                           autocomplete="off" required autofocus
+                           aria-describedby="setup_token_hint">
+                  </div>
+                  <p class="help" id="setup_token_hint">Copy this from the server startup logs.</p>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="username">Username</label>
+                  <div class="control">
+                    <input class="input" type="text" id="username" name="username"
+                           autocomplete="username" required>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="email">Email</label>
+                  <div class="control">
+                    <input class="input" type="email" id="email" name="email"
+                           autocomplete="email" required>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="password">Password</label>
+                  <div class="control">
+                    <input class="input" type="password" id="password" name="password"
+                           autocomplete="new-password" required minlength="8">
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label class="label" for="password_confirm">Confirm Password</label>
+                  <div class="control">
+                    <input class="input" type="password" id="password_confirm" name="password_confirm"
+                           autocomplete="new-password" required minlength="8">
+                  </div>
+                </div>
+
+                <div class="field">
+                  <div class="control">
+                    <button type="submit" class="button is-primary is-fullwidth">Create Admin Account</button>
+                  </div>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
-
-        <div class="field">
-          <label class="label" for="email">Email</label>
-          <div class="control">
-            <input class="input" type="email" id="email" name="email"
-                   autocomplete="email" required>
-          </div>
-        </div>
-
-        <div class="field">
-          <label class="label" for="password">Password</label>
-          <div class="control">
-            <input class="input" type="password" id="password" name="password"
-                   autocomplete="new-password" required minlength="8">
-          </div>
-        </div>
-
-        <div class="field">
-          <label class="label" for="password_confirm">Confirm Password</label>
-          <div class="control">
-            <input class="input" type="password" id="password_confirm" name="password_confirm"
-                   autocomplete="new-password" required minlength="8">
-          </div>
-        </div>
-
-        <div class="field">
-          <div class="control">
-            <button type="submit" class="button is-primary is-fullwidth">Create Admin Account</button>
-          </div>
-        </div>
-      </form>
+      </div>
     </div>
   </div>
-</div>
+</section>
 </body>
 </html>
 {{end}}
