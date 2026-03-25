@@ -29,12 +29,14 @@
   --bulma-menu-item-color:                    #1a1f1c;
   --bulma-menu-item-hover-color:              #2e6b4f;
   --bulma-menu-item-hover-background-color:   #e6efea;
-  --bulma-menu-item-active-color:             #2e6b4f;
-  --bulma-menu-item-active-background-color:  #d4e8dc;
+  --bulma-menu-item-active-color:             #ffffff;
+  --bulma-menu-item-active-background-color:  #2e6b4f;
 
   /* Project-specific tokens */
+  --passage-sidebar-width:    13rem;
   --passage-sidebar-bg:       #f3f7f5;
   --passage-sidebar-border:   #c8d5cd;
+  --passage-navbar-height:    3.25rem;
   --passage-stat-label-color: #6b7280;
 }
 
@@ -57,8 +59,8 @@
     --bulma-menu-item-color:                    #dde8e2;
     --bulma-menu-item-hover-color:              #5ba882;
     --bulma-menu-item-hover-background-color:   #223328;
-    --bulma-menu-item-active-color:             #5ba882;
-    --bulma-menu-item-active-background-color:  #1a2e25;
+    --bulma-menu-item-active-color:             #c8edd9;
+    --bulma-menu-item-active-background-color:  #1f4a35;
 
     --passage-sidebar-bg:       #1a2620;
     --passage-sidebar-border:   #3a4f44;
@@ -66,7 +68,7 @@
   }
 }
 
-/* ─── Brand wordmark (shared between auth and admin navbar) ─────────────── */
+/* ─── Brand wordmark (auth pages) ───────────────────────────────────────── */
 .passage-wordmark {
   font-size: 1.75rem;
   font-weight: 700;
@@ -85,46 +87,60 @@
   border-bottom: 1px solid var(--passage-sidebar-border);
 }
 
-/* Admin navbar brand wordmark */
+/* Admin navbar brand */
 .passage-admin-brand {
   font-size: 1.05rem;
   letter-spacing: -0.02em;
 }
 
-/* ─── Admin sidebar ─────────────────────────────────────────────────────── */
+/* ─── Admin shell layout ─────────────────────────────────────────────────── */
 /*
- * The sidebar is a `column is-narrow` inside a `columns is-gapless` wrapper.
- * On tablet+ it sits beside the content column. On mobile (< 769 px) Bulma
- * stacks columns vertically, so the sidebar naturally moves above the content.
+ * Full-width flex row below the sticky navbar.
+ * Sidebar is self-sized (only as tall as its content) and sticky.
+ * Content takes the remaining width with comfortable padding.
  */
-.passage-admin-sidebar {
-  width: 13rem;
-  background-color: var(--passage-sidebar-bg);
-  border-right: 1px solid var(--passage-sidebar-border);
-  padding: 1.25rem 0.875rem;
-  /* Stick under the navbar and scroll independently */
-  position: sticky;
-  top: 3.25rem;                        /* Bulma navbar height */
-  height: calc(100vh - 3.25rem);
-  overflow-y: auto;
+.passage-admin-shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: calc(100vh - var(--passage-navbar-height));
 }
 
+/* ─── Admin sidebar ─────────────────────────────────────────────────────── */
+.passage-admin-sidebar {
+  flex: 0 0 var(--passage-sidebar-width);
+  width: var(--passage-sidebar-width);
+  background-color: var(--passage-sidebar-bg);
+  border-right: 1px solid var(--passage-sidebar-border);
+  padding: 1.25rem 0.75rem;
+  /* Stick under the navbar; only as tall as its own content */
+  position: sticky;
+  top: var(--passage-navbar-height);
+  max-height: calc(100vh - var(--passage-navbar-height));
+  overflow-y: auto;
+  align-self: flex-start;
+}
+
+/* ─── Admin content area ────────────────────────────────────────────────── */
+.passage-admin-content {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 1.75rem 2rem;
+}
+
+/* ─── Mobile: stack sidebar above content ───────────────────────────────── */
 @media screen and (max-width: 768px) {
+  .passage-admin-shell {
+    flex-direction: column;
+  }
+
   .passage-admin-sidebar {
     position: static;
     width: 100%;
-    height: auto;
+    max-height: none;
     border-right: none;
     border-bottom: 1px solid var(--passage-sidebar-border);
   }
-}
 
-/* ─── Admin content padding ─────────────────────────────────────────────── */
-.passage-admin-content {
-  padding: 1.5rem 2rem;
-}
-
-@media screen and (max-width: 768px) {
   .passage-admin-content {
     padding: 1rem;
   }
@@ -133,7 +149,8 @@
 /* ─── Dashboard stat tiles ──────────────────────────────────────────────── */
 .passage-stat {
   text-align: center;
-  padding: 1.5rem 1rem;
+  padding: 1.5rem 1.25rem;
+  min-width: 8rem;
 }
 
 .passage-stat-number {

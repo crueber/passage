@@ -1,23 +1,19 @@
 {{define "admin-header"}}
 <nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
-  <div class="container is-widescreen">
-    <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/admin" aria-label="Passage Admin home">
-        passage<span class="has-text-grey-light mx-1" aria-hidden="true">/</span>admin
-      </a>
-      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
-         data-target="admin-navbar-menu">
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-      </a>
-    </div>
-    <div id="admin-navbar-menu" class="navbar-menu">
-      <div class="navbar-end">
-        <div class="navbar-item">
-          <a class="button is-small is-light" href="/logout">Sign out</a>
-        </div>
-      </div>
+  <div class="navbar-brand">
+    <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/admin" aria-label="Passage Admin home">
+      passage<span class="has-text-grey-light mx-1" aria-hidden="true">/</span>admin
+    </a>
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
+       data-target="admin-navbar-menu">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div id="admin-navbar-menu" class="navbar-menu">
+    <div class="navbar-end">
+      <a class="navbar-item" href="/logout">Sign out</a>
     </div>
   </div>
 </nav>
@@ -36,7 +32,8 @@
 {{end}}
 
 {{define "admin-nav"}}
-<nav class="passage-admin-sidebar menu column is-narrow" aria-label="Admin navigation">
+<aside class="passage-admin-sidebar menu" aria-label="Admin navigation">
+  <p class="menu-label">Navigation</p>
   <ul class="menu-list">
     <li><a href="/admin"          {{if eq .ActiveNav "dashboard"}}class="is-active"{{end}}>Dashboard</a></li>
     <li><a href="/admin/users"    {{if eq .ActiveNav "users"}}class="is-active"{{end}}>Users</a></li>
@@ -44,7 +41,7 @@
     <li><a href="/admin/sessions" {{if eq .ActiveNav "sessions"}}class="is-active"{{end}}>Sessions</a></li>
     <li><a href="/admin/settings" {{if eq .ActiveNav "settings"}}class="is-active"{{end}}>Settings</a></li>
   </ul>
-</nav>
+</aside>
 {{end}}
 
 {{define "admin-flash"}}
