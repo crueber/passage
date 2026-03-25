@@ -35,34 +35,63 @@ On `401`, the reverse proxy redirects the browser to Passage's login page, which
 
 ---
 
-## Status
+## Quick start
 
-All five implementation phases are complete:
+### Docker Compose (recommended)
 
-| Phase | Status | What it delivers |
-|---|---|---|
-| 1 — Foundation | ✅ Complete | Go project skeleton, SQLite + migrations, config loading, HTTP server, health check |
-| 2 — User Auth | ✅ Complete | Login, registration, password reset, session management, HTML UI |
-| 3 — Forward Auth | ✅ Complete | `/auth/nginx`, `/auth/traefik`, app model, host-pattern matching, access grants |
-| 4 — Admin UI | ✅ Complete | Full admin dashboard: users, apps, sessions, settings, htmx enhancements |
-| 5 — Passkeys | ✅ Complete | WebAuthn registration and authentication, per-user credential management |
-| 6 — OAuth/OIDC | ✅ Complete | OAuth 2.0 authorization code flow, OIDC discovery, JWKS, id_token (RS256) |
-
-> **Pre-release**: APIs and configuration format may change before v1.0.
-
----
-
-## Quick start (development)
-
-### Requirements
-
-- Go 1.22 or later
-- `CGO_ENABLED=0` — no CGo, ever
+The repository ships a ready-to-use `docker-compose.yml`. Copy the example env file, set your public URL, and start:
 
 ```bash
-git clone https://github.com/crueber/passage.git
-cd passage
+cp .env.example .env
+# Edit .env — at minimum set PASSAGE_SERVER_BASE_URL
+docker compose up -d
+```
 
+A minimal `docker-compose.yml` looks like this:
+
+```yaml
+services:
+  passage:
+    image: ghcr.io/crueber/passage:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PASSAGE_SERVER_BASE_URL: "https://auth.home.example.com"
+      PASSAGE_DATABASE_PATH: "/data/passage.db"
+      PASSAGE_SESSION_COOKIE_SECURE: "true"
+      # SMTP — omit to disable email features
+      PASSAGE_SMTP_HOST: "smtp.example.com"
+      PASSAGE_SMTP_PORT: "587"
+      PASSAGE_SMTP_USERNAME: "passage@example.com"
+      PASSAGE_SMTP_PASSWORD: "secret"
+      PASSAGE_SMTP_FROM: "Passage <passage@example.com>"
+    volumes:
+      - passage_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  passage_data:
+```
+
+The full `docker-compose.yml` (with all environment variables and their defaults) is included in the repository.
+
+On first start with an empty database, a one-time setup token is printed to stdout:
+
+```
+docker compose logs passage | grep setup
+```
+
+Visit `https://auth.home.example.com/setup` and use the token to create the first admin account. That endpoint disables itself as soon as an admin exists.
+
+### Binary (no Docker)
+
+```bash
 # Build
 CGO_ENABLED=0 go build -o passage ./cmd/passage
 
@@ -74,9 +103,7 @@ cp passage.example.yaml passage.yaml
 ./passage --config passage.yaml
 ```
 
-The server starts on `0.0.0.0:8080` by default. Visit `http://localhost:8080/healthz` to confirm it's running.
-
-On first start with an empty database, a one-time setup token is printed to stdout. Use it to create the first admin account via `/setup` (that endpoint is disabled as soon as an admin exists).
+The server starts on `0.0.0.0:8080` by default. Visit `http://localhost:8080/healthz` to confirm it is running.
 
 ---
 
@@ -260,13 +287,15 @@ id_tokens are signed with RS256. Grafana (and any OIDC-compliant library) can ve
 
 ## Development
 
+### Requirements
+
+- Go 1.22 or later
+- `CGO_ENABLED=0` — no CGo, ever
+
 ### Build
 
 ```bash
 # Standard build
-go build ./...
-
-# Verified static binary (required before any commit)
 CGO_ENABLED=0 go build -o passage ./cmd/passage
 
 # With version injected
