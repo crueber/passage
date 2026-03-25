@@ -171,6 +171,16 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// HasAdmin returns true if at least one admin user exists in the database.
+func (s *SQLiteStore) HasAdmin(ctx context.Context) (bool, error) {
+	const query = `SELECT COUNT(*) FROM users WHERE is_admin = 1`
+	var count int
+	if err := s.db.QueryRowContext(ctx, query).Scan(&count); err != nil {
+		return false, fmt.Errorf("user store has admin: %w", err)
+	}
+	return count > 0, nil
+}
+
 // CreateResetToken generates a 32-byte token using crypto/rand, stores it
 // with a 1-hour expiry, and returns the hex-encoded token string.
 func (s *SQLiteStore) CreateResetToken(ctx context.Context, userID string) (string, error) {

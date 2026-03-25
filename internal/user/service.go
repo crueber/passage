@@ -64,6 +64,40 @@ func (s *Service) Register(ctx context.Context, username, email, password string
 	return u, nil
 }
 
+// CreateAdmin creates a new admin user account, bypassing the allow_registration
+// setting. It is used only during the initial /setup flow to create the first
+// admin when no admin yet exists.
+func (s *Service) CreateAdmin(ctx context.Context, username, email, password string) (*User, error) {
+	if username == "" {
+		return nil, ErrUsernameRequired
+	}
+	if email == "" {
+		return nil, ErrEmailRequired
+	}
+	if len(password) < 8 {
+		return nil, ErrPasswordTooShort
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.cfg.Auth.BcryptCost)
+	if err != nil {
+		return nil, fmt.Errorf("create admin hash password: %w", err)
+	}
+
+	u := &User{
+		Username:     username,
+		Email:        email,
+		PasswordHash: string(hash),
+		IsActive:     true,
+		IsAdmin:      true,
+		Roles:        "[]",
+	}
+
+	if err := s.store.Create(ctx, u); err != nil {
+		return nil, fmt.Errorf("create admin create user: %w", err)
+	}
+	return u, nil
+}
+
 // Authenticate verifies credentials and returns the user if valid.
 // Returns ErrInvalidCredentials if the username does not exist or the password
 // is wrong. Returns ErrUserInactive if the account has been disabled.

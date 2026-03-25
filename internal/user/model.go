@@ -54,6 +54,9 @@ type Store interface {
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, user *User) error
 	Delete(ctx context.Context, id string) error
+	// HasAdmin reports whether at least one admin user exists in the database.
+	// Used at startup to determine whether the /setup endpoint should be active.
+	HasAdmin(ctx context.Context) (bool, error)
 }
 
 // TokenStore is the persistence interface for password reset tokens. It is

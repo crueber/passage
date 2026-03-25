@@ -168,6 +168,33 @@ func run() error {
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, sessionSvc, settingsStore, mailer, tmpl, cfg, logger)
 
+	// If no admin user exists, generate a one-time setup token so the operator
+	// can bootstrap the first admin account via /setup. The token is logged to
+	// stdout and is valid for 1 hour. The /setup endpoint is disabled once any
+	// admin account exists.
+	var setupManager *user.SetupTokenManager
+	hasAdmin, err := userStore.HasAdmin(ctx)
+	if err != nil {
+		return fmt.Errorf("check admin existence: %w", err)
+	}
+	if !hasAdmin {
+		mgr, token, err := user.NewSetupTokenManager()
+		if err != nil {
+			return fmt.Errorf("generate setup token: %w", err)
+		}
+		setupManager = mgr
+		setupURL := cfg.Server.BaseURL + "/setup"
+		if cfg.Server.BaseURL == "" {
+			setupURL = fmt.Sprintf("http://localhost:%d/setup", cfg.Server.Port)
+		}
+		logger.Info("═══════════════════════════════════════════════════════")
+		logger.Info("  NO ADMIN USER FOUND — INITIAL SETUP REQUIRED")
+		logger.Info("  Visit:  " + setupURL)
+		logger.Info("  Token:  " + token)
+		logger.Info("  Expires in 1 hour. Token is single-use.")
+		logger.Info("═══════════════════════════════════════════════════════")
+	}
+
 	// Build WebAuthn passkey handler.
 	passkeyHandler := webauthn.NewHandler(
 		wa,
@@ -223,6 +250,12 @@ func run() error {
 	r.Get("/reset/{token}", userHandler.GetResetConfirm)
 	r.Post("/reset/{token}", userHandler.PostResetConfirm)
 	r.Get("/logout", userHandler.GetLogout)
+
+	// Setup endpoint — only active when no admin user exists.
+	// The setupManager is nil once an admin account has been created; the
+	// handlers check IsActive() on every request so the endpoint self-disables.
+	r.Get("/setup", userHandler.GetSetup(setupManager))
+	r.Post("/setup", userHandler.PostSetup(setupManager))
 
 	// Passkey login routes (public — no session required).
 	passkeyHandler.AuthRoutes(r)
