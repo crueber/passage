@@ -109,6 +109,50 @@
           <p><strong>Client ID:</strong> <code>{{.EditApp.ClientID}}</code></p>
           <p><strong>Client Secret:</strong> •••••••••• (set)</p>
         </div>
+
+        <h3 class="title is-6 mt-4">OIDC / OAuth Endpoints</h3>
+        {{if .BaseURL}}
+        <p class="mb-3">Configure your app's OAuth / OIDC provider with these endpoints. Most apps
+          that support OIDC discovery only need the <strong>Discovery URL</strong>; others require
+          each endpoint to be entered individually.</p>
+        <table class="table is-bordered is-narrow is-fullwidth" aria-label="OIDC endpoint reference">
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>URL</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Discovery (OIDC)</td>
+              <td><code>{{.BaseURL}}/.well-known/openid-configuration</code></td>
+            </tr>
+            <tr>
+              <td>JWKS (public key)</td>
+              <td><code>{{.BaseURL}}/.well-known/jwks.json</code></td>
+            </tr>
+            <tr>
+              <td>Authorization</td>
+              <td><code>{{.BaseURL}}/oauth/authorize</code></td>
+            </tr>
+            <tr>
+              <td>Token</td>
+              <td><code>{{.BaseURL}}/oauth/token</code></td>
+            </tr>
+            <tr>
+              <td>Userinfo</td>
+              <td><code>{{.BaseURL}}/oauth/userinfo</code></td>
+            </tr>
+          </tbody>
+        </table>
+        {{else}}
+        <div class="notification is-warning is-light" role="alert">
+          <strong>Base URL not configured.</strong>
+          Set <code>server.base_url</code> (or <code>PASSAGE_SERVER_BASE_URL</code>) in your
+          Passage configuration to display the full OAuth / OIDC endpoint URLs here.
+        </div>
+        {{end}}
+
         <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
           <button type="submit" class="button is-warning is-light"
                   onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">

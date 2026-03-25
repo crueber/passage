@@ -196,6 +196,12 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, da
 	_, _ = buf.WriteTo(w)
 }
 
+// baseURL returns the configured server base URL with any trailing slash removed.
+// This ensures endpoint URLs constructed in templates are always well-formed.
+func (h *Handler) baseURL() string {
+	return strings.TrimRight(h.cfg.Server.BaseURL, "/")
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 type dashboardData struct {
@@ -519,6 +525,7 @@ type appFormData struct {
 	EditApp         *app.App
 	IsNew           bool
 	NewClientSecret string // non-empty only when just generated or rotated; shown once
+	BaseURL         string // used to render OIDC endpoint hints in the template
 }
 
 // GetNewApp renders the new app form.
@@ -526,6 +533,7 @@ func (h *Handler) GetNewApp(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-app-form", appFormData{
 		basePage: basePage{ActiveNav: "apps"},
 		IsNew:    true,
+		BaseURL:  h.baseURL(),
 	})
 }
 
@@ -535,6 +543,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Invalid form submission."}},
 			IsNew:    true,
+			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -552,6 +561,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Slug and name are required."}},
 			EditApp:  a,
 			IsNew:    true,
+			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -565,6 +575,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
 			EditApp:  a,
 			IsNew:    true,
+			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -590,6 +601,7 @@ func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 		basePage: basePage{ActiveNav: "apps"},
 		EditApp:  a,
 		IsNew:    false,
+		BaseURL:  h.baseURL(),
 	})
 }
 
@@ -635,6 +647,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Slug and name are required."}},
 			EditApp:  a,
 			IsNew:    false,
+			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -648,6 +661,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
 			EditApp:  a,
 			IsNew:    false,
+			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -690,6 +704,7 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
 			EditApp:  a,
+			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -706,6 +721,7 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}},
 		EditApp:         a,
 		NewClientSecret: secret,
+		BaseURL:         h.cfg.Server.BaseURL,
 	})
 }
 
@@ -732,6 +748,7 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
 			EditApp:  a,
+			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -748,6 +765,7 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}},
 		EditApp:         a,
 		NewClientSecret: secret,
+		BaseURL:         h.cfg.Server.BaseURL,
 	})
 }
 
