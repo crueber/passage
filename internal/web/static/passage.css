@@ -38,6 +38,12 @@
   --passage-sidebar-border:   #c8d5cd;
   --passage-navbar-height:    3.25rem;
   --passage-stat-label-color: #6b7280;
+  --passage-footer-bg:        #f3f7f5;
+  --passage-footer-border:    #c8d5cd;
+  --passage-footer-color:     #6b7280;
+
+  /* Layout */
+  --passage-max-width:        1280px;
 }
 
 /* ─── Dark-mode overrides (auto via prefers-color-scheme) ───────────────── */
@@ -65,6 +71,9 @@
     --passage-sidebar-bg:       #1a2620;
     --passage-sidebar-border:   #3a4f44;
     --passage-stat-label-color: #9ab8aa;
+    --passage-footer-bg:        #141e1a;
+    --passage-footer-border:    #3a4f44;
+    --passage-footer-color:     #7a9e8c;
   }
 }
 
@@ -93,31 +102,74 @@
   letter-spacing: -0.02em;
 }
 
-/* ─── Admin shell layout ─────────────────────────────────────────────────── */
+/* ─── Fixed-width page container ────────────────────────────────────────── */
 /*
- * Full-width flex row below the sticky navbar.
- * Sidebar is self-sized (only as tall as its content) and sticky.
- * Content takes the remaining width with comfortable padding.
+ * Centres the admin UI at a comfortable reading/working width with responsive
+ * horizontal padding. Used both inside the navbar and wrapping the shell+footer.
  */
-.passage-admin-shell {
+.passage-admin-container {
+  width: 100%;
+  max-width: var(--passage-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+  box-sizing: border-box;
+}
+
+/* Navbar uses container internally for brand alignment.
+ * Bulma's navbar-brand already provides its own internal padding, so we
+ * zero out the container's side padding here to avoid double-padding. */
+.passage-navbar .passage-admin-container {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ─── Admin page body wrapper ───────────────────────────────────────────── */
+/*
+ * Wraps the shell + footer, filling the full viewport height below the navbar
+ * so the footer is always pushed to the bottom even on short pages.
+ */
+.passage-admin-body {
+  display: flex;
+  flex-direction: column;
   min-height: calc(100vh - var(--passage-navbar-height));
 }
 
+/* ─── Admin shell layout ─────────────────────────────────────────────────── */
+/*
+ * Flex row: sidebar left, main content right.
+ * flex: 1 makes the shell grow to fill all available space above the footer.
+ */
+.passage-admin-shell {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+}
+
 /* ─── Admin sidebar ─────────────────────────────────────────────────────── */
+/*
+ * The sidebar background stretches to the full shell height (align-items:
+ * stretch on the parent). The inner content stays sticky under the navbar
+ * while long main content scrolls past.
+ */
 .passage-admin-sidebar {
   flex: 0 0 var(--passage-sidebar-width);
   width: var(--passage-sidebar-width);
   background-color: var(--passage-sidebar-bg);
   border-right: 1px solid var(--passage-sidebar-border);
   padding: 1.25rem 0.75rem;
-  /* Stick under the navbar; only as tall as its own content */
+  /* Stick under the navbar; ensures the sidebar never cuts off short */
   position: sticky;
   top: var(--passage-navbar-height);
   max-height: calc(100vh - var(--passage-navbar-height));
   overflow-y: auto;
-  align-self: flex-start;
+  /* align-self intentionally omitted: parent's align-items: stretch lets the sidebar
+     background fill the full shell height on content-heavy pages */
+  /* Minimum height so the sidebar background fills the viewport on short pages */
+  min-height: calc(100vh - var(--passage-navbar-height));
 }
 
 /* ─── Admin content area ────────────────────────────────────────────────── */
@@ -127,22 +179,86 @@
   padding: 1.75rem 2rem;
 }
 
-/* ─── Mobile: stack sidebar above content ───────────────────────────────── */
+/* ─── Admin footer ──────────────────────────────────────────────────────── */
+/*
+ * Full-bleed footer bar: background spans the viewport width, inner content
+ * is constrained to --passage-max-width (matches the rest of the admin UI).
+ * Separate from .passage-admin-container because we don't want the 1.25rem
+ * side padding on the footer's background edge.
+ */
+.passage-admin-footer {
+  background-color: var(--passage-footer-bg);
+  border-top: 1px solid var(--passage-footer-border);
+  padding: 0.875rem 1.25rem;
+  color: var(--passage-footer-color);
+  font-size: 0.8rem;
+}
+
+.passage-admin-footer-inner {
+  max-width: var(--passage-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.passage-admin-footer a {
+  color: var(--passage-footer-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.passage-admin-footer a:hover {
+  color: var(--bulma-primary);
+}
+
+.passage-admin-footer-sep {
+  opacity: 0.4;
+}
+
+/* ─── Responsive breakpoints ────────────────────────────────────────────── */
+
+/* ── Tablet (769px – 1023px): narrower sidebar, slightly tighter padding ── */
+@media screen and (min-width: 769px) and (max-width: 1023px) {
+  :root {
+    --passage-sidebar-width: 11rem;
+  }
+
+  .passage-admin-content {
+    padding: 1.25rem 1.5rem;
+  }
+}
+
+/* ── Mobile (≤768px): stack sidebar above content ── */
 @media screen and (max-width: 768px) {
   .passage-admin-shell {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .passage-admin-sidebar {
     position: static;
     width: 100%;
     max-height: none;
+    min-height: 0;
     border-right: none;
     border-bottom: 1px solid var(--passage-sidebar-border);
   }
 
   .passage-admin-content {
     padding: 1rem;
+  }
+
+  .passage-admin-footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .passage-admin-footer-sep {
+    display: none;
   }
 }
 

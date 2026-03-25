@@ -12,50 +12,53 @@
 <body>
 {{template "admin-header" .}}
 <div class="passage-admin-body">
-  <div class="passage-admin-shell">
-    {{template "admin-nav" .}}
-    <main class="passage-admin-content">
-      {{template "admin-flash" .}}
-      <h1 class="title is-4">Active Sessions</h1>
-      <div class="table-container">
-        <table class="table is-fullwidth is-hoverable is-striped">
-          <thead>
-            <tr>
-              <th scope="col">Username</th>
-              <th scope="col">IP Address</th>
-              <th scope="col">User Agent</th>
-              <th scope="col">Expires</th>
-              <th scope="col">Created</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Sessions}}
-            <tr>
-              <td>{{.Username}}</td>
-              <td>{{.Session.IPAddress}}</td>
-              <td class="is-size-7">{{.Session.UserAgent}}</td>
-              <td>{{.Session.ExpiresAt.Format "2006-01-02 15:04"}}</td>
-              <td>{{.Session.CreatedAt.Format "2006-01-02 15:04"}}</td>
-              <td>
-                <form method="POST"
-                      action="/admin/sessions/{{.Session.ID}}/revoke"
-                      hx-post="/admin/sessions/{{.Session.ID}}/revoke"
-                      hx-target="closest tr"
-                      hx-swap="outerHTML">
-                  <button type="submit" class="button is-small is-danger is-light">Revoke</button>
-                </form>
-              </td>
-            </tr>
-            {{else}}
-            <tr>
-              <td colspan="6"><em>No active sessions.</em></td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-    </main>
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">Active Sessions</h1>
+        <div class="table-container">
+          <table class="table is-fullwidth is-hoverable is-striped">
+            <thead>
+              <tr>
+                <th scope="col">Username</th>
+                <th scope="col">IP Address</th>
+                <th scope="col">User Agent</th>
+                <th scope="col">Expires</th>
+                <th scope="col">Created</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Sessions}}
+              <tr>
+                <td>{{.Username}}</td>
+                <td>{{.Session.IPAddress}}</td>
+                <td class="is-size-7">{{.Session.UserAgent}}</td>
+                <td>{{.Session.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+                <td>{{.Session.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                <td>
+                  <form method="POST"
+                        action="/admin/sessions/{{.Session.ID}}/revoke"
+                        hx-post="/admin/sessions/{{.Session.ID}}/revoke"
+                        hx-target="closest tr"
+                        hx-swap="outerHTML">
+                    <button type="submit" class="button is-small is-danger is-light">Revoke</button>
+                  </form>
+                </td>
+              </tr>
+              {{else}}
+              <tr>
+                <td colspan="6"><em>No active sessions.</em></td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
   </div>
 </div>
 </body>

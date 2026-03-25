@@ -158,13 +158,30 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 
 ## UI Conventions
 
-- Use `html/template` with `{{block}}` / `{{define}}` for template inheritance.
-- Simple.css (classless) is the CSS baseline — write semantic HTML, avoid class soup.
-- `passage.css` handles palette overrides and the admin sidebar layout.
+- Use `html/template` with `{{define}}` partials for shared layout pieces; each admin page template is a standalone `{{define}}` that calls shared partials (`admin-header`, `admin-nav`, `admin-flash`, `admin-footer`).
+- **Bulma 1.0.2** is the CSS framework — use Bulma utility classes and components. Avoid inventing new class names for things Bulma already covers.
+- `passage.css` owns all theme customisation: CSS custom property overrides (brand colours, sidebar width, footer colours, `--passage-max-width`), the fixed-width container, responsive breakpoints, sidebar min-height, and footer styles. Do not put theme-specific CSS elsewhere.
+- **Admin layout structure** (required on every admin page):
+  ```html
+  <div class="passage-admin-body">
+    <div class="passage-admin-container">
+      <div class="passage-admin-shell">
+        {{template "admin-nav" .}}
+        <main class="passage-admin-content"> … </main>
+      </div>
+      {{template "admin-footer" .}}
+    </div>
+  </div>
+  ```
+  - `passage-admin-body`: flex column, fills viewport below navbar, pushes footer to bottom.
+  - `passage-admin-container`: centres content at `--passage-max-width` (1280px) with responsive side padding.
+  - `passage-admin-shell`: flex row (sidebar + content), `align-items: stretch` so the sidebar background fills the full shell height.
+  - `passage-admin-footer`: full-bleed footer bar with MIT license, GitHub link, and copyright.
 - htmx is used for progressive enhancement in the admin UI only. **Core flows must work without JavaScript.**
 - Every `<input>` must have a paired `<label for="...">` — never use placeholder as a label.
 - Every page must have a unique, descriptive `<title>`.
 - Accessibility: WCAG AA contrast, `:focus-visible` rings, semantic HTML, `aria-` attributes where needed.
+- Dark mode is automatic via `@media (prefers-color-scheme: dark)` — all colour tokens have dark-mode overrides in `passage.css`. Do not hardcode colours in templates.
 
 ---
 

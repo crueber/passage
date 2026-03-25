@@ -12,78 +12,81 @@
 <body>
 {{template "admin-header" .}}
 <div class="passage-admin-body">
-  <div class="passage-admin-shell">
-    {{template "admin-nav" .}}
-    <main class="passage-admin-content">
-      {{template "admin-flash" .}}
-      <h1 class="title is-4">Access: {{.App.Name}}</h1>
-      <p class="mb-4"><a href="/admin/apps/{{.App.ID}}">← Back to app</a></p>
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">Access: {{.App.Name}}</h1>
+        <p class="mb-4"><a href="/admin/apps/{{.App.ID}}">← Back to app</a></p>
 
-      <h2 class="title is-5">Users with access</h2>
-      <div class="table-container mb-6">
-        <table class="table is-fullwidth is-striped is-hoverable">
-          <thead>
-            <tr>
-              <th scope="col">Username</th>
-              <th scope="col">Email</th>
-              <th scope="col"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .UsersWithAccess}}
-            <tr>
-              <td>{{.User.Username}}</td>
-              <td>{{.User.Email}}</td>
-              <td>
-                <form method="POST"
-                      action="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
-                      hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
-                      hx-target="closest tr"
-                      hx-swap="outerHTML">
-                  <button type="submit" class="button is-danger is-small is-light">Revoke</button>
-                </form>
-              </td>
-            </tr>
-            {{else}}
-            <tr>
-              <td colspan="3" class="has-text-grey-light"><em>No users have access.</em></td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
+        <h2 class="title is-5">Users with access</h2>
+        <div class="table-container mb-6">
+          <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+              <tr>
+                <th scope="col">Username</th>
+                <th scope="col">Email</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .UsersWithAccess}}
+              <tr>
+                <td>{{.User.Username}}</td>
+                <td>{{.User.Email}}</td>
+                <td>
+                  <form method="POST"
+                        action="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
+                        hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
+                        hx-target="closest tr"
+                        hx-swap="outerHTML">
+                    <button type="submit" class="button is-danger is-small is-light">Revoke</button>
+                  </form>
+                </td>
+              </tr>
+              {{else}}
+              <tr>
+                <td colspan="3" class="has-text-grey-light"><em>No users have access.</em></td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
 
-      <h2 class="title is-5">Users without access</h2>
-      <div class="table-container">
-        <table class="table is-fullwidth is-striped is-hoverable">
-          <thead>
-            <tr>
-              <th scope="col">Username</th>
-              <th scope="col">Email</th>
-              <th scope="col"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .UsersWithoutAccess}}
-            <tr>
-              <td>{{.Username}}</td>
-              <td>{{.Email}}</td>
-              <td>
-                <form method="POST" action="/admin/apps/{{$.App.ID}}/access">
-                  <input type="hidden" name="user_id" value="{{.ID}}">
-                  <button type="submit" class="button is-primary is-small is-light">Grant</button>
-                </form>
-              </td>
-            </tr>
-            {{else}}
-            <tr>
-              <td colspan="3" class="has-text-grey-light"><em>All users already have access.</em></td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-    </main>
+        <h2 class="title is-5">Users without access</h2>
+        <div class="table-container">
+          <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+              <tr>
+                <th scope="col">Username</th>
+                <th scope="col">Email</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .UsersWithoutAccess}}
+              <tr>
+                <td>{{.Username}}</td>
+                <td>{{.Email}}</td>
+                <td>
+                  <form method="POST" action="/admin/apps/{{$.App.ID}}/access">
+                    <input type="hidden" name="user_id" value="{{.ID}}">
+                    <button type="submit" class="button is-primary is-small is-light">Grant</button>
+                  </form>
+                </td>
+              </tr>
+              {{else}}
+              <tr>
+                <td colspan="3" class="has-text-grey-light"><em>All users already have access.</em></td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
   </div>
 </div>
 </body>

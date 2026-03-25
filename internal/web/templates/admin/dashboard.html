@@ -12,32 +12,35 @@
 <body>
 {{template "admin-header" .}}
 <div class="passage-admin-body">
-  <div class="passage-admin-shell">
-    {{template "admin-nav" .}}
-    <main class="passage-admin-content">
-      {{template "admin-flash" .}}
-      <h1 class="title is-4">Dashboard</h1>
-      <div class="columns">
-        <div class="column is-narrow">
-          <div class="box passage-stat">
-            <p class="passage-stat-number">{{.UserCount}}</p>
-            <p class="passage-stat-label">Users</p>
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">Dashboard</h1>
+        <div class="columns">
+          <div class="column is-narrow">
+            <div class="box passage-stat">
+              <p class="passage-stat-number">{{.UserCount}}</p>
+              <p class="passage-stat-label">Users</p>
+            </div>
+          </div>
+          <div class="column is-narrow">
+            <div class="box passage-stat">
+              <p class="passage-stat-number">{{.AppCount}}</p>
+              <p class="passage-stat-label">Apps</p>
+            </div>
+          </div>
+          <div class="column is-narrow">
+            <div class="box passage-stat">
+              <p class="passage-stat-number">{{.SessionCount}}</p>
+              <p class="passage-stat-label">Active Sessions</p>
+            </div>
           </div>
         </div>
-        <div class="column is-narrow">
-          <div class="box passage-stat">
-            <p class="passage-stat-number">{{.AppCount}}</p>
-            <p class="passage-stat-label">Apps</p>
-          </div>
-        </div>
-        <div class="column is-narrow">
-          <div class="box passage-stat">
-            <p class="passage-stat-number">{{.SessionCount}}</p>
-            <p class="passage-stat-label">Active Sessions</p>
-          </div>
-        </div>
-      </div>
-    </main>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
   </div>
 </div>
 </body>

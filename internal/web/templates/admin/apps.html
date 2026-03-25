@@ -12,55 +12,58 @@
 <body>
 {{template "admin-header" .}}
 <div class="passage-admin-body">
-  <div class="passage-admin-shell">
-    {{template "admin-nav" .}}
-    <main class="passage-admin-content">
-      {{template "admin-flash" .}}
-      <div class="level mb-4">
-        <div class="level-left">
-          <h1 class="title is-4 mb-0">Apps</h1>
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <div class="level mb-4">
+          <div class="level-left">
+            <h1 class="title is-4 mb-0">Apps</h1>
+          </div>
+          <div class="level-right">
+            <a class="button is-primary is-small" href="/admin/apps/new">+ New App</a>
+          </div>
         </div>
-        <div class="level-right">
-          <a class="button is-primary is-small" href="/admin/apps/new">+ New App</a>
+        <div class="table-container">
+          <table class="table is-fullwidth is-hoverable is-striped">
+            <thead>
+              <tr>
+                <th scope="col">Slug</th>
+                <th scope="col">Name</th>
+                <th scope="col">Host Pattern</th>
+                <th scope="col">Active</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Apps}}
+              <tr>
+                <td>{{.Slug}}</td>
+                <td>{{.Name}}</td>
+                <td><code>{{.HostPattern}}</code></td>
+                <td>{{if .IsActive}}<span class="tag is-info is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
+                <td>
+                  <div class="buttons are-small">
+                    <a class="button is-light" href="/admin/apps/{{.ID}}">Edit</a>
+                    <a class="button is-light" href="/admin/apps/{{.ID}}/access">Access</a>
+                    <form method="POST" action="/admin/apps/{{.ID}}/delete">
+                      <button type="submit" class="button is-danger is-light">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {{else}}
+              <tr>
+                <td colspan="5"><em>No apps found.</em></td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
         </div>
-      </div>
-      <div class="table-container">
-        <table class="table is-fullwidth is-hoverable is-striped">
-          <thead>
-            <tr>
-              <th scope="col">Slug</th>
-              <th scope="col">Name</th>
-              <th scope="col">Host Pattern</th>
-              <th scope="col">Active</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Apps}}
-            <tr>
-              <td>{{.Slug}}</td>
-              <td>{{.Name}}</td>
-              <td><code>{{.HostPattern}}</code></td>
-              <td>{{if .IsActive}}<span class="tag is-info is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
-              <td>
-                <div class="buttons are-small">
-                  <a class="button is-light" href="/admin/apps/{{.ID}}">Edit</a>
-                  <a class="button is-light" href="/admin/apps/{{.ID}}/access">Access</a>
-                  <form method="POST" action="/admin/apps/{{.ID}}/delete">
-                    <button type="submit" class="button is-danger is-light">Delete</button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-            {{else}}
-            <tr>
-              <td colspan="5"><em>No apps found.</em></td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-    </main>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
   </div>
 </div>
 </body>

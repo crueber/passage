@@ -1,19 +1,21 @@
 {{define "admin-header"}}
 <nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
-  <div class="navbar-brand">
-    <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/admin" aria-label="Passage Admin home">
-      passage<span class="has-text-grey-light mx-1" aria-hidden="true">/</span>admin
-    </a>
-    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
-       data-target="admin-navbar-menu">
-      <span aria-hidden="true"></span>
-      <span aria-hidden="true"></span>
-      <span aria-hidden="true"></span>
-    </a>
-  </div>
-  <div id="admin-navbar-menu" class="navbar-menu">
-    <div class="navbar-end">
-      <a class="navbar-item" href="/logout">Sign out</a>
+  <div class="passage-admin-container">
+    <div class="navbar-brand">
+      <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/admin" aria-label="Passage Admin home">
+        passage<span class="has-text-grey-light mx-1" aria-hidden="true">/</span>admin
+      </a>
+      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
+         data-target="admin-navbar-menu">
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </a>
+    </div>
+    <div id="admin-navbar-menu" class="navbar-menu">
+      <div class="navbar-end">
+        <a class="navbar-item" href="/logout">Sign out</a>
+      </div>
     </div>
   </div>
 </nav>
@@ -50,4 +52,21 @@
   {{.Flash.Message}}
 </div>
 {{end}}
+{{end}}
+
+{{define "admin-footer"}}
+<footer class="passage-admin-footer" aria-label="Site footer">
+  <div class="passage-admin-footer-inner">
+    <span>
+      <a href="https://github.com/crueber/passage" target="_blank" rel="noopener noreferrer">passage</a>
+      &mdash; self-hosted auth proxy
+    </span>
+    <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
+    <span>
+      <a href="https://github.com/crueber/passage/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+    </span>
+    <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
+    <span>&copy; 2026 C. Rueber</span>
+  </div>
+</footer>
 {{end}}
