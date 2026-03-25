@@ -37,3 +37,6 @@ tmp/
 
 # Git worktrees
 .worktrees/
+
+# Implementation plans (local only)
+plans/
