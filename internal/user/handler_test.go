@@ -753,3 +753,144 @@ func TestHandler_PostLogin_PassageRdCookie(t *testing.T) {
 		t.Errorf("PostLogin passage_rd: passage_rd cookie was not cleared in the response")
 	}
 }
+
+// ─── Group D: Admin auto-redirect ─────────────────────────────────────────────
+
+// TestHandler_PostLogin_AdminRedirect verifies that an admin user with no
+// passage_rd cookie and no rd form field is redirected to /admin.
+func TestHandler_PostLogin_AdminRedirect(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+
+	// Create an admin user directly via CreateAdmin.
+	if _, err := f.userSvc.CreateAdmin(context.Background(), "adminuser", "admin@example.com", "password123"); err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("username", "adminuser")
+	form.Set("password", "password123")
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	f.handler.PostLogin(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("PostLogin admin redirect: got status %d, want %d", res.StatusCode, http.StatusFound)
+	}
+	loc := res.Header.Get("Location")
+	if loc != "/admin" {
+		t.Errorf("PostLogin admin redirect: got redirect to %q, want %q", loc, "/admin")
+	}
+}
+
+// TestHandler_PostLogin_NonAdminRedirect verifies that a non-admin user with no
+// passage_rd cookie and no rd form field is redirected to / (not /admin).
+func TestHandler_PostLogin_NonAdminRedirect(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+
+	// Register a regular (non-admin) user.
+	if _, err := f.userSvc.Register(context.Background(), "regularuser", "regular@example.com", "password123"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("username", "regularuser")
+	form.Set("password", "password123")
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	f.handler.PostLogin(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("PostLogin non-admin redirect: got status %d, want %d", res.StatusCode, http.StatusFound)
+	}
+	loc := res.Header.Get("Location")
+	if loc != "/" {
+		t.Errorf("PostLogin non-admin redirect: got redirect to %q, want %q", loc, "/")
+	}
+}
+
+// TestHandler_PostLogin_AdminWithRdField verifies that an admin user who has a
+// valid rd form field is sent to that destination (not overridden to /admin).
+func TestHandler_PostLogin_AdminWithRdField(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+
+	// Create an admin user.
+	if _, err := f.userSvc.CreateAdmin(context.Background(), "adminrd", "adminrd@example.com", "password123"); err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("username", "adminrd")
+	form.Set("password", "password123")
+	form.Set("rd", "/dashboard")
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	f.handler.PostLogin(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("PostLogin admin with rd: got status %d, want %d", res.StatusCode, http.StatusFound)
+	}
+	loc := res.Header.Get("Location")
+	if loc != "/dashboard" {
+		t.Errorf("PostLogin admin with rd: got redirect to %q, want %q", loc, "/dashboard")
+	}
+}
+
+// TestHandler_PostLogin_AdminWithPassageRdCookie verifies that an admin user
+// who has a passage_rd cookie is still redirected to the cookie's path — the
+// cookie takes priority over the /admin default.
+func TestHandler_PostLogin_AdminWithPassageRdCookie(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+
+	// Create an admin user.
+	if _, err := f.userSvc.CreateAdmin(context.Background(), "admincookie", "admincookie@example.com", "password123"); err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("username", "admincookie")
+	form.Set("password", "password123")
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Set the passage_rd cookie to simulate a forward-auth flow redirect.
+	req.AddCookie(&http.Cookie{Name: "passage_rd", Value: "/protected/app"})
+	rec := httptest.NewRecorder()
+	f.handler.PostLogin(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("PostLogin admin with passage_rd: got status %d, want %d", res.StatusCode, http.StatusFound)
+	}
+
+	// Must redirect to the passage_rd path, not /admin.
+	loc := res.Header.Get("Location")
+	if loc != "/protected/app" {
+		t.Errorf("PostLogin admin with passage_rd: got redirect to %q, want %q", loc, "/protected/app")
+	}
+
+	// The passage_rd cookie must be cleared.
+	var rdCookieCleared bool
+	for _, c := range res.Cookies() {
+		if c.Name == "passage_rd" {
+			if c.MaxAge == -1 || c.Value == "" {
+				rdCookieCleared = true
+			}
+		}
+	}
+	if !rdCookieCleared {
+		t.Errorf("PostLogin admin with passage_rd: passage_rd cookie was not cleared in the response")
+	}
+}
