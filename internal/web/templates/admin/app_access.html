@@ -10,10 +10,11 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-layout">
+  <div class="admin-shell">
     {{template "admin-header" .}}
-    {{template "admin-nav" .}}
-    <main class="admin-content">
+    <div class="admin-layout">
+      {{template "admin-nav" .}}
+      <main class="admin-content">
       {{template "admin-flash" .}}
       <h2>Access: {{.App.Name}}</h2>
       <p><a href="/admin/apps/{{.App.ID}}">← Back to app</a></p>
@@ -83,6 +84,7 @@
         </table>
       </section>
     </main>
+    </div>
   </div>
 </body>
 </html>

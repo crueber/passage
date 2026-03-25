@@ -10,10 +10,11 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-layout">
+  <div class="admin-shell">
     {{template "admin-header" .}}
-    {{template "admin-nav" .}}
-    <main class="admin-content">
+    <div class="admin-layout">
+      {{template "admin-nav" .}}
+      <main class="admin-content">
       {{template "admin-flash" .}}
       <h2>Dashboard</h2>
       <div class="stat-grid">
@@ -31,6 +32,7 @@
         </div>
       </div>
     </main>
+    </div>
   </div>
 </body>
 </html>

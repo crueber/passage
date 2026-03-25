@@ -10,10 +10,11 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-layout">
+  <div class="admin-shell">
     {{template "admin-header" .}}
-    {{template "admin-nav" .}}
-    <main class="admin-content">
+    <div class="admin-layout">
+      {{template "admin-nav" .}}
+      <main class="admin-content">
       {{template "admin-flash" .}}
       <h2>{{if .IsNew}}New App{{else}}Edit App{{end}}</h2>
       <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}" style="max-width:30rem">
@@ -79,6 +80,7 @@
       {{end}}
       {{end}}
     </main>
+    </div>
   </div>
 </body>
 </html>

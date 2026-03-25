@@ -12,6 +12,7 @@
   --border:       #c8d5cd;   /* cool grey-green border */
   --code-bg:      #eef3f0;
   --admin-sidebar-width: 200px;
+  --admin-max-width:     1200px;
 }
 
 /* ─── Dark mode palette (auto-applied via prefers-color-scheme) ───────────── */
@@ -76,51 +77,74 @@
  * Simple.css sets: body { display: grid; grid-template-columns: 1fr min(45rem,90%) 1fr }
  * and body > * { grid-column: 2 }  — which boxes everything into a narrow center column.
  *
- * Two-pronged escape:
- *   1. body:has() cancels the body grid entirely (modern browsers).
- *   2. .admin-layout uses 100vw + negative margins as a belt-and-suspenders
- *      fallback so the layout always fills the full viewport regardless.
+ * body:has(.admin-shell) cancels that body grid entirely so we own the layout.
  *
- * --admin-sidebar-width is declared in the :root block above with the other
- * palette variables (px units avoid rem-scaling issues from Simple.css base font).
+ * Structure:
+ *   .admin-shell          — full-height flex column, cancels Simple.css body grid
+ *     header              — full-viewport-width sticky bar; inner content constrained
+ *       .admin-header-inner — centered content wrapper (max-width)
+ *     .admin-layout       — centered max-width 2-col grid (sidebar | content)
+ *       .admin-sidebar    — sticky sidebar nav
+ *       .admin-content    — main page content
+ *
+ * --admin-sidebar-width and --admin-max-width are declared in :root above.
+ * px units avoid rem-scaling surprises from Simple.css base font (1.15rem).
  */
 
-body:has(.admin-layout) {
+body:has(.admin-shell) {
   display: block;   /* cancel Simple.css body grid for admin pages */
   margin: 0;
   padding: 0;
 }
 
-.admin-layout {
-  /* Full-bleed escape from any parent max-width constraint */
-  width: 100vw;
-  margin-left: calc(50% - 50vw);
-  display: grid;
-  grid-template-columns: var(--admin-sidebar-width) 1fr;
-  grid-template-rows: auto 1fr;
+/* Full-height shell — owns the whole page */
+.admin-shell {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-/* Top header bar — spans full width */
-.admin-layout > header {
-  grid-column: 1 / -1;
+/* Full-bleed sticky header bar */
+.admin-shell > header {
+  width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 1.5rem;
   height: 3.5rem;
   background-color: var(--accent-bg);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 100;
-  /* Reset any Simple.css header styles */
+  /* Reset Simple.css header styles */
   text-align: left;
   margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-/* Suppress Simple.css header child padding/margin */
-.admin-layout > header > * { margin: 0; padding: 0; }
+/* Inner wrapper — constrains header content to max-width, centered */
+.admin-header-inner {
+  width: 100%;
+  max-width: var(--admin-max-width);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Suppress Simple.css header child margin/padding bleed */
+.admin-shell > header > * { margin: 0; padding: 0; }
+
+/* Centered max-width 2-column grid — sidebar + content */
+.admin-layout {
+  max-width: var(--admin-max-width);
+  width: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: var(--admin-sidebar-width) 1fr;
+  flex: 1;
+}
 
 .admin-header-brand {
   display: flex;
@@ -142,7 +166,7 @@ body:has(.admin-layout) {
 }
 
 /* Header nav — override Simple.css nav styles */
-.admin-layout > header nav {
+.admin-shell > header nav {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -151,8 +175,8 @@ body:has(.admin-layout) {
   border: none;
 }
 
-.admin-layout > header nav a,
-.admin-layout > header nav button {
+.admin-shell > header nav a,
+.admin-shell > header nav button {
   font-size: 0.875rem;
 }
 
@@ -196,7 +220,7 @@ body:has(.admin-layout) {
 
 /* Focus rings — WCAG AA */
 .admin-sidebar nav a:focus-visible,
-.admin-layout > header nav a:focus-visible {
+.admin-shell > header nav a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

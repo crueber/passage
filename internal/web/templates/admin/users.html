@@ -10,10 +10,11 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <div class="admin-layout">
+  <div class="admin-shell">
     {{template "admin-header" .}}
-    {{template "admin-nav" .}}
-    <main class="admin-content">
+    <div class="admin-layout">
+      {{template "admin-nav" .}}
+      <main class="admin-content">
       {{template "admin-flash" .}}
       <h2>Users</h2>
       <p><a href="/admin/users/new">+ New User</a></p>
@@ -56,6 +57,7 @@
         </tbody>
       </table>
     </main>
+    </div>
   </div>
 </body>
 </html>
