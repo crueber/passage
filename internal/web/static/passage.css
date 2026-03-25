@@ -11,6 +11,7 @@
   --bg:           #ffffff;
   --border:       #c8d5cd;   /* cool grey-green border */
   --code-bg:      #eef3f0;
+  --admin-sidebar-width: 200px;
 }
 
 /* ─── Dark mode palette (auto-applied via prefers-color-scheme) ───────────── */
@@ -74,20 +75,30 @@
 /*
  * Simple.css sets: body { display: grid; grid-template-columns: 1fr min(45rem,90%) 1fr }
  * and body > * { grid-column: 2 }  — which boxes everything into a narrow center column.
- * .admin-layout must break out of that constraint to fill the full viewport.
+ *
+ * Two-pronged escape:
+ *   1. body:has() cancels the body grid entirely (modern browsers).
+ *   2. .admin-layout uses 100vw + negative margins as a belt-and-suspenders
+ *      fallback so the layout always fills the full viewport regardless.
+ *
+ * --admin-sidebar-width is declared in the :root block above with the other
+ * palette variables (px units avoid rem-scaling issues from Simple.css base font).
  */
+
 body:has(.admin-layout) {
-  display: block;   /* cancel Simple.css body grid entirely for admin pages */
+  display: block;   /* cancel Simple.css body grid for admin pages */
   margin: 0;
   padding: 0;
 }
 
 .admin-layout {
+  /* Full-bleed escape from any parent max-width constraint */
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
   display: grid;
-  grid-template-columns: 14rem 1fr;
+  grid-template-columns: var(--admin-sidebar-width) 1fr;
   grid-template-rows: auto 1fr;
   min-height: 100vh;
-  width: 100%;
 }
 
 /* Top header bar — spans full width */
@@ -147,6 +158,7 @@ body:has(.admin-layout) {
 
 /* Sidebar navigation */
 .admin-sidebar {
+  width: var(--admin-sidebar-width);   /* explicit width — never shrinks */
   border-right: 1px solid var(--border);
   background-color: var(--bg);
   position: sticky;
@@ -155,6 +167,7 @@ body:has(.admin-layout) {
   overflow-y: auto;
   align-self: start;
   padding: 0.5rem 0;
+  box-sizing: border-box;
 }
 
 .admin-sidebar nav a {
