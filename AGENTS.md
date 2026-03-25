@@ -11,8 +11,8 @@ Passage is a self-hosted authentication proxy for home labs. It implements the *
 **Key characteristics:**
 - Single static Go binary — no CGo, no external runtime dependencies
 - SQLite backing store via `modernc.org/sqlite` (pure Go driver)
-- Web UI built with `html/template` + `embed.FS` + Simple.css (classless CSS)
-- Supports username/password (bcrypt) and passkeys (WebAuthn)
+- Web UI built with `html/template` + `embed.FS` + Bulma 1.0.2 CSS framework
+- Supports username/password (bcrypt), passkeys (WebAuthn), and OAuth 2.0 / OIDC provider
 
 ---
 
@@ -41,11 +41,11 @@ passage/
     forwardauth/        # /auth/nginx, /auth/traefik, /auth/start, /auth/sign_out
     admin/              # admin UI handlers + middleware
     email/              # go-mail wrapper + embedded templates
-    webauthn/           # WebAuthn ceremonies (Phase 5)
+    oauth/              # OAuth 2.0 / OIDC provider — authorize, token, userinfo, JWKS
+    webauthn/           # WebAuthn registration and authentication ceremonies
     web/
       templates/        # html/template files, embedded via embed.FS
-      static/           # simple.min.css, passage.css, htmx.min.js, passkey.js
-  plans/                # implementation plans — read-only for agents, check boxes as work completes
+      static/           # bulma.min.css, passage.css, htmx.min.js, passkey.js
   docs/                 # nginx/traefik config examples
 ```
 
@@ -62,7 +62,9 @@ All dependencies are **pure Go — no CGo**. Do not introduce any dependency tha
 | `github.com/wneessen/go-mail` | SMTP email |
 | `golang.org/x/crypto` | bcrypt password hashing |
 | `modernc.org/sqlite` | Pure Go SQLite driver (no CGo) |
-| `github.com/go-webauthn/webauthn` | WebAuthn/passkeys (Phase 5) |
+| `github.com/go-webauthn/webauthn` | WebAuthn/passkeys |
+| `github.com/golang-jwt/jwt/v5` | JWT signing and verification (OAuth id_token) |
+| `gopkg.in/yaml.v3` | YAML config file parsing |
 
 ---
 
@@ -222,20 +224,9 @@ go mod tidy && git diff --exit-code go.mod go.sum
 - **No global variables** for loggers, DB connections, or config
 - **No `math/rand`** for anything security-sensitive
 - **No `template.HTML()`** bypass without an explicit comment explaining why it is safe
-- **No unapproved dependencies** — do not add packages not listed in the plan without flagging it first
+- **No unapproved dependencies** — do not add packages not in `go.mod` without flagging it first
 - **No scope creep** — do not implement features beyond what the current phase requires (YAGNI)
 - **No files outside the project structure** without a documented reason
-
----
-
-## Plans Directory
-
-The `plans/` directory contains phased implementation plans. Before starting work:
-
-1. Read the relevant plan file.
-2. Identify the phase and tasks in scope.
-3. Check off completed items with `- [x]` as you finish them.
-4. Do not implement tasks from future phases.
 
 ---
 
@@ -243,7 +234,6 @@ The `plans/` directory contains phased implementation plans. Before starting wor
 
 Before writing any code:
 - [ ] Read this file fully
-- [ ] Read the relevant plan in `plans/`
 - [ ] Read all files related to the task (never guess at existing code)
 - [ ] Confirm `CGO_ENABLED=0` will still work after your changes
 - [ ] Run build verification commands after completing work
