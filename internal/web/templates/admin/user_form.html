@@ -22,6 +22,7 @@
         <div class="columns">
           <div class="column is-half-tablet is-one-third-desktop">
             <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}">
+              {{csrfField .CSRFToken}}
               <div class="field">
                 <label class="label" for="username">Username</label>
                 <div class="control">

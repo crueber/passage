@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
 )
 
@@ -92,24 +93,28 @@ type loginData struct {
 	RedirectTo        string
 	Username          string
 	AllowRegistration bool
+	CSRFToken         string
 }
 
 // registerData is the template data for the register page.
 type registerData struct {
-	Flash    *Flash
-	Username string
-	Email    string
+	Flash     *Flash
+	Username  string
+	Email     string
+	CSRFToken string
 }
 
 // resetRequestData is the template data for the reset request page.
 type resetRequestData struct {
-	Flash *Flash
+	Flash     *Flash
+	CSRFToken string
 }
 
 // resetConfirmData is the template data for the reset confirmation page.
 type resetConfirmData struct {
-	Flash *Flash
-	Token string
+	Flash     *Flash
+	Token     string
+	CSRFToken string
 }
 
 // GetLogin renders the login form.
@@ -125,6 +130,7 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		Flash:             flash,
 		RedirectTo:        rd,
 		AllowRegistration: h.registrationAllowed(r.Context()),
+		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
 
@@ -191,7 +197,9 @@ func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?flash=registration-disabled", http.StatusFound)
 		return
 	}
-	h.render(w, r, "register.html", registerData{})
+	h.render(w, r, "register.html", registerData{
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	})
 }
 
 // PostRegister handles registration form submission.
@@ -203,7 +211,8 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 
 	if err := r.ParseForm(); err != nil {
 		h.render(w, r, "register.html", registerData{
-			Flash: &Flash{Type: "error", Message: "Invalid form submission."},
+			Flash:     &Flash{Type: "error", Message: "Invalid form submission."},
+			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 		return
 	}
@@ -227,9 +236,10 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 			msg = "Email is required."
 		}
 		h.render(w, r, "register.html", registerData{
-			Flash:    &Flash{Type: "error", Message: msg},
-			Username: username,
-			Email:    emailAddr,
+			Flash:     &Flash{Type: "error", Message: msg},
+			Username:  username,
+			Email:     emailAddr,
+			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 		return
 	}
@@ -253,7 +263,10 @@ func (h *Handler) GetResetRequest(w http.ResponseWriter, r *http.Request) {
 	if flashMsg != "" {
 		flash = flashFromCode(flashMsg)
 	}
-	h.render(w, r, "reset_request.html", resetRequestData{Flash: flash})
+	h.render(w, r, "reset_request.html", resetRequestData{
+		Flash:     flash,
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	})
 }
 
 // PostResetRequest handles the password reset request form submission.
@@ -261,7 +274,8 @@ func (h *Handler) GetResetRequest(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PostResetRequest(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render(w, r, "reset_request.html", resetRequestData{
-			Flash: &Flash{Type: "error", Message: "Invalid form submission."},
+			Flash:     &Flash{Type: "error", Message: "Invalid form submission."},
+			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 		return
 	}
@@ -295,13 +309,17 @@ func (h *Handler) PostResetRequest(w http.ResponseWriter, r *http.Request) {
 			Type:    "success",
 			Message: "If that email address has an account, a reset link has been sent.",
 		},
+		CSRFToken: csrf.TokenFromContext(r.Context()),
 	})
 }
 
 // GetResetConfirm renders the new password form for a given token.
 func (h *Handler) GetResetConfirm(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
-	h.render(w, r, "reset_confirm.html", resetConfirmData{Token: token})
+	h.render(w, r, "reset_confirm.html", resetConfirmData{
+		Token:     token,
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	})
 }
 
 // PostResetConfirm handles new password submission.
@@ -310,8 +328,9 @@ func (h *Handler) PostResetConfirm(w http.ResponseWriter, r *http.Request) {
 
 	if err := r.ParseForm(); err != nil {
 		h.render(w, r, "reset_confirm.html", resetConfirmData{
-			Flash: &Flash{Type: "error", Message: "Invalid form submission."},
-			Token: token,
+			Flash:     &Flash{Type: "error", Message: "Invalid form submission."},
+			Token:     token,
+			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 		return
 	}
@@ -321,8 +340,9 @@ func (h *Handler) PostResetConfirm(w http.ResponseWriter, r *http.Request) {
 
 	if password != confirm {
 		h.render(w, r, "reset_confirm.html", resetConfirmData{
-			Flash: &Flash{Type: "error", Message: "Passwords do not match."},
-			Token: token,
+			Flash:     &Flash{Type: "error", Message: "Passwords do not match."},
+			Token:     token,
+			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 		return
 	}
@@ -337,8 +357,9 @@ func (h *Handler) PostResetConfirm(w http.ResponseWriter, r *http.Request) {
 			msg = "Password must be at least 8 characters."
 		}
 		h.render(w, r, "reset_confirm.html", resetConfirmData{
-			Flash: &Flash{Type: "error", Message: msg},
-			Token: token,
+			Flash:     &Flash{Type: "error", Message: msg},
+			Token:     token,
+			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 		return
 	}
@@ -379,6 +400,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		RedirectTo:        rd,
 		Username:          username,
 		AllowRegistration: h.registrationAllowed(r.Context()),
+		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
 
@@ -427,7 +449,8 @@ func flashFromCode(code string) *Flash {
 
 // setupData is the template data for the /setup page.
 type setupData struct {
-	Flash *Flash
+	Flash     *Flash
+	CSRFToken string
 }
 
 // GetSetup returns an HTTP handler that renders the initial setup form.
@@ -439,7 +462,9 @@ func (h *Handler) GetSetup(setupManager *SetupTokenManager) http.HandlerFunc {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		h.render(w, r, "setup.html", setupData{})
+		h.render(w, r, "setup.html", setupData{
+			CSRFToken: csrf.TokenFromContext(r.Context()),
+		})
 	}
 }
 
@@ -455,7 +480,8 @@ func (h *Handler) PostSetup(setupManager *SetupTokenManager) http.HandlerFunc {
 
 		if err := r.ParseForm(); err != nil {
 			h.render(w, r, "setup.html", setupData{
-				Flash: &Flash{Type: "error", Message: "Invalid form submission."},
+				Flash:     &Flash{Type: "error", Message: "Invalid form submission."},
+				CSRFToken: csrf.TokenFromContext(r.Context()),
 			})
 			return
 		}
@@ -470,14 +496,16 @@ func (h *Handler) PostSetup(setupManager *SetupTokenManager) http.HandlerFunc {
 		// does not burn the token.
 		if password != confirm {
 			h.render(w, r, "setup.html", setupData{
-				Flash: &Flash{Type: "error", Message: "Passwords do not match."},
+				Flash:     &Flash{Type: "error", Message: "Passwords do not match."},
+				CSRFToken: csrf.TokenFromContext(r.Context()),
 			})
 			return
 		}
 
 		if !setupManager.Consume(token) {
 			h.render(w, r, "setup.html", setupData{
-				Flash: &Flash{Type: "error", Message: "Invalid or expired setup token."},
+				Flash:     &Flash{Type: "error", Message: "Invalid or expired setup token."},
+				CSRFToken: csrf.TokenFromContext(r.Context()),
 			})
 			return
 		}
@@ -498,7 +526,8 @@ func (h *Handler) PostSetup(setupManager *SetupTokenManager) http.HandlerFunc {
 				msg = "Email is required."
 			}
 			h.render(w, r, "setup.html", setupData{
-				Flash: &Flash{Type: "error", Message: msg},
+				Flash:     &Flash{Type: "error", Message: msg},
+				CSRFToken: csrf.TokenFromContext(r.Context()),
 			})
 			return
 		}

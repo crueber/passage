@@ -41,6 +41,7 @@
                         hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
                         hx-target="closest tr"
                         hx-swap="outerHTML">
+                    {{csrfField $.CSRFToken}}
                     <button type="submit" class="button is-danger is-small is-light">Revoke</button>
                   </form>
                 </td>
@@ -71,6 +72,7 @@
                 <td>{{.Email}}</td>
                 <td>
                   <form method="POST" action="/admin/apps/{{$.App.ID}}/access">
+                    {{csrfField $.CSRFToken}}
                     <input type="hidden" name="user_id" value="{{.ID}}">
                     <button type="submit" class="button is-primary is-small is-light">Grant</button>
                   </form>

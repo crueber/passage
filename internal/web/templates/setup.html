@@ -28,6 +28,7 @@
               <p class="mb-4">No admin account exists yet. Enter the setup token printed in the server logs to create the first admin account.</p>
 
               <form method="POST" action="/setup">
+                {{csrfField .CSRFToken}}
                 <div class="field">
                   <label class="label" for="setup_token">Setup Token</label>
                   <div class="control">

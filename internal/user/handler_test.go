@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -76,7 +77,9 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
 
-	tmpl, err := web.Parse(web.TemplateFS)
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}
@@ -163,7 +166,9 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
-	tmpl, err := web.Parse(web.TemplateFS)
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}
@@ -214,7 +219,9 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
-	tmpl, err := web.Parse(web.TemplateFS)
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}

@@ -44,6 +44,7 @@
                         hx-post="/admin/sessions/{{.Session.ID}}/revoke"
                         hx-target="closest tr"
                         hx-swap="outerHTML">
+                    {{csrfField $.CSRFToken}}
                     <button type="submit" class="button is-small is-danger is-light">Revoke</button>
                   </form>
                 </td>

@@ -49,9 +49,11 @@
                   <div class="buttons are-small">
                     <a class="button is-light" href="/admin/users/{{.ID}}">Edit</a>
                     <form method="POST" action="/admin/users/{{.ID}}/reset-password">
+                      {{csrfField $.CSRFToken}}
                       <button type="submit" class="button is-light">Send Reset</button>
                     </form>
                     <form method="POST" action="/admin/users/{{.ID}}/delete">
+                      {{csrfField $.CSRFToken}}
                       <button type="submit" class="button is-danger is-light">Delete</button>
                     </form>
                   </div>

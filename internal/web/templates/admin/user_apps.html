@@ -21,6 +21,7 @@
         <p class="mb-4"><a href="/admin/users/{{.EditUser.ID}}">← Back to user</a></p>
 
         <form method="POST" action="/admin/users/{{.EditUser.ID}}/apps">
+          {{csrfField .CSRFToken}}
           <div class="table-container mb-4">
             <table class="table is-fullwidth is-striped is-hoverable">
               <thead>

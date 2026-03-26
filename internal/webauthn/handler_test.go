@@ -3,6 +3,7 @@ package webauthn_test
 import (
 	"context"
 	"encoding/json"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -49,7 +50,9 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 	credStore := webauthn.NewSQLiteCredentialStore(db)
 	challenges := webauthn.NewChallengeStore()
 
-	tmpl, err := web.Parse(web.TemplateFS)
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}

@@ -22,6 +22,7 @@
         <div class="columns">
           <div class="column is-half-tablet is-one-third-desktop">
             <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}">
+              {{csrfField .CSRFToken}}
               <div class="field">
                 <label class="label" for="slug">Slug</label>
                 <div class="control">
@@ -154,6 +155,7 @@
         {{end}}
 
         <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
+          {{csrfField .CSRFToken}}
           <button type="submit" class="button is-warning is-light"
                   onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">
             Rotate Secret
@@ -162,6 +164,7 @@
         {{else}}
         <p class="mb-3">OAuth is not enabled for this app.</p>
         <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/generate">
+          {{csrfField .CSRFToken}}
           <button type="submit" class="button is-info is-light">Enable OAuth &amp; Generate Credentials</button>
         </form>
         {{end}}

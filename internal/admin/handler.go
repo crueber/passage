@@ -16,6 +16,7 @@ import (
 
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
@@ -157,6 +158,25 @@ func (h *Handler) Routes(r chi.Router) {
 type basePage struct {
 	ActiveNav string
 	Flash     *Flash
+	CSRFToken string
+}
+
+// base constructs a basePage for the given request, populating the CSRF token
+// from the request context (set by csrf.ProtectAuthenticated middleware).
+func (h *Handler) base(r *http.Request, nav string) basePage {
+	return basePage{
+		ActiveNav: nav,
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	}
+}
+
+// baseFlash constructs a basePage with an attached Flash message.
+func (h *Handler) baseFlash(r *http.Request, nav string, flash *Flash) basePage {
+	return basePage{
+		ActiveNav: nav,
+		Flash:     flash,
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	}
 }
 
 // flashFromQuery converts a URL query-param flash code into a Flash value.
@@ -240,7 +260,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-dashboard", dashboardData{
-		basePage:     basePage{ActiveNav: "dashboard"},
+		basePage:     h.base(r, "dashboard"),
 		UserCount:    len(users),
 		AppCount:     len(apps),
 		SessionCount: len(sessions),
@@ -270,7 +290,7 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-users", usersData{
-		basePage: basePage{ActiveNav: "users", Flash: flash},
+		basePage: h.baseFlash(r, "users", flash),
 		Users:    users,
 	})
 }
@@ -285,7 +305,7 @@ type userFormData struct {
 // GetNewUser renders the new user form.
 func (h *Handler) GetNewUser(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-user-form", userFormData{
-		basePage: basePage{ActiveNav: "users"},
+		basePage: h.base(r, "users"),
 		IsNew:    true,
 	})
 }
@@ -294,7 +314,7 @@ func (h *Handler) GetNewUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: "Invalid form submission."}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: "Invalid form submission."}),
 			IsNew:    true,
 		})
 		return
@@ -313,7 +333,7 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 			msg = "Password must be at least 8 characters."
 		}
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: msg}),
 			IsNew:    true,
 		})
 		return
@@ -323,7 +343,7 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("admin: hash password", "error", err)
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: "Internal error. Please try again."}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: "Internal error. Please try again."}),
 			IsNew:    true,
 		})
 		return
@@ -347,7 +367,7 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 			msg = "An account with that email already exists."
 		}
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: msg}),
 			IsNew:    true,
 		})
 		return
@@ -377,7 +397,7 @@ func (h *Handler) GetEditUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-user-form", userFormData{
-		basePage:     basePage{ActiveNav: "users"},
+		basePage:     h.base(r, "users"),
 		EditUser:     u,
 		IsNew:        false,
 		PasskeyCount: passkeyCount,
@@ -412,7 +432,7 @@ func (h *Handler) PostUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	if u.Username == "" || u.Email == "" {
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: "Username and email are required."}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: "Username and email are required."}),
 			EditUser: u,
 			IsNew:    false,
 		})
@@ -427,7 +447,7 @@ func (h *Handler) PostUpdateUser(w http.ResponseWriter, r *http.Request) {
 			msg = "An account with that email already exists."
 		}
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: msg}),
 			EditUser: u,
 			IsNew:    false,
 		})
@@ -545,7 +565,7 @@ func (h *Handler) GetUserApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-user-apps", userAppsData{
-		basePage:       basePage{ActiveNav: "users", Flash: flash},
+		basePage:       h.baseFlash(r, "users", flash),
 		EditUser:       u,
 		AppsWithAccess: appsWithAccess,
 	})
@@ -638,7 +658,7 @@ func (h *Handler) GetApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-apps", appsData{
-		basePage: basePage{ActiveNav: "apps", Flash: flash},
+		basePage: h.baseFlash(r, "apps", flash),
 		Apps:     apps,
 	})
 }
@@ -654,7 +674,7 @@ type appFormData struct {
 // GetNewApp renders the new app form.
 func (h *Handler) GetNewApp(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage: basePage{ActiveNav: "apps"},
+		basePage: h.base(r, "apps"),
 		IsNew:    true,
 		BaseURL:  h.baseURL(),
 	})
@@ -664,7 +684,7 @@ func (h *Handler) GetNewApp(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Invalid form submission."}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Invalid form submission."}),
 			IsNew:    true,
 			BaseURL:  h.baseURL(),
 		})
@@ -681,7 +701,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Slug and name are required."}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
 			EditApp:  a,
 			IsNew:    true,
 			BaseURL:  h.baseURL(),
@@ -695,7 +715,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			msg = "An app with that slug already exists."
 		}
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			IsNew:    true,
 			BaseURL:  h.baseURL(),
@@ -721,7 +741,7 @@ func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage: basePage{ActiveNav: "apps"},
+		basePage: h.base(r, "apps"),
 		EditApp:  a,
 		IsNew:    false,
 		BaseURL:  h.baseURL(),
@@ -767,7 +787,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Slug and name are required."}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
@@ -781,7 +801,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			msg = "An app with that slug already exists."
 		}
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
@@ -825,7 +845,7 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		msg := "Failed to generate OAuth credentials."
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			BaseURL:  h.baseURL(),
 		})
@@ -841,7 +861,7 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 		a = updatedApp
 	}
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}},
+		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}),
 		EditApp:         a,
 		NewClientSecret: secret,
 		BaseURL:         h.cfg.Server.BaseURL,
@@ -869,7 +889,7 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		msg := "Failed to rotate OAuth client secret."
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			BaseURL:  h.baseURL(),
 		})
@@ -885,7 +905,7 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 		a = updatedApp
 	}
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}},
+		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}),
 		EditApp:         a,
 		NewClientSecret: secret,
 		BaseURL:         h.cfg.Server.BaseURL,
@@ -982,7 +1002,7 @@ func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-app-access", appAccessData{
-		basePage:           basePage{ActiveNav: "apps", Flash: flash},
+		basePage:           h.baseFlash(r, "apps", flash),
 		App:                a,
 		UsersWithAccess:    withAccess,
 		UsersWithoutAccess: withoutAccess,
@@ -1087,7 +1107,7 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-sessions", sessionsData{
-		basePage: basePage{ActiveNav: "sessions", Flash: flash},
+		basePage: h.baseFlash(r, "sessions", flash),
 		Sessions: rows,
 	})
 }
@@ -1140,7 +1160,7 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-settings", settingsData{
-		basePage:             basePage{ActiveNav: "settings", Flash: flash},
+		basePage:             h.baseFlash(r, "settings", flash),
 		AllowRegistration:    all["allow_registration"],
 		SessionDurationHours: all["session_duration_hours"],
 		SMTPFrom:             all["smtp_from"],
@@ -1168,7 +1188,7 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.Atoi(durationStr)
 		if err != nil || n <= 0 {
 			h.render(w, r, "admin-settings", settingsData{
-				basePage:             basePage{ActiveNav: "settings", Flash: &Flash{Type: "error", Message: "Session duration must be a positive number."}},
+				basePage:             h.baseFlash(r, "settings", &Flash{Type: "error", Message: "Session duration must be a positive number."}),
 				AllowRegistration:    allowRegistration,
 				SessionDurationHours: durationStr,
 				SMTPFrom:             strings.TrimSpace(r.FormValue("smtp_from")),

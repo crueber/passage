@@ -21,6 +21,7 @@
         <div class="columns">
           <div class="column is-half-tablet is-one-third-desktop">
             <form method="POST" action="/admin/settings">
+              {{csrfField .CSRFToken}}
               <div class="field">
                 <div class="control">
                   <label class="checkbox">

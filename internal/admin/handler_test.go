@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"context"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -78,7 +79,9 @@ func newFixture(t *testing.T) *fixture {
 
 	settings := admin.NewSQLiteSettingsStore(database)
 
-	tmpl, err := web.Parse(web.TemplateFS)
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}

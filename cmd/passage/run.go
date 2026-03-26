@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/crueber/passage/internal/admin"
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
+	csrfpkg "github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/forwardauth"
@@ -77,8 +79,15 @@ func run() error {
 		return fmt.Errorf("create email sender: %w", err)
 	}
 
-	// Parse HTML templates.
-	tmpl, err := web.Parse(web.TemplateFS)
+	// Parse HTML templates, providing the csrfField template function.
+	// csrfField renders a hidden <input> carrying the CSRF token for POST forms.
+	// template.HTML is safe here: the value is a base64url-encoded HMAC token
+	// with no HTML-special characters, produced entirely by our csrf package.
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(token string) template.HTML {
+			return template.HTML(`<input type="hidden" name="` + csrfpkg.FieldName + `" value="` + token + `">`)
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("parse templates: %w", err)
 	}
@@ -241,28 +250,36 @@ func run() error {
 	oauthHandler.Routes(r)
 
 	// User-facing auth routes (no session middleware).
-	r.Get("/login", userHandler.GetLogin)
-	r.Post("/login", userHandler.PostLogin)
-	r.Get("/register", userHandler.GetRegister)
-	r.Post("/register", userHandler.PostRegister)
-	r.Get("/reset", userHandler.GetResetRequest)
-	r.Post("/reset", userHandler.PostResetRequest)
-	r.Get("/reset/{token}", userHandler.GetResetConfirm)
-	r.Post("/reset/{token}", userHandler.PostResetConfirm)
+	// CSRF protection uses the double-submit cookie pattern for unauthenticated routes.
+	r.Group(func(r chi.Router) {
+		r.Use(csrfpkg.ProtectAnonymous(cfg.CSRF.Key))
+		r.Get("/login", userHandler.GetLogin)
+		r.Post("/login", userHandler.PostLogin)
+		r.Get("/register", userHandler.GetRegister)
+		r.Post("/register", userHandler.PostRegister)
+		r.Get("/reset", userHandler.GetResetRequest)
+		r.Post("/reset", userHandler.PostResetRequest)
+		r.Get("/reset/{token}", userHandler.GetResetConfirm)
+		r.Post("/reset/{token}", userHandler.PostResetConfirm)
+		// Setup endpoint — only active when no admin user exists.
+		// The setupManager is nil once an admin account has been created; the
+		// handlers check IsActive() on every request so the endpoint self-disables.
+		r.Get("/setup", userHandler.GetSetup(setupManager))
+		r.Post("/setup", userHandler.PostSetup(setupManager))
+	})
+	// Logout is a GET that revokes a session cookie — no state-changing CSRF risk.
 	r.Get("/logout", userHandler.GetLogout)
 
-	// Setup endpoint — only active when no admin user exists.
-	// The setupManager is nil once an admin account has been created; the
-	// handlers check IsActive() on every request so the endpoint self-disables.
-	r.Get("/setup", userHandler.GetSetup(setupManager))
-	r.Post("/setup", userHandler.PostSetup(setupManager))
-
 	// Passkey login routes (public — no session required).
+	// These are JSON API endpoints driven by passkey.js — no CSRF token needed
+	// because the browser WebAuthn API does not submit cross-origin credentials.
 	passkeyHandler.AuthRoutes(r)
 
 	// Protected routes require a valid session.
+	// CSRF protection is session-bound for authenticated routes.
 	r.Group(func(r chi.Router) {
 		r.Use(session.RequireSession(sessionSvc, cfg))
+		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.CookieName))
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			u, _ := session.UserFromContext(r.Context())
 			if u != nil && u.IsAdmin {
@@ -284,6 +301,7 @@ func run() error {
 	// Admin routes — protected by RequireAdmin middleware.
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(admin.RequireAdmin(sessionSvc, cfg))
+		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.CookieName))
 		adminHandler.Routes(r)
 	})
 

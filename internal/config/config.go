@@ -17,6 +17,17 @@ type Config struct {
 	SMTP     SMTPConfig
 	Auth     AuthConfig
 	Log      LogConfig
+	CSRF     CSRFConfig
+}
+
+// CSRFConfig holds CSRF protection settings.
+type CSRFConfig struct {
+	// Key is the server-side secret for CSRF token signing.
+	// Env: PASSAGE_CSRF_KEY. Should be 32+ random bytes (64+ hex characters),
+	// e.g. generated with: openssl rand -hex 32
+	// If empty, the ProtectAnonymous middleware uses only the per-session
+	// CSRF cookie value as the signing key (still secure, but not server-bound).
+	Key string `yaml:"key"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -143,6 +154,11 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate CSRF key length if explicitly set.
+	if c.CSRF.Key != "" && len(c.CSRF.Key) < 64 {
+		errs = append(errs, fmt.Errorf("csrf.key must be at least 64 hex characters (32 random bytes) when set, got %d", len(c.CSRF.Key)))
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -233,5 +249,10 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("PASSAGE_LOG_FORMAT"); v != "" {
 		cfg.Log.Format = v
+	}
+
+	// CSRF
+	if v := os.Getenv("PASSAGE_CSRF_KEY"); v != "" {
+		cfg.CSRF.Key = v
 	}
 }
