@@ -12,9 +12,12 @@
 <nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
   <div class="passage-admin-container">
     <div class="navbar-brand">
-      <span class="navbar-item has-text-weight-bold passage-admin-brand">
+      <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/">
         passage
-      </span>
+      </a>
+      {{if and .User .User.IsAdmin}}
+      <a class="navbar-item is-size-7 has-text-grey-dark" href="/admin">Admin</a>
+      {{end}}
     </div>
     <div class="navbar-menu">
       <div class="navbar-end">
@@ -36,7 +39,7 @@
         <p>You do not have access to any apps yet. Contact your administrator.</p>
       </div>
       {{else}}
-      <div class="columns is-multiline">
+      <div class="columns is-multiline passage-dashboard-grid">
         {{if and .User .User.IsAdmin}}
         <div class="column is-one-third-desktop is-half-tablet is-full-mobile">
           <div class="card">

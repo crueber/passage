@@ -262,6 +262,26 @@
   }
 }
 
+/* ─── User app dashboard card grid ─────────────────────────────────────────
+ * Each column stretches to full height so all cards in a row are equal height.
+ * The card itself uses flex-column so card-content grows and card-footer stays
+ * pinned to the bottom regardless of how much content is in card-content.
+ */
+.passage-dashboard-grid > .column {
+  display: flex;
+  flex-direction: column;
+}
+
+.passage-dashboard-grid .card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.passage-dashboard-grid .card-content {
+  flex: 1 1 auto;
+}
+
 /* ─── Dashboard stat tiles ──────────────────────────────────────────────── */
 .passage-stat {
   text-align: center;
