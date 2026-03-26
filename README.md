@@ -144,6 +144,12 @@ auth:
 log:
   level: "info"    # "debug" | "info" | "warn" | "error"
   format: "json"   # "json" | "text"
+
+csrf:
+  key: ""          # optional server-side CSRF signing secret; must be 64+ hex chars (32+ random bytes)
+                   # when set, CSRF tokens are bound to this secret in addition to the per-session cookie
+                   # generate with: openssl rand -hex 32
+                   # if unset, the double-submit cookie pattern is used (secure, but not server-bound)
 ```
 
 ### Environment variable overrides
@@ -164,6 +170,7 @@ Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → 
 | `PASSAGE_AUTH_BCRYPT_COST` | `auth.bcrypt_cost` |
 | `PASSAGE_LOG_LEVEL` | `log.level` |
 | `PASSAGE_LOG_FORMAT` | `log.format` |
+| `PASSAGE_CSRF_KEY` | `csrf.key` — optional CSRF signing secret (64+ hex chars); strengthens CSRF protection by binding tokens to a server-side secret |
 
 ---
 
@@ -344,7 +351,7 @@ go mod tidy && git diff --exit-code go.mod go.sum
 - **Session tokens**: 32 bytes of `crypto/rand` entropy (64-char hex). Never `math/rand`.
 - **Reset tokens**: 32 bytes of `crypto/rand`. Single-use (`used_at` stamped on redeem). 1-hour TTL.
 - **Cookies**: `HttpOnly`, `Secure` (configurable for HTTP dev), `SameSite=Lax`.
-- **CSRF**: All mutations use POST. `SameSite=Lax` provides top-level navigation protection.
+- **CSRF**: All mutations use POST with a synchronizer token (`_csrf` hidden field, or `HX-CSRF-Token` header for htmx). On authenticated routes the token is HMAC-signed with the session token; on anonymous routes (login, register, reset) a double-submit cookie pattern is used. Setting `PASSAGE_CSRF_KEY` binds anonymous tokens to a server-side secret for defence against subdomain attacks. `SameSite=Lax` is an additional layer.
 - **SQL**: All queries use parameterized statements — no string concatenation in SQL.
 - **Templates**: `html/template` auto-escaping on all rendered output — no `template.HTML()` bypasses.
 - **Admin routes**: `is_admin` checked against the database on every admin request; not cached.
