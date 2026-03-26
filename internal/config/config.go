@@ -11,13 +11,14 @@ import (
 
 // Config holds all configuration for the Passage server.
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Session  SessionConfig
-	SMTP     SMTPConfig
-	Auth     AuthConfig
-	Log      LogConfig
-	CSRF     CSRFConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Session   SessionConfig
+	SMTP      SMTPConfig
+	Auth      AuthConfig
+	Log       LogConfig
+	CSRF      CSRFConfig
+	RateLimit RateLimitConfig `yaml:"rate_limit"`
 }
 
 // CSRFConfig holds CSRF protection settings.
@@ -28,6 +29,31 @@ type CSRFConfig struct {
 	// If empty, the ProtectAnonymous middleware uses only the per-session
 	// CSRF cookie value as the signing key (still secure, but not server-bound).
 	Key string `yaml:"key"`
+}
+
+// RateLimitConfig holds sliding-window rate limiter settings.
+// Each limiter is configured independently with a max request count and a
+// window duration in minutes.
+type RateLimitConfig struct {
+	// Login controls the login endpoint rate limit.
+	// Env: PASSAGE_RATELIMIT_LOGIN_REQUESTS / PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES
+	LoginRequests      int `yaml:"login_requests"`
+	LoginWindowMinutes int `yaml:"login_window_minutes"`
+
+	// Reset controls the password-reset endpoint rate limit.
+	// Env: PASSAGE_RATELIMIT_RESET_REQUESTS / PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES
+	ResetRequests      int `yaml:"reset_requests"`
+	ResetWindowMinutes int `yaml:"reset_window_minutes"`
+
+	// OAuthToken controls the OAuth /token endpoint rate limit.
+	// Env: PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS / PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES
+	OAuthTokenRequests      int `yaml:"oauth_token_requests"`
+	OAuthTokenWindowMinutes int `yaml:"oauth_token_window_minutes"`
+
+	// Setup controls the initial-setup endpoint rate limit.
+	// Env: PASSAGE_RATELIMIT_SETUP_REQUESTS / PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES
+	SetupRequests      int `yaml:"setup_requests"`
+	SetupWindowMinutes int `yaml:"setup_window_minutes"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -98,6 +124,16 @@ func defaults() *Config {
 			Level:  "info",
 			Format: "json",
 		},
+		RateLimit: RateLimitConfig{
+			LoginRequests:           10,
+			LoginWindowMinutes:      15,
+			ResetRequests:           5,
+			ResetWindowMinutes:      60,
+			OAuthTokenRequests:      20,
+			OAuthTokenWindowMinutes: 1,
+			SetupRequests:           5,
+			SetupWindowMinutes:      60,
+		},
 	}
 }
 
@@ -157,6 +193,33 @@ func (c *Config) Validate() error {
 	// Validate CSRF key length if explicitly set.
 	if c.CSRF.Key != "" && len(c.CSRF.Key) < 64 {
 		errs = append(errs, fmt.Errorf("csrf.key must be at least 64 hex characters (32 random bytes) when set, got %d", len(c.CSRF.Key)))
+	}
+
+	// Validate rate limit values — all must be positive.
+	rl := c.RateLimit
+	if rl.LoginRequests <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.login_requests must be positive, got %d", rl.LoginRequests))
+	}
+	if rl.LoginWindowMinutes <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.login_window_minutes must be positive, got %d", rl.LoginWindowMinutes))
+	}
+	if rl.ResetRequests <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.reset_requests must be positive, got %d", rl.ResetRequests))
+	}
+	if rl.ResetWindowMinutes <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.reset_window_minutes must be positive, got %d", rl.ResetWindowMinutes))
+	}
+	if rl.OAuthTokenRequests <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.oauth_token_requests must be positive, got %d", rl.OAuthTokenRequests))
+	}
+	if rl.OAuthTokenWindowMinutes <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.oauth_token_window_minutes must be positive, got %d", rl.OAuthTokenWindowMinutes))
+	}
+	if rl.SetupRequests <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.setup_requests must be positive, got %d", rl.SetupRequests))
+	}
+	if rl.SetupWindowMinutes <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.setup_window_minutes must be positive, got %d", rl.SetupWindowMinutes))
 	}
 
 	return errors.Join(errs...)
@@ -254,5 +317,63 @@ func applyEnvOverrides(cfg *Config) {
 	// CSRF
 	if v := os.Getenv("PASSAGE_CSRF_KEY"); v != "" {
 		cfg.CSRF.Key = v
+	}
+
+	// RateLimit
+	if v := os.Getenv("PASSAGE_RATELIMIT_LOGIN_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.LoginRequests = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_LOGIN_REQUESTS", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.LoginWindowMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_RESET_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.ResetRequests = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_RESET_REQUESTS", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.ResetWindowMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.OAuthTokenRequests = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.OAuthTokenWindowMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_SETUP_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.SetupRequests = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_SETUP_REQUESTS", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.SetupWindowMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES", v, err)
+		}
 	}
 }

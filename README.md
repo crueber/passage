@@ -150,6 +150,16 @@ csrf:
                    # when set, CSRF tokens are bound to this secret in addition to the per-session cookie
                    # generate with: openssl rand -hex 32
                    # if unset, the double-submit cookie pattern is used (secure, but not server-bound)
+
+rate_limit:
+  login_requests: 10          # max login attempts per IP per window
+  login_window_minutes: 15    # window duration for login limiter
+  reset_requests: 5           # max password-reset requests per IP per window
+  reset_window_minutes: 60    # window duration for reset limiter
+  oauth_token_requests: 20    # max /oauth/token requests per IP per window
+  oauth_token_window_minutes: 1  # window duration for oauth token limiter
+  setup_requests: 5           # max /setup requests per IP per window
+  setup_window_minutes: 60    # window duration for setup limiter
 ```
 
 ### Environment variable overrides
@@ -171,6 +181,14 @@ Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → 
 | `PASSAGE_LOG_LEVEL` | `log.level` |
 | `PASSAGE_LOG_FORMAT` | `log.format` |
 | `PASSAGE_CSRF_KEY` | `csrf.key` — optional CSRF signing secret (64+ hex chars); strengthens CSRF protection by binding tokens to a server-side secret |
+| `PASSAGE_RATELIMIT_LOGIN_REQUESTS` | `rate_limit.login_requests` |
+| `PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES` | `rate_limit.login_window_minutes` |
+| `PASSAGE_RATELIMIT_RESET_REQUESTS` | `rate_limit.reset_requests` |
+| `PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES` | `rate_limit.reset_window_minutes` |
+| `PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS` | `rate_limit.oauth_token_requests` |
+| `PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES` | `rate_limit.oauth_token_window_minutes` |
+| `PASSAGE_RATELIMIT_SETUP_REQUESTS` | `rate_limit.setup_requests` |
+| `PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES` | `rate_limit.setup_window_minutes` |
 
 ---
 

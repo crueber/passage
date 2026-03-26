@@ -175,10 +175,12 @@ func run() error {
 	}()
 
 	// Rate limiters — in-memory sliding-window, no external dependencies.
-	loginLimiter := ratelimit.New(10, 15*time.Minute)
-	resetLimiter := ratelimit.New(5, time.Hour)
-	oauthTokenLimiter := ratelimit.New(20, time.Minute)
-	setupLimiter := ratelimit.New(5, time.Hour)
+	// Limits and window durations are driven by configuration (ratelimit section).
+	rl := cfg.RateLimit
+	loginLimiter := ratelimit.New(rl.LoginRequests, time.Duration(rl.LoginWindowMinutes)*time.Minute)
+	resetLimiter := ratelimit.New(rl.ResetRequests, time.Duration(rl.ResetWindowMinutes)*time.Minute)
+	oauthTokenLimiter := ratelimit.New(rl.OAuthTokenRequests, time.Duration(rl.OAuthTokenWindowMinutes)*time.Minute)
+	setupLimiter := ratelimit.New(rl.SetupRequests, time.Duration(rl.SetupWindowMinutes)*time.Minute)
 
 	// Start rate limiter cleanup goroutines (every 5 minutes each).
 	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter} {

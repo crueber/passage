@@ -285,6 +285,52 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		// RateLimit validation
+		{
+			name:    "ratelimit login_requests zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.LoginRequests = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit login_requests negative fails",
+			mutate:  func(c *config.Config) { c.RateLimit.LoginRequests = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit login_window_minutes zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.LoginWindowMinutes = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit reset_requests zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.ResetRequests = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit reset_window_minutes zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.ResetWindowMinutes = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit oauth_token_requests zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.OAuthTokenRequests = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit oauth_token_window_minutes zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.OAuthTokenWindowMinutes = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit setup_requests zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.SetupRequests = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "ratelimit setup_window_minutes zero fails",
+			mutate:  func(c *config.Config) { c.RateLimit.SetupWindowMinutes = 0 },
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -297,6 +343,131 @@ func TestValidate(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_RateLimitDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("Load(%q): unexpected error: %v", "", err)
+	}
+
+	tests := []struct {
+		name string
+		got  interface{}
+		want interface{}
+	}{
+		{"RateLimit.LoginRequests", cfg.RateLimit.LoginRequests, 10},
+		{"RateLimit.LoginWindowMinutes", cfg.RateLimit.LoginWindowMinutes, 15},
+		{"RateLimit.ResetRequests", cfg.RateLimit.ResetRequests, 5},
+		{"RateLimit.ResetWindowMinutes", cfg.RateLimit.ResetWindowMinutes, 60},
+		{"RateLimit.OAuthTokenRequests", cfg.RateLimit.OAuthTokenRequests, 20},
+		{"RateLimit.OAuthTokenWindowMinutes", cfg.RateLimit.OAuthTokenWindowMinutes, 1},
+		{"RateLimit.SetupRequests", cfg.RateLimit.SetupRequests, 5},
+		{"RateLimit.SetupWindowMinutes", cfg.RateLimit.SetupWindowMinutes, 60},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("got %v; want %v", tt.got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_RateLimitYAML(t *testing.T) {
+	t.Parallel()
+	yaml := `
+rate_limit:
+  login_requests: 20
+  login_window_minutes: 5
+  reset_requests: 3
+  reset_window_minutes: 30
+  oauth_token_requests: 50
+  oauth_token_window_minutes: 2
+  setup_requests: 2
+  setup_window_minutes: 120
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "passage.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q): unexpected error: %v", path, err)
+	}
+
+	tests := []struct {
+		name string
+		got  interface{}
+		want interface{}
+	}{
+		{"RateLimit.LoginRequests", cfg.RateLimit.LoginRequests, 20},
+		{"RateLimit.LoginWindowMinutes", cfg.RateLimit.LoginWindowMinutes, 5},
+		{"RateLimit.ResetRequests", cfg.RateLimit.ResetRequests, 3},
+		{"RateLimit.ResetWindowMinutes", cfg.RateLimit.ResetWindowMinutes, 30},
+		{"RateLimit.OAuthTokenRequests", cfg.RateLimit.OAuthTokenRequests, 50},
+		{"RateLimit.OAuthTokenWindowMinutes", cfg.RateLimit.OAuthTokenWindowMinutes, 2},
+		{"RateLimit.SetupRequests", cfg.RateLimit.SetupRequests, 2},
+		{"RateLimit.SetupWindowMinutes", cfg.RateLimit.SetupWindowMinutes, 120},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("got %v; want %v", tt.got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_RateLimitEnvOverride(t *testing.T) {
+	// NOTE: t.Parallel() intentionally omitted — t.Setenv mutates env vars.
+
+	envVars := map[string]string{
+		"PASSAGE_RATELIMIT_LOGIN_REQUESTS":             "30",
+		"PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES":       "10",
+		"PASSAGE_RATELIMIT_RESET_REQUESTS":             "7",
+		"PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES":       "45",
+		"PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS":       "100",
+		"PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES": "3",
+		"PASSAGE_RATELIMIT_SETUP_REQUESTS":             "1",
+		"PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES":       "90",
+	}
+	for k, v := range envVars {
+		t.Setenv(k, v)
+	}
+
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("Load(%q): unexpected error: %v", "", err)
+	}
+
+	tests := []struct {
+		name string
+		got  interface{}
+		want interface{}
+	}{
+		{"RateLimit.LoginRequests", cfg.RateLimit.LoginRequests, 30},
+		{"RateLimit.LoginWindowMinutes", cfg.RateLimit.LoginWindowMinutes, 10},
+		{"RateLimit.ResetRequests", cfg.RateLimit.ResetRequests, 7},
+		{"RateLimit.ResetWindowMinutes", cfg.RateLimit.ResetWindowMinutes, 45},
+		{"RateLimit.OAuthTokenRequests", cfg.RateLimit.OAuthTokenRequests, 100},
+		{"RateLimit.OAuthTokenWindowMinutes", cfg.RateLimit.OAuthTokenWindowMinutes, 3},
+		{"RateLimit.SetupRequests", cfg.RateLimit.SetupRequests, 1},
+		{"RateLimit.SetupWindowMinutes", cfg.RateLimit.SetupWindowMinutes, 90},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("got %v; want %v", tt.got, tt.want)
 			}
 		})
 	}
