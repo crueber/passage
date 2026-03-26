@@ -901,3 +901,132 @@ func TestHandler_PostLogin_AdminWithPassageRdCookie(t *testing.T) {
 		t.Errorf("PostLogin admin with passage_rd: passage_rd cookie was not cleared in the response")
 	}
 }
+
+// ─── Group E: Protocol-relative open redirect (//evil.com) ───────────────────
+
+// TestHandler_PostLogin_ProtocolRelativeOpenRedirect verifies that a
+// protocol-relative URL in the rd form field or passage_rd cookie is rejected.
+// Browsers treat "//evil.com/path" as an absolute URL, so it must be blocked.
+func TestHandler_PostLogin_ProtocolRelativeOpenRedirect(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		rdField  string
+		rdCookie string
+		wantDest string // expected redirect destination after login
+	}{
+		{
+			name:     "protocol-relative rd field is rejected",
+			rdField:  "//evil.com/steal",
+			wantDest: "/",
+		},
+		{
+			name:     "protocol-relative passage_rd cookie is rejected",
+			rdCookie: "//evil.com/steal",
+			wantDest: "/",
+		},
+		{
+			name:     "valid rd field starting with single slash is accepted",
+			rdField:  "/dashboard",
+			wantDest: "/dashboard",
+		},
+		{
+			name:     "valid passage_rd cookie starting with single slash is accepted",
+			rdCookie: "/target/path",
+			wantDest: "/target/path",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFullHandlerFixture(t, true)
+
+			// Register a user to log in with.
+			username := strings.ReplaceAll(tc.name, " ", "")
+			if _, err := f.userSvc.Register(context.Background(), username, username+"@example.com", "password123"); err != nil {
+				t.Fatalf("Register: %v", err)
+			}
+
+			form := url.Values{}
+			form.Set("username", username)
+			form.Set("password", "password123")
+			if tc.rdField != "" {
+				form.Set("rd", tc.rdField)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if tc.rdCookie != "" {
+				req.AddCookie(&http.Cookie{Name: "passage_rd", Value: tc.rdCookie})
+			}
+			rec := httptest.NewRecorder()
+			f.handler.PostLogin(rec, req)
+
+			res := rec.Result()
+			if res.StatusCode != http.StatusFound {
+				t.Errorf("%s: got status %d, want %d", tc.name, res.StatusCode, http.StatusFound)
+			}
+
+			loc := res.Header.Get("Location")
+			if loc != tc.wantDest {
+				t.Errorf("%s: got redirect to %q, want %q", tc.name, loc, tc.wantDest)
+			}
+
+			// For rejected evil destinations, additionally ensure we did NOT
+			// redirect to anything containing the evil host.
+			if strings.Contains(tc.rdField, "evil.com") || strings.Contains(tc.rdCookie, "evil.com") {
+				if strings.Contains(loc, "evil.com") {
+					t.Errorf("%s: redirected to %q which contains evil.com — open redirect!", tc.name, loc)
+				}
+			}
+		})
+	}
+}
+
+// ─── Group F: PostResetRequest timing ────────────────────────────────────────
+
+// TestHandler_PostResetRequest_MinimumResponseTime verifies that PostResetRequest
+// always takes at least 200ms, defeating email-enumeration timing attacks.
+func TestHandler_PostResetRequest_MinimumResponseTime(t *testing.T) {
+	// Not parallel — this test measures wall time and should not compete.
+	// Using t.Parallel() here would make the 200ms assertion flaky under load.
+
+	tests := []struct {
+		name  string
+		email string
+	}{
+		{
+			name:  "unknown email (fast path without timing guard would be sub-ms)",
+			email: "nobody@nowhere.example.com",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newHandlerFixture(t, true)
+
+			form := url.Values{}
+			form.Set("email", tc.email)
+
+			req := httptest.NewRequest(http.MethodPost, "/reset", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rec := httptest.NewRecorder()
+
+			start := time.Now()
+			h.PostResetRequest(rec, req)
+			elapsed := time.Since(start)
+
+			const minResponseTime = 200 * time.Millisecond
+			if elapsed < minResponseTime {
+				t.Errorf("%s: response took %v, want at least %v", tc.name, elapsed, minResponseTime)
+			}
+
+			// The response must still be 200 with the success message.
+			res := rec.Result()
+			if res.StatusCode != http.StatusOK {
+				t.Errorf("%s: got status %d, want %d", tc.name, res.StatusCode, http.StatusOK)
+			}
+		})
+	}
+}

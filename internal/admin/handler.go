@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 
@@ -766,6 +767,17 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := path.Match(a.HostPattern, "test.example.com"); err != nil {
+		// path.Match only returns an error for syntactically malformed patterns.
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
+			EditApp:  a,
+			IsNew:    true,
+			BaseURL:  h.baseURL(),
+		})
+		return
+	}
+
 	if err := h.apps.Create(r.Context(), a); err != nil {
 		msg := "Failed to create app."
 		if errors.Is(err, app.ErrSlugTaken) {
@@ -846,6 +858,17 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
+			EditApp:  a,
+			IsNew:    false,
+			BaseURL:  h.baseURL(),
+		})
+		return
+	}
+
+	if _, err := path.Match(a.HostPattern, "test.example.com"); err != nil {
+		// path.Match only returns an error for syntactically malformed patterns.
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
