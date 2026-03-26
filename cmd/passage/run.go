@@ -324,10 +324,6 @@ func run() error {
 		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.CookieName))
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			u, _ := session.UserFromContext(r.Context())
-			if u != nil && u.IsAdmin {
-				http.Redirect(w, r, "/admin", http.StatusFound)
-				return
-			}
 
 			ctx := r.Context()
 			var apps []*app.App

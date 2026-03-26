@@ -30,12 +30,28 @@
     <main style="padding: 2rem 0;">
       <h1 class="title is-4 mb-5">My Apps</h1>
 
-      {{if not .Apps}}
+      {{$hasApps := .Apps}}
+      {{if and (not $hasApps) (not (and .User .User.IsAdmin))}}
       <div class="notification is-light" role="status">
         <p>You do not have access to any apps yet. Contact your administrator.</p>
       </div>
       {{else}}
       <div class="columns is-multiline">
+        {{if and .User .User.IsAdmin}}
+        <div class="column is-one-third-desktop is-half-tablet is-full-mobile">
+          <div class="card">
+            <div class="card-content">
+              <p class="title is-5 mb-1">Passage Admin</p>
+              <p class="subtitle is-7 has-text-grey mb-2">Manage users, apps, and settings</p>
+            </div>
+            <footer class="card-footer">
+              <a href="/admin" class="card-footer-item">
+                Open ↗
+              </a>
+            </footer>
+          </div>
+        </div>
+        {{end}}
         {{range .Apps}}
         <div class="column is-one-third-desktop is-half-tablet is-full-mobile">
           <div class="card">
