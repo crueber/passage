@@ -24,6 +24,7 @@ type App struct {
 	Name        string
 	Description string
 	HostPattern string
+	DefaultURL  string // empty string means not set
 	IsActive    bool
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

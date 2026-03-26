@@ -1,0 +1,84 @@
+{{define "user-dashboard"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Apps — Passage</title>
+  <link rel="stylesheet" href="/static/bulma.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+<nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
+  <div class="passage-admin-container">
+    <div class="navbar-brand">
+      <span class="navbar-item has-text-weight-bold passage-admin-brand">
+        passage
+      </span>
+    </div>
+    <div class="navbar-menu">
+      <div class="navbar-end">
+        {{if .User}}<span class="navbar-item has-text-grey-dark is-size-7">{{.User.Username}}</span>{{end}}
+        <a class="navbar-item" href="/logout">Sign out</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="passage-admin-body">
+  <div class="passage-admin-container">
+    <main style="padding: 2rem 0;">
+      <h1 class="title is-4 mb-5">My Apps</h1>
+
+      {{if not .Apps}}
+      <div class="notification is-light" role="status">
+        <p>You do not have access to any apps yet. Contact your administrator.</p>
+      </div>
+      {{else}}
+      <div class="columns is-multiline">
+        {{range .Apps}}
+        <div class="column is-one-third-desktop is-half-tablet is-full-mobile">
+          <div class="card">
+            <div class="card-content">
+              <p class="title is-5 mb-1">{{.Name}}</p>
+              {{if .Description}}
+              <p class="subtitle is-7 has-text-grey mb-2">{{.Description}}</p>
+              {{end}}
+              <p class="is-size-7 has-text-grey-dark mb-3">
+                <span class="has-text-weight-semibold">Host:</span>
+                <code>{{.HostPattern}}</code>
+              </p>
+            </div>
+            {{if .DefaultURL}}
+            <footer class="card-footer">
+              <a href="{{.DefaultURL}}" class="card-footer-item"
+                 target="_blank" rel="noopener noreferrer">
+                Open ↗
+              </a>
+            </footer>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
+    </main>
+  </div>
+  <footer class="passage-admin-footer" aria-label="Site footer">
+    <div class="passage-admin-footer-inner">
+      <span>
+        <a href="https://github.com/crueber/passage" target="_blank" rel="noopener noreferrer">passage</a>
+        &mdash; self-hosted auth proxy
+      </span>
+      <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
+      <span>
+        <a href="https://github.com/crueber/passage/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+      </span>
+      <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
+      <span>&copy; 2026 C. Rueber</span>
+    </div>
+  </footer>
+</div>
+</body>
+</html>
+{{end}}
