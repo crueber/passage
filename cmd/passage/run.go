@@ -29,6 +29,7 @@ import (
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/forwardauth"
 	"github.com/crueber/passage/internal/oauth"
+	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
@@ -167,6 +168,29 @@ func run() error {
 		}
 	}()
 
+	// Rate limiters — in-memory sliding-window, no external dependencies.
+	loginLimiter := ratelimit.New(10, 15*time.Minute)
+	resetLimiter := ratelimit.New(5, time.Hour)
+	oauthTokenLimiter := ratelimit.New(20, time.Minute)
+	setupLimiter := ratelimit.New(5, time.Hour)
+
+	// Start rate limiter cleanup goroutines (every 5 minutes each).
+	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter} {
+		rl := rl // capture loop variable
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					rl.Cleanup()
+				}
+			}
+		}()
+	}
+
 	// Build admin handler.
 	settingsStore := admin.NewSQLiteSettingsStore(database)
 	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger)
@@ -247,25 +271,32 @@ func run() error {
 	faHandler.Routes(r)
 
 	// OAuth 2.0 / OIDC endpoints (public — handler performs its own session checks).
-	oauthHandler.Routes(r)
+	// Routes are registered explicitly so the rate limiter can be scoped to the
+	// token endpoint only; JWKS, discovery, and userinfo are read-only and must
+	// not be rate-limited aggressively.
+	r.Get("/.well-known/openid-configuration", oauthHandler.Discovery)
+	r.Get("/.well-known/jwks.json", oauthHandler.JWKS)
+	r.Get("/oauth/authorize", oauthHandler.Authorize)
+	r.With(ratelimit.Middleware(oauthTokenLimiter)).Post("/oauth/token", oauthHandler.Token)
+	r.Get("/oauth/userinfo", oauthHandler.UserInfo)
 
 	// User-facing auth routes (no session middleware).
 	// CSRF protection uses the double-submit cookie pattern for unauthenticated routes.
 	r.Group(func(r chi.Router) {
 		r.Use(csrfpkg.ProtectAnonymous(cfg.CSRF.Key))
 		r.Get("/login", userHandler.GetLogin)
-		r.Post("/login", userHandler.PostLogin)
+		r.With(ratelimit.Middleware(loginLimiter)).Post("/login", userHandler.PostLogin)
 		r.Get("/register", userHandler.GetRegister)
 		r.Post("/register", userHandler.PostRegister)
 		r.Get("/reset", userHandler.GetResetRequest)
-		r.Post("/reset", userHandler.PostResetRequest)
+		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset", userHandler.PostResetRequest)
 		r.Get("/reset/{token}", userHandler.GetResetConfirm)
-		r.Post("/reset/{token}", userHandler.PostResetConfirm)
+		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset/{token}", userHandler.PostResetConfirm)
 		// Setup endpoint — only active when no admin user exists.
 		// The setupManager is nil once an admin account has been created; the
 		// handlers check IsActive() on every request so the endpoint self-disables.
 		r.Get("/setup", userHandler.GetSetup(setupManager))
-		r.Post("/setup", userHandler.PostSetup(setupManager))
+		r.With(ratelimit.Middleware(setupLimiter)).Post("/setup", userHandler.PostSetup(setupManager))
 	})
 	// Logout is a GET that revokes a session cookie — no state-changing CSRF risk.
 	r.Get("/logout", userHandler.GetLogout)
