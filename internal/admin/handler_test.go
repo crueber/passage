@@ -33,6 +33,14 @@ type noopCredentialCounter struct{}
 
 func (noopCredentialCounter) CountByUser(_ context.Context, _ string) (int, error) { return 0, nil }
 
+// noopAuditLogger satisfies the auditLogger interface with a no-op implementation.
+type noopAuditLogger struct{}
+
+func (noopAuditLogger) Log(_ context.Context, _ *admin.AuditEvent) {}
+func (noopAuditLogger) List(_ context.Context, _ admin.AuditFilter) ([]*admin.AuditEvent, error) {
+	return nil, nil
+}
+
 // fixture holds the full dependency graph for admin handler tests.
 type fixture struct {
 	db           interface{ Close() error }
@@ -87,7 +95,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, noopAuditLogger{})
 
 	return &fixture{
 		db:           database,

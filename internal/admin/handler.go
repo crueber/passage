@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -73,6 +74,13 @@ type credentialCounter interface {
 	CountByUser(ctx context.Context, userID string) (int, error)
 }
 
+// auditLogger is the minimal interface for recording admin audit events.
+// Defined at the consumer boundary.
+type auditLogger interface {
+	Log(ctx context.Context, e *AuditEvent)
+	List(ctx context.Context, f AuditFilter) ([]*AuditEvent, error)
+}
+
 // Handler holds all admin HTTP handlers in one struct.
 type Handler struct {
 	userStore   userStore
@@ -81,6 +89,7 @@ type Handler struct {
 	apps        appServiceOps
 	settings    SettingsStore
 	credentials credentialCounter
+	audit       auditLogger
 	mailer      email.Sender
 	tmpl        *template.Template
 	cfg         *config.Config
@@ -99,6 +108,7 @@ func NewHandler(
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
+	audit auditLogger,
 ) *Handler {
 	return &Handler{
 		userStore:   userStore,
@@ -107,6 +117,7 @@ func NewHandler(
 		apps:        apps,
 		settings:    settings,
 		credentials: credentials,
+		audit:       audit,
 		mailer:      mailer,
 		tmpl:        tmpl,
 		cfg:         cfg,
@@ -152,6 +163,9 @@ func (h *Handler) Routes(r chi.Router) {
 	// Settings
 	r.Get("/settings", h.GetSettings)
 	r.Post("/settings", h.PostSettings)
+
+	// Audit log
+	r.Get("/audit-log", h.GetAuditLog)
 }
 
 // ─── base page data ──────────────────────────────────────────────────────────
@@ -377,6 +391,7 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, AuditActionUserCreate, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=created", http.StatusFound)
 }
 
@@ -465,6 +480,7 @@ func (h *Handler) PostUpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	h.logAudit(r, AuditActionUserUpdate, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=updated", http.StatusFound)
 }
 
@@ -479,11 +495,20 @@ func (h *Handler) PostDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch the user before deletion to capture the username for the audit log.
+	target, fetchErr := h.userStore.GetByID(r.Context(), id)
+
 	if err := h.userStore.Delete(r.Context(), id); err != nil && !errors.Is(err, user.ErrNotFound) {
 		h.logger.Error("admin: delete user", "id", id, "error", err)
 		http.Redirect(w, r, "/admin/users", http.StatusFound)
 		return
 	}
+
+	username := id
+	if fetchErr == nil && target != nil {
+		username = target.Username
+	}
+	h.logAudit(r, AuditActionUserDelete, "user", id, username)
 	http.Redirect(w, r, "/admin/users?flash=deleted", http.StatusFound)
 }
 
@@ -524,6 +549,7 @@ func (h *Handler) PostResetUserPassword(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	h.logAudit(r, AuditActionUserPasswordReset, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=reset-sent", http.StatusFound)
 }
 
@@ -538,6 +564,12 @@ func (h *Handler) PostRevokeAllUserSessions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Best-effort fetch for audit target_name.
+	username := id
+	if u, err := h.userStore.GetByID(r.Context(), id); err == nil {
+		username = u.Username
+	}
+	h.logAudit(r, AuditActionSessionRevokeAll, "user", id, username)
 	http.Redirect(w, r, fmt.Sprintf("/admin/users/%s?flash=sessions-revoked", id), http.StatusFound)
 }
 
@@ -748,6 +780,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, AuditActionAppCreate, "app", a.ID, a.Name)
 	http.Redirect(w, r, "/admin/apps?flash=created", http.StatusFound)
 }
 
@@ -834,17 +867,28 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, AuditActionAppUpdate, "app", a.ID, a.Name)
 	http.Redirect(w, r, "/admin/apps?flash=updated", http.StatusFound)
 }
 
 // PostDeleteApp deletes an app by ID.
 func (h *Handler) PostDeleteApp(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Fetch the app before deletion to capture the slug for the audit log.
+	target, fetchErr := h.apps.GetByID(r.Context(), id)
+
 	if err := h.apps.Delete(r.Context(), id); err != nil && !errors.Is(err, app.ErrNotFound) {
 		h.logger.Error("admin: delete app", "id", id, "error", err)
 		http.Redirect(w, r, "/admin/apps?flash=error", http.StatusFound)
 		return
 	}
+
+	slug := id
+	if fetchErr == nil && target != nil {
+		slug = target.Slug
+	}
+	h.logAudit(r, AuditActionAppDelete, "app", id, slug)
 	http.Redirect(w, r, "/admin/apps?flash=deleted", http.StatusFound)
 }
 
@@ -885,6 +929,8 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 	} else {
 		a = updatedApp
 	}
+
+	h.logAudit(r, AuditActionOAuthGenerate, "app", a.ID, a.Name)
 	h.render(w, r, "admin-app-form", appFormData{
 		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}),
 		EditApp:         a,
@@ -929,6 +975,8 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 	} else {
 		a = updatedApp
 	}
+
+	h.logAudit(r, AuditActionOAuthRotate, "app", a.ID, a.Name)
 	h.render(w, r, "admin-app-form", appFormData{
 		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}),
 		EditApp:         a,
@@ -1054,6 +1102,12 @@ func (h *Handler) PostGrantAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort fetch for audit target_name.
+	appName := appID
+	if a, err := h.apps.GetByID(r.Context(), appID); err == nil {
+		appName = a.Name
+	}
+	h.logAudit(r, AuditActionAppGrantAccess, "app", appID, appName)
 	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access?flash=access-granted", appID), http.StatusFound)
 }
 
@@ -1071,6 +1125,13 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
+	// Best-effort fetch for audit target_name.
+	appName := appID
+	if a, err := h.apps.GetByID(r.Context(), appID); err == nil {
+		appName = a.Name
+	}
+	h.logAudit(r, AuditActionAppRevokeAccess, "app", appID, appName)
 
 	// Support htmx partial response (return empty row with "Revoked" indicator).
 	if r.Header.Get("HX-Request") == "true" {
@@ -1149,6 +1210,8 @@ func (h *Handler) PostRevokeSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
+	h.logAudit(r, AuditActionSessionRevoke, "session", id, "")
 
 	// Support htmx partial response.
 	if r.Header.Get("HX-Request") == "true" {
@@ -1238,5 +1301,57 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("admin: set smtp_from", "error", err)
 	}
 
+	h.logAudit(r, AuditActionSettingsUpdate, "settings", "", "")
 	http.Redirect(w, r, "/admin/settings?flash=updated", http.StatusFound)
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+type auditLogData struct {
+	basePage
+	Events       []*AuditEvent
+	ActionFilter string
+}
+
+// GetAuditLog renders the admin audit log page.
+func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
+	actionFilter := r.URL.Query().Get("action")
+	events, err := h.audit.List(r.Context(), AuditFilter{Action: actionFilter, Limit: 100})
+	if err != nil {
+		h.logger.Error("admin: list audit log", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	h.render(w, r, "admin-audit-log", auditLogData{
+		basePage:     h.base(r, "audit-log"),
+		Events:       events,
+		ActionFilter: actionFilter,
+	})
+}
+
+// logAudit records an admin audit event. It extracts the acting user from the
+// request context and the client IP from r.RemoteAddr. Errors are non-fatal.
+func (h *Handler) logAudit(r *http.Request, action, targetType, targetID, targetName string) {
+	actorID := ""
+	actorName := ""
+	if u, ok := session.UserFromContext(r.Context()); ok {
+		actorID = u.ID
+		actorName = u.Username
+	}
+
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		ip = host
+	}
+
+	h.audit.Log(r.Context(), &AuditEvent{
+		ActorID:    actorID,
+		ActorName:  actorName,
+		Action:     action,
+		TargetType: targetType,
+		TargetID:   targetID,
+		TargetName: targetName,
+		IPAddress:  ip,
+	})
 }

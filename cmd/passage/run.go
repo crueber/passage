@@ -196,7 +196,9 @@ func run() error {
 	}
 
 	// Build admin handler.
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger)
+	auditStore := admin.NewSQLiteAuditStore(database)
+	auditSvc := admin.NewAuditService(auditStore, logger)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger, auditSvc)
 
 	// Build forward-auth handler.
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)

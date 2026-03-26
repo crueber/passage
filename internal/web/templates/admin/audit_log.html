@@ -1,0 +1,93 @@
+{{define "admin-audit-log"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Log — Passage Admin</title>
+  <link rel="stylesheet" href="/static/bulma.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+{{template "admin-header" .}}
+<div class="passage-admin-body">
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">Audit Log</h1>
+
+        <form method="GET" action="/admin/audit-log" class="mb-4">
+          <div class="field has-addons">
+            <div class="control">
+              <div class="select">
+                <select name="action" id="action-filter" aria-label="Filter by action">
+                  <option value=""{{if eq .ActionFilter ""}} selected{{end}}>All actions</option>
+                  <option value="user.create"{{if eq .ActionFilter "user.create"}} selected{{end}}>user.create</option>
+                  <option value="user.update"{{if eq .ActionFilter "user.update"}} selected{{end}}>user.update</option>
+                  <option value="user.delete"{{if eq .ActionFilter "user.delete"}} selected{{end}}>user.delete</option>
+                  <option value="user.password_reset"{{if eq .ActionFilter "user.password_reset"}} selected{{end}}>user.password_reset</option>
+                  <option value="app.create"{{if eq .ActionFilter "app.create"}} selected{{end}}>app.create</option>
+                  <option value="app.update"{{if eq .ActionFilter "app.update"}} selected{{end}}>app.update</option>
+                  <option value="app.delete"{{if eq .ActionFilter "app.delete"}} selected{{end}}>app.delete</option>
+                  <option value="app.grant_access"{{if eq .ActionFilter "app.grant_access"}} selected{{end}}>app.grant_access</option>
+                  <option value="app.revoke_access"{{if eq .ActionFilter "app.revoke_access"}} selected{{end}}>app.revoke_access</option>
+                  <option value="oauth.generate_credentials"{{if eq .ActionFilter "oauth.generate_credentials"}} selected{{end}}>oauth.generate_credentials</option>
+                  <option value="oauth.rotate_secret"{{if eq .ActionFilter "oauth.rotate_secret"}} selected{{end}}>oauth.rotate_secret</option>
+                  <option value="session.revoke"{{if eq .ActionFilter "session.revoke"}} selected{{end}}>session.revoke</option>
+                  <option value="session.revoke_all"{{if eq .ActionFilter "session.revoke_all"}} selected{{end}}>session.revoke_all</option>
+                  <option value="settings.update"{{if eq .ActionFilter "settings.update"}} selected{{end}}>settings.update</option>
+                </select>
+              </div>
+            </div>
+            <div class="control">
+              <button type="submit" class="button">Filter</button>
+            </div>
+            {{if .ActionFilter}}
+            <div class="control">
+              <a href="/admin/audit-log" class="button is-light">Clear</a>
+            </div>
+            {{end}}
+          </div>
+        </form>
+
+        <div class="table-container">
+          <table class="table is-fullwidth is-hoverable is-striped">
+            <thead>
+              <tr>
+                <th scope="col">Time</th>
+                <th scope="col">Actor</th>
+                <th scope="col">Action</th>
+                <th scope="col">Target</th>
+                <th scope="col">IP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Events}}
+              <tr>
+                <td class="is-size-7" style="white-space: nowrap">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+                <td>{{.ActorName}}</td>
+                <td><code class="is-size-7">{{.Action}}</code></td>
+                <td class="is-size-7">
+                  {{if .TargetType}}<span class="tag is-light">{{.TargetType}}</span> {{end}}
+                  {{if .TargetName}}{{.TargetName}}{{else if .TargetID}}{{.TargetID}}{{end}}
+                </td>
+                <td class="is-size-7">{{.IPAddress}}</td>
+              </tr>
+              {{else}}
+              <tr>
+                <td colspan="5"><em>No audit log entries found.</em></td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
+  </div>
+</div>
+</body>
+</html>
+{{end}}
