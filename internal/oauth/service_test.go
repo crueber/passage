@@ -216,7 +216,7 @@ func TestService_Authorize(t *testing.T) {
 				sc.svc = svc
 			}
 
-			code, err := sc.svc.Authorize(context.Background(), tc.clientID, tc.redirectURI, "openid", "state-1", testUser.ID)
+			code, err := sc.svc.Authorize(context.Background(), tc.clientID, tc.redirectURI, "openid", "state-1", "", time.Now(), testUser.ID)
 
 			if tc.wantNoErr {
 				if err == nil {
@@ -260,7 +260,7 @@ func TestService_Authorize(t *testing.T) {
 		}
 		sc.svc = svc
 
-		_, gotErr := sc.svc.Authorize(context.Background(), "unknown-client", redirectURI, "openid", "", testUser.ID)
+		_, gotErr := sc.svc.Authorize(context.Background(), "unknown-client", redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if !errors.Is(gotErr, app.ErrOAuthNotEnabled) {
 			t.Errorf("invalid client: got %v, want ErrOAuthNotEnabled", gotErr)
 		}
@@ -287,7 +287,7 @@ func TestService_Authorize(t *testing.T) {
 		}
 		sc.svc = svc
 
-		_, gotErr := sc.svc.Authorize(context.Background(), clientID, redirectURI, "openid", "", testUser.ID)
+		_, gotErr := sc.svc.Authorize(context.Background(), clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if !errors.Is(gotErr, app.ErrOAuthNotEnabled) {
 			t.Errorf("oauth not enabled: got %v, want ErrOAuthNotEnabled", gotErr)
 		}
@@ -309,7 +309,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -361,7 +361,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -384,7 +384,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -412,7 +412,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -429,7 +429,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -457,7 +457,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 		// Get a refresh token via full code exchange.
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -520,7 +520,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -551,7 +551,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -582,7 +582,7 @@ func TestService_ValidateAccessToken(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -661,7 +661,7 @@ func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
 	ctx := context.Background()
 
 	// Step 1: Get an authorization code.
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid profile email", "", testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid profile email", "", "", time.Now(), testUser.ID)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -757,5 +757,182 @@ func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
 	}
 	if parsed != nil && !parsed.Valid {
 		t.Error("id_token: parsed token is not valid")
+	}
+}
+
+// decodeIDTokenClaims is a test helper that decodes the JWT payload of an
+// id_token without signature verification and returns the claims map.
+func decodeIDTokenClaims(t *testing.T, idToken string) map[string]any {
+	t.Helper()
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("id_token: expected 3 parts, got %d", len(parts))
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("id_token: base64 decode payload: %v", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		t.Fatalf("id_token: unmarshal payload: %v", err)
+	}
+	return claims
+}
+
+// TestService_IDToken_AuthTime verifies that the id_token auth_time claim
+// reflects the sessionCreatedAt value passed to Authorize, not time.Now().
+func TestService_IDToken_AuthTime(t *testing.T) {
+	const (
+		clientID    = "test-client-authtime"
+		plainSecret = "test-secret-authtime"
+		redirectURI = "https://example.com/callback"
+	)
+
+	ctx := context.Background()
+	db := testutil.NewTestDB(t)
+	testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+	testUser := &user.User{Username: "authtimeuser", Email: "authtime@example.com", Name: "AuthTime User"}
+	sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+	// Use a well-known session creation time in the past.
+	sessionCreatedAt := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", sessionCreatedAt, testUser.ID)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+
+	tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI)
+	if err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+
+	claims := decodeIDTokenClaims(t, tokenResp.IDToken)
+
+	authTimeRaw, ok := claims["auth_time"].(float64)
+	if !ok {
+		t.Fatalf("id_token auth_time: missing or not a number, got %T: %v", claims["auth_time"], claims["auth_time"])
+	}
+	gotAuthTime := int64(authTimeRaw)
+	wantAuthTime := sessionCreatedAt.Unix()
+	if gotAuthTime != wantAuthTime {
+		t.Errorf("id_token auth_time: got %d, want %d (session creation time)", gotAuthTime, wantAuthTime)
+	}
+}
+
+// TestService_IDToken_Nonce verifies nonce handling in id_token claims.
+func TestService_IDToken_Nonce(t *testing.T) {
+	const (
+		clientID    = "test-client-nonce"
+		plainSecret = "test-secret-nonce"
+		redirectURI = "https://example.com/callback"
+	)
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		nonce        string
+		wantNonce    bool
+		wantNonceVal string
+	}{
+		{
+			name:         "nonce_present",
+			nonce:        "test-nonce-value-abc123",
+			wantNonce:    true,
+			wantNonceVal: "test-nonce-value-abc123",
+		},
+		{
+			name:      "nonce_absent_when_empty",
+			nonce:     "",
+			wantNonce: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := testutil.NewTestDB(t)
+			testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+			testUser := &user.User{Username: "nonceuser", Email: "nonce@example.com", Name: "Nonce User"}
+			sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+			code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", tc.nonce, time.Now(), testUser.ID)
+			if err != nil {
+				t.Fatalf("Authorize: %v", err)
+			}
+
+			tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI)
+			if err != nil {
+				t.Fatalf("ExchangeCode: %v", err)
+			}
+
+			claims := decodeIDTokenClaims(t, tokenResp.IDToken)
+
+			nonceVal, hasNonce := claims["nonce"]
+			if tc.wantNonce {
+				if !hasNonce {
+					t.Error("id_token: expected nonce claim to be present, but it was absent")
+				} else if nonceVal != tc.wantNonceVal {
+					t.Errorf("id_token nonce: got %q, want %q", nonceVal, tc.wantNonceVal)
+				}
+			} else {
+				if hasNonce {
+					t.Errorf("id_token: expected nonce claim to be absent, but got %q", nonceVal)
+				}
+			}
+		})
+	}
+}
+
+// TestService_IDToken_AuthTime_FlowedFromCode verifies that ExchangeCode
+// flows the auth_time stored in the authorization code record into the id_token,
+// not the current time at exchange.
+func TestService_IDToken_AuthTime_FlowedFromCode(t *testing.T) {
+	const (
+		clientID    = "test-client-authflow"
+		plainSecret = "test-secret-authflow"
+		redirectURI = "https://example.com/callback"
+	)
+
+	ctx := context.Background()
+	db := testutil.NewTestDB(t)
+	testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+	testUser := &user.User{Username: "authflowuser", Email: "authflow@example.com", Name: "AuthFlow User"}
+	sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+	// Use a session creation time well before now to ensure it differs from
+	// the exchange time and verify the code record's value is used, not now.
+	sessionCreatedAt := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", sessionCreatedAt, testUser.ID)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+
+	// Verify the code record stored the correct auth_time.
+	codeRecord, err := sc.store.GetCode(ctx, code.Code)
+	if err != nil {
+		t.Fatalf("GetCode: %v", err)
+	}
+	if !codeRecord.AuthTime.Equal(sessionCreatedAt) {
+		t.Errorf("code AuthTime: got %v, want %v", codeRecord.AuthTime, sessionCreatedAt)
+	}
+
+	// Exchange the code and verify the id_token auth_time matches.
+	tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI)
+	if err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+
+	claims := decodeIDTokenClaims(t, tokenResp.IDToken)
+
+	authTimeRaw, ok := claims["auth_time"].(float64)
+	if !ok {
+		t.Fatalf("id_token auth_time: missing or not a number, got %T: %v", claims["auth_time"], claims["auth_time"])
+	}
+	gotAuthTime := int64(authTimeRaw)
+	wantAuthTime := sessionCreatedAt.Unix()
+	if gotAuthTime != wantAuthTime {
+		t.Errorf("id_token auth_time: got %d, want %d (should match session creation time, not exchange time)", gotAuthTime, wantAuthTime)
 	}
 }

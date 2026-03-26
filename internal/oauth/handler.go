@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,7 +23,7 @@ import (
 // oauthService is the interface the Handler uses for OAuth operations.
 // Defined here at the consumer boundary, per Go convention.
 type oauthService interface {
-	Authorize(ctx context.Context, clientID, redirectURI, scope, state, userID string) (*Code, error)
+	Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce string, sessionCreatedAt time.Time, userID string) (*Code, error)
 	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI string) (*TokenResponse, error)
 	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret string) (*TokenResponse, error)
 	ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error)
@@ -81,7 +82,8 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 		"scopes_supported":                      []string{"openid", "profile", "email"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "name", "email", "preferred_username"},
+		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "preferred_username"},
+		"nonce_supported":                       true,
 	}
 
 	h.writeJSON(w, http.StatusOK, doc)
@@ -135,6 +137,7 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	responseType := q.Get("response_type")
 	scope := q.Get("scope")
 	state := q.Get("state")
+	nonce := q.Get("nonce")
 
 	// Validate required parameters.
 	if responseType != "code" {
@@ -158,14 +161,14 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, u, err := h.sessions.ValidateSession(ctx, cookie.Value)
+	sess, u, err := h.sessions.ValidateSession(ctx, cookie.Value)
 	if err != nil {
 		h.redirectToLogin(w, r)
 		return
 	}
 
 	// Attempt to authorize.
-	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, u.ID)
+	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, sess.CreatedAt, u.ID)
 	if err != nil {
 		if errors.Is(err, app.ErrRedirectURIMismatch) || errors.Is(err, app.ErrOAuthNotEnabled) {
 			h.writeJSONError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -196,6 +199,10 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 // Supports authorization_code and refresh_token grant types.
 func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	// RFC 6749 §5.1: token responses must not be cached.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 
 	if err := r.ParseForm(); err != nil {
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "failed to parse request body")
