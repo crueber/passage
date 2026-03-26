@@ -92,6 +92,16 @@
         <p class="has-text-grey">This user has no passkeys registered.</p>
         {{end}}
         {{end}}
+
+        {{if not .IsNew}}
+        <hr>
+        <h2 class="title is-5">App Access</h2>
+        <p>
+          <a class="button is-link is-light is-small" href="/admin/users/{{.EditUser.ID}}/apps">
+            Manage App Access →
+          </a>
+        </p>
+        {{end}}
       </main>
     </div>
     {{template "admin-footer" .}}

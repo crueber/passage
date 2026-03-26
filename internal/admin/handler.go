@@ -51,6 +51,7 @@ type appServiceOps interface {
 	Update(ctx context.Context, a *app.App) error
 	Delete(ctx context.Context, id string) error
 	ListUsersWithAccess(ctx context.Context, appID string) ([]*app.UserAccess, error)
+	ListAppsForUser(ctx context.Context, userID string) ([]*app.App, error)
 	GrantAccess(ctx context.Context, userID, appID string) error
 	RevokeAccess(ctx context.Context, userID, appID string) error
 	GenerateClientCredentials(ctx context.Context, appID string) (clientSecret string, err error)
@@ -125,6 +126,8 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/users/{id}", h.PostUpdateUser)
 	r.Post("/users/{id}/delete", h.PostDeleteUser)
 	r.Post("/users/{id}/reset-password", h.PostResetUserPassword)
+	r.Get("/users/{id}/apps", h.GetUserApps)
+	r.Post("/users/{id}/apps", h.PostUserApps)
 
 	// Apps
 	r.Get("/apps", h.GetApps)
@@ -493,6 +496,126 @@ func (h *Handler) PostResetUserPassword(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/admin/users?flash=reset-sent", http.StatusFound)
 }
 
+// GetUserApps renders the user app access management page.
+func (h *Handler) GetUserApps(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	ctx := r.Context()
+
+	u, err := h.userStore.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			http.Redirect(w, r, "/admin/users", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get user for app access", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	allApps, err := h.apps.List(ctx)
+	if err != nil {
+		h.logger.Error("admin: list apps for user access page", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	userApps, err := h.apps.ListAppsForUser(ctx, id)
+	if err != nil {
+		h.logger.Error("admin: list apps for user", "user_id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	accessMap := make(map[string]bool, len(userApps))
+	for _, a := range userApps {
+		accessMap[a.ID] = true
+	}
+
+	appsWithAccess := make([]appWithAccess, len(allApps))
+	for i, a := range allApps {
+		appsWithAccess[i] = appWithAccess{
+			App:       a,
+			HasAccess: accessMap[a.ID],
+		}
+	}
+
+	var flash *Flash
+	if code := r.URL.Query().Get("flash"); code != "" {
+		flash = flashFromQuery(code)
+	}
+
+	h.render(w, r, "admin-user-apps", userAppsData{
+		basePage:       basePage{ActiveNav: "users", Flash: flash},
+		EditUser:       u,
+		AppsWithAccess: appsWithAccess,
+	})
+}
+
+// PostUserApps handles bulk grant/revoke of app access for a user.
+func (h *Handler) PostUserApps(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	ctx := r.Context()
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/admin/users/%s/apps", id), http.StatusFound)
+		return
+	}
+
+	_, err := h.userStore.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			http.Redirect(w, r, "/admin/users", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get user for post app access", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Build desired set from submitted checkboxes.
+	desiredSet := make(map[string]bool, len(r.Form["app_id"]))
+	for _, appID := range r.Form["app_id"] {
+		desiredSet[appID] = true
+	}
+
+	// Build current set from what the user already has access to.
+	currentApps, err := h.apps.ListAppsForUser(ctx, id)
+	if err != nil {
+		h.logger.Error("admin: list apps for user (post)", "user_id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	currentSet := make(map[string]bool, len(currentApps))
+	for _, a := range currentApps {
+		currentSet[a.ID] = true
+	}
+
+	// Iterate over all apps to determine what to grant or revoke.
+	allApps, err := h.apps.List(ctx)
+	if err != nil {
+		h.logger.Error("admin: list all apps for post user access", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	for _, a := range allApps {
+		inDesired := desiredSet[a.ID]
+		inCurrent := currentSet[a.ID]
+
+		if inDesired && !inCurrent {
+			if err := h.apps.GrantAccess(ctx, id, a.ID); err != nil {
+				h.logger.Error("admin: grant access (bulk)", "user_id", id, "app_id", a.ID, "error", err)
+			}
+		} else if !inDesired && inCurrent {
+			if err := h.apps.RevokeAccess(ctx, id, a.ID); err != nil {
+				h.logger.Error("admin: revoke access (bulk)", "user_id", id, "app_id", a.ID, "error", err)
+			}
+		}
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/admin/users/%s/apps?flash=updated", id), http.StatusFound)
+}
+
 // ─── Apps ────────────────────────────────────────────────────────────────────
 
 type appsData struct {
@@ -782,6 +905,19 @@ type appAccessData struct {
 	App                *app.App
 	UsersWithAccess    []userWithAccess
 	UsersWithoutAccess []*user.User
+}
+
+// appWithAccess bundles an app with whether the given user has access.
+type appWithAccess struct {
+	App       *app.App
+	HasAccess bool
+}
+
+// userAppsData is the template data for the user app access page.
+type userAppsData struct {
+	basePage
+	EditUser       *user.User
+	AppsWithAccess []appWithAccess
 }
 
 // GetAppAccess renders the app access management page.

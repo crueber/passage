@@ -1,0 +1,111 @@
+{{define "admin-user-apps"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>App Access — {{.EditUser.Username}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/bulma.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+<div class="passage-admin-body">
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">App Access: {{.EditUser.Username}}</h1>
+        <p class="mb-4"><a href="/admin/users/{{.EditUser.ID}}">← Back to user</a></p>
+
+        <form method="POST" action="/admin/users/{{.EditUser.ID}}/apps">
+          <div class="table-container mb-4">
+            <table class="table is-fullwidth is-striped is-hoverable">
+              <thead>
+                <tr>
+                  <th scope="col">App</th>
+                  <th scope="col">Description</th>
+                  <th scope="col">Host Pattern</th>
+                  <th scope="col">Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .AppsWithAccess}}
+                <tr>
+                  <td>
+                    {{.App.Name}}
+                    <span class="has-text-grey-light is-size-7 ml-1">({{.App.Slug}})</span>
+                    {{if not .App.IsActive}}
+                    <span class="tag is-warning is-light ml-1">inactive</span>
+                    {{end}}
+                  </td>
+                  <td>{{.App.Description}}</td>
+                  <td><code>{{.App.HostPattern}}</code></td>
+                  <td>
+                    <label class="checkbox" for="app_{{.App.ID}}">
+                      <input type="checkbox" id="app_{{.App.ID}}" name="app_id" value="{{.App.ID}}" {{if .HasAccess}}checked{{end}}>
+                      Grant access
+                    </label>
+                  </td>
+                </tr>
+                {{else}}
+                <tr>
+                  <td colspan="4"><em>No apps registered.</em></td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="has-text-right mb-4">
+            <button type="button" id="select-all-btn" class="button is-light is-small">Select All</button>
+          </div>
+
+          <div class="field is-grouped">
+            <div class="control">
+              <button type="submit" class="button is-primary">Save Access</button>
+            </div>
+            <div class="control">
+              <a class="button is-light" href="/admin/users/{{.EditUser.ID}}">Cancel</a>
+            </div>
+          </div>
+        </form>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
+  </div>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById('select-all-btn');
+    if (!btn) return;
+
+    function getCheckboxes() {
+      return Array.prototype.slice.call(document.querySelectorAll('input[name="app_id"]'));
+    }
+
+    function allChecked(boxes) {
+      return boxes.length > 0 && boxes.every(function (cb) { return cb.checked; });
+    }
+
+    function updateLabel() {
+      var boxes = getCheckboxes();
+      btn.textContent = allChecked(boxes) ? 'Deselect All' : 'Select All';
+    }
+
+    btn.addEventListener('click', function () {
+      var boxes = getCheckboxes();
+      var check = !allChecked(boxes);
+      boxes.forEach(function (cb) { cb.checked = check; });
+      updateLabel();
+    });
+
+    // Initialise label to reflect server-rendered checked state
+    updateLabel();
+  }());
+</script>
+</body>
+</html>
+{{end}}

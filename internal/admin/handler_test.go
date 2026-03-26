@@ -1439,3 +1439,320 @@ func extractHexSecret(s string) string {
 	re := regexp.MustCompile(`[0-9a-f]{64}`)
 	return re.FindString(s)
 }
+
+// ─── User App Access ──────────────────────────────────────────────────────────
+
+func TestAdminUserApps_GetUserApps(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+	ctx := context.Background()
+
+	t.Run("user not found", func(t *testing.T) {
+		rec := adminRequest(t, router, http.MethodGet, "/admin/users/nonexistent-id/apps",
+			token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("user not found: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		loc := res.Header.Get("Location")
+		if loc != "/admin/users" {
+			t.Errorf("user not found: redirect %q, want /admin/users", loc)
+		}
+	})
+
+	t.Run("user found no apps", func(t *testing.T) {
+		if _, err := f.userSvc.Register(ctx, "noappsuser", "noapps@example.com", "password123"); err != nil {
+			t.Fatalf("register user: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "noappsuser")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+
+		rec := adminRequest(t, router, http.MethodGet, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("user found no apps: got status %d, want 200", res.StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "noappsuser") {
+			t.Errorf("user found no apps: response does not contain username 'noappsuser'")
+		}
+	})
+
+	t.Run("user found with apps HasAccess flags correct", func(t *testing.T) {
+		// Create a user for this sub-test.
+		if _, err := f.userSvc.Register(ctx, "accessflagsuser", "accessflags@example.com", "password123"); err != nil {
+			t.Fatalf("register user: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "accessflagsuser")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+
+		// Create two apps.
+		if err := f.appSvc.Create(ctx, &app.App{
+			Slug:        "flags-app1",
+			Name:        "Flags App One",
+			HostPattern: "flags-app1.example.com",
+			IsActive:    true,
+		}); err != nil {
+			t.Fatalf("create app1: %v", err)
+		}
+		app1, err := f.appStore.GetBySlug(ctx, "flags-app1")
+		if err != nil {
+			t.Fatalf("get app1: %v", err)
+		}
+
+		if err := f.appSvc.Create(ctx, &app.App{
+			Slug:        "flags-app2",
+			Name:        "Flags App Two",
+			HostPattern: "flags-app2.example.com",
+			IsActive:    true,
+		}); err != nil {
+			t.Fatalf("create app2: %v", err)
+		}
+		app2, err := f.appStore.GetBySlug(ctx, "flags-app2")
+		if err != nil {
+			t.Fatalf("get app2: %v", err)
+		}
+
+		// Grant access to app1 only.
+		if err := f.appSvc.GrantAccess(ctx, u.ID, app1.ID); err != nil {
+			t.Fatalf("grant access to app1: %v", err)
+		}
+
+		rec := adminRequest(t, router, http.MethodGet, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("user with apps: got status %d, want 200", res.StatusCode)
+		}
+
+		body := rec.Body.String()
+
+		// Both app slugs must appear (all apps are listed).
+		if !strings.Contains(body, app1.Slug) {
+			t.Errorf("user with apps: response does not contain app1 slug %q", app1.Slug)
+		}
+		if !strings.Contains(body, app2.Slug) {
+			t.Errorf("user with apps: response does not contain app2 slug %q", app2.Slug)
+		}
+
+		// Exactly one checkbox should be checked — only app1 has access.
+		// Count HTML checked attributes specifically (rendered as `checked>` by the template),
+		// not raw occurrences of "checked" which would also match inline JS identifiers.
+		checkedCount := strings.Count(body, "checked>")
+		if checkedCount != 1 {
+			t.Errorf("user with apps: expected exactly 1 'checked' attribute, got %d", checkedCount)
+		}
+	})
+}
+
+func TestAdminUserApps_PostUserApps(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+	ctx := context.Background()
+
+	t.Run("user not found", func(t *testing.T) {
+		rec := adminRequest(t, router, http.MethodPost, "/admin/users/nonexistent-id/apps",
+			token, f.cfg.Session.CookieName, nil, "application/x-www-form-urlencoded")
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("user not found: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		loc := res.Header.Get("Location")
+		if loc != "/admin/users" {
+			t.Errorf("user not found: redirect %q, want /admin/users", loc)
+		}
+	})
+
+	t.Run("grant new app", func(t *testing.T) {
+		if _, err := f.userSvc.Register(ctx, "grantnewuser", "grantnew@example.com", "password123"); err != nil {
+			t.Fatalf("register user: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "grantnewuser")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+
+		if err := f.appSvc.Create(ctx, &app.App{
+			Slug:        "grant-new-app",
+			Name:        "Grant New App",
+			HostPattern: "grant-new.example.com",
+			IsActive:    true,
+		}); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		a, err := f.appStore.GetBySlug(ctx, "grant-new-app")
+		if err != nil {
+			t.Fatalf("get app: %v", err)
+		}
+
+		form := url.Values{"app_id": []string{a.ID}}
+		rec := adminRequest(t, router, http.MethodPost, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("grant new app: got status %d, want 302", res.StatusCode)
+		}
+		loc := res.Header.Get("Location")
+		if !strings.Contains(loc, "flash=updated") {
+			t.Errorf("grant new app: redirect %q does not contain flash=updated", loc)
+		}
+
+		// Verify access was granted.
+		grantedApps, err := f.appStore.ListAppsForUser(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("list apps for user: %v", err)
+		}
+		found := false
+		for _, ga := range grantedApps {
+			if ga.ID == a.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("grant new app: app %q not found in user's access list after POST", a.ID)
+		}
+	})
+
+	t.Run("revoke existing app", func(t *testing.T) {
+		if _, err := f.userSvc.Register(ctx, "revokeexistuser", "revokeexist@example.com", "password123"); err != nil {
+			t.Fatalf("register user: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "revokeexistuser")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+
+		if err := f.appSvc.Create(ctx, &app.App{
+			Slug:        "revoke-exist-app",
+			Name:        "Revoke Exist App",
+			HostPattern: "revoke-exist.example.com",
+			IsActive:    true,
+		}); err != nil {
+			t.Fatalf("create app: %v", err)
+		}
+		a, err := f.appStore.GetBySlug(ctx, "revoke-exist-app")
+		if err != nil {
+			t.Fatalf("get app: %v", err)
+		}
+
+		// Pre-seed access.
+		if err := f.appSvc.GrantAccess(ctx, u.ID, a.ID); err != nil {
+			t.Fatalf("pre-seed grant access: %v", err)
+		}
+
+		// POST with no app_id checkboxes (empty body means revoke all).
+		rec := adminRequest(t, router, http.MethodPost, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName,
+			strings.NewReader(""), "application/x-www-form-urlencoded")
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("revoke existing app: got status %d, want 302", res.StatusCode)
+		}
+		loc := res.Header.Get("Location")
+		if !strings.Contains(loc, "flash=updated") {
+			t.Errorf("revoke existing app: redirect %q does not contain flash=updated", loc)
+		}
+
+		// Verify access was revoked.
+		remainingApps, err := f.appStore.ListAppsForUser(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("list apps for user after revoke: %v", err)
+		}
+		for _, ra := range remainingApps {
+			if ra.ID == a.ID {
+				t.Errorf("revoke existing app: app %q still present in user's access list after POST", a.ID)
+			}
+		}
+	})
+
+	t.Run("mixed grant and revoke", func(t *testing.T) {
+		if _, err := f.userSvc.Register(ctx, "mixedaccessuser", "mixedaccess@example.com", "password123"); err != nil {
+			t.Fatalf("register user: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "mixedaccessuser")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+
+		if err := f.appSvc.Create(ctx, &app.App{
+			Slug:        "mixed-app1",
+			Name:        "Mixed App One",
+			HostPattern: "mixed-app1.example.com",
+			IsActive:    true,
+		}); err != nil {
+			t.Fatalf("create mixed-app1: %v", err)
+		}
+		mApp1, err := f.appStore.GetBySlug(ctx, "mixed-app1")
+		if err != nil {
+			t.Fatalf("get mixed-app1: %v", err)
+		}
+
+		if err := f.appSvc.Create(ctx, &app.App{
+			Slug:        "mixed-app2",
+			Name:        "Mixed App Two",
+			HostPattern: "mixed-app2.example.com",
+			IsActive:    true,
+		}); err != nil {
+			t.Fatalf("create mixed-app2: %v", err)
+		}
+		mApp2, err := f.appStore.GetBySlug(ctx, "mixed-app2")
+		if err != nil {
+			t.Fatalf("get mixed-app2: %v", err)
+		}
+
+		// Pre-seed: user has access to app1 only.
+		if err := f.appSvc.GrantAccess(ctx, u.ID, mApp1.ID); err != nil {
+			t.Fatalf("pre-seed grant access app1: %v", err)
+		}
+
+		// POST: grant app2, revoke app1 (only app2 in the submitted checkboxes).
+		form := url.Values{"app_id": []string{mApp2.ID}}
+		rec := adminRequest(t, router, http.MethodPost, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("mixed grant/revoke: got status %d, want 302", res.StatusCode)
+		}
+		loc := res.Header.Get("Location")
+		if !strings.Contains(loc, "flash=updated") {
+			t.Errorf("mixed grant/revoke: redirect %q does not contain flash=updated", loc)
+		}
+
+		// Verify final state.
+		finalApps, err := f.appStore.ListAppsForUser(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("list apps for user after mixed post: %v", err)
+		}
+
+		hasApp1 := false
+		hasApp2 := false
+		for _, fa := range finalApps {
+			if fa.ID == mApp1.ID {
+				hasApp1 = true
+			}
+			if fa.ID == mApp2.ID {
+				hasApp2 = true
+			}
+		}
+		if hasApp1 {
+			t.Errorf("mixed grant/revoke: app1 %q should have been revoked but is still present", mApp1.ID)
+		}
+		if !hasApp2 {
+			t.Errorf("mixed grant/revoke: app2 %q should have been granted but is absent", mApp2.ID)
+		}
+	})
+}
