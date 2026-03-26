@@ -115,7 +115,7 @@ func run() error {
 
 	// Build WebAuthn credential store and challenge store.
 	credStore := webauthn.NewSQLiteCredentialStore(database)
-	challenges := webauthn.NewChallengeStore()
+	challenges := webauthn.NewSQLiteChallengeStore(database)
 
 	// Build the go-webauthn instance from configuration.
 	wa, err := buildWebAuthn(cfg)
@@ -141,7 +141,7 @@ func run() error {
 	}()
 
 	// Start challenge store cleanup goroutine.
-	// Removes expired in-memory WebAuthn challenges every 10 minutes.
+	// Removes expired SQLite WebAuthn challenges every 10 minutes.
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
@@ -150,7 +150,9 @@ func run() error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				challenges.Cleanup()
+				if err := challenges.DeleteExpired(ctx); err != nil {
+					logger.Error("webauthn challenge cleanup failed", "error", err)
+				}
 			}
 		}
 	}()

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
 // Sentinel errors for WebAuthn operations.
@@ -43,4 +45,15 @@ type CredentialStore interface {
 	CountByUser(ctx context.Context, userID string) (int, error)
 	UpdateSignCount(ctx context.Context, id string, newCount uint32) error
 	Delete(ctx context.Context, id string) error
+}
+
+// ChallengeStorer is the interface for storing and retrieving WebAuthn challenge
+// session data. Both the in-memory ChallengeStore and the SQLiteChallengeStore
+// implement this interface.
+type ChallengeStorer interface {
+	SetRegistration(sessionID string, session gowebauthn.SessionData)
+	SetAuthentication(sessionID string, session gowebauthn.SessionData)
+	GetRegistration(sessionID string) (gowebauthn.SessionData, error)
+	GetAuthentication(sessionID string) (gowebauthn.SessionData, error)
+	DeleteExpired(ctx context.Context) error
 }

@@ -1,6 +1,7 @@
 package webauthn
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"sync"
@@ -100,6 +101,12 @@ func (s *ChallengeStore) Cleanup() {
 			delete(s.entries, key)
 		}
 	}
+}
+
+// DeleteExpired implements ChallengeStorer by delegating to Cleanup.
+func (s *ChallengeStore) DeleteExpired(_ context.Context) error {
+	s.Cleanup()
+	return nil
 }
 
 // sessionIDFromChallenge creates a URL-safe session key from a WebAuthn challenge string.

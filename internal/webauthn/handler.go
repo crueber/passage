@@ -35,7 +35,7 @@ type sessionCreator interface {
 type Handler struct {
 	wa         *gowebauthn.WebAuthn
 	credStore  CredentialStore
-	challenges *ChallengeStore
+	challenges ChallengeStorer
 	users      userLookup
 	sessions   sessionCreator
 	cfg        sessionConfig
@@ -53,7 +53,7 @@ type sessionConfig struct {
 func NewHandler(
 	wa *gowebauthn.WebAuthn,
 	credStore CredentialStore,
-	challenges *ChallengeStore,
+	challenges ChallengeStorer,
 	users userLookup,
 	sessions sessionCreator,
 	cookieName string,
