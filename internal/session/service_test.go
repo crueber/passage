@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -38,7 +39,8 @@ func setup(t *testing.T) (userSvc *user.Service, userStore *user.SQLiteStore, se
 	userSvc = user.NewService(userStore, userStore, cfg)
 
 	sessionStore := session.NewStore(db)
-	sessionSvc = session.NewService(sessionStore, userStore, cfg, slog.Default())
+	// nil settings: fall back to cfg.Session.DurationHours (24h).
+	sessionSvc = session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
 
 	ctx := context.Background()
 	u, err := userSvc.Register(ctx, "tester", "tester@example.com", "password123")
@@ -142,7 +144,7 @@ func TestValidateSession_Expired(t *testing.T) {
 	// Use a 0-hour duration so sessions expire immediately.
 	expiredCfg := *cfg
 	expiredCfg.Session.DurationHours = 0
-	sessionSvc := session.NewService(sessionStore, userStore, &expiredCfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, &expiredCfg, slog.Default())
 
 	ctx := context.Background()
 	u, err := userSvc.Register(ctx, "expiry_user", "expiry@example.com", "password123")
@@ -219,7 +221,7 @@ func TestListByUser(t *testing.T) {
 	cfg := testConfig()
 	userSvc := user.NewService(userStore, userStore, cfg)
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
 	ctx := context.Background()
 
 	// Register two distinct users.
@@ -277,5 +279,197 @@ func TestNewSession_NilAppID(t *testing.T) {
 	}
 	if got.AppID != nil {
 		t.Errorf("ValidateSession: expected nil AppID, got %v", *got.AppID)
+	}
+}
+
+// ─── Phase 4 new tests ────────────────────────────────────────────────────────
+
+// stubSettings is a minimal in-memory settingsReader for tests.
+type stubSettings struct {
+	data map[string]string
+}
+
+func (s *stubSettings) Get(_ context.Context, key string) (string, error) {
+	v, ok := s.data[key]
+	if !ok {
+		return "", fmt.Errorf("setting not found: %s", key)
+	}
+	return v, nil
+}
+
+// TestNewSession_UsesDurationFromDB verifies that when the settings store
+// returns a valid "session_duration_hours" value, that value is used instead
+// of cfg.Session.DurationHours.
+func TestNewSession_UsesDurationFromDB(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig() // DurationHours = 24
+	userSvc := user.NewService(userStore, userStore, cfg)
+
+	// DB setting overrides config: 48 hours.
+	settings := &stubSettings{data: map[string]string{"session_duration_hours": "48"}}
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, settings, cfg, slog.Default())
+
+	ctx := context.Background()
+	u, err := userSvc.Register(ctx, "db_duration_user", "dbdur@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	sess, err := sessionSvc.NewSession(ctx, u.ID, nil, "127.0.0.1", "TestAgent/1.0")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// ExpiresAt should be approximately 48h from now (allow 5 minutes of slop).
+	want := time.Now().Add(48 * time.Hour)
+	diff := sess.ExpiresAt.Sub(want)
+	if diff < -5*time.Minute || diff > 5*time.Minute {
+		t.Errorf("NewSession: ExpiresAt %v is not ~48h from now (want %v)", sess.ExpiresAt, want)
+	}
+}
+
+// TestNewSession_FallsBackToConfig verifies that when the settings store
+// returns an error (key absent), the cfg.Session.DurationHours value is used.
+func TestNewSession_FallsBackToConfig(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig() // DurationHours = 24
+	userSvc := user.NewService(userStore, userStore, cfg)
+
+	// Settings store has no "session_duration_hours" key.
+	settings := &stubSettings{data: map[string]string{}}
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, settings, cfg, slog.Default())
+
+	ctx := context.Background()
+	u, err := userSvc.Register(ctx, "fallback_user", "fallback@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	sess, err := sessionSvc.NewSession(ctx, u.ID, nil, "127.0.0.1", "TestAgent/1.0")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// ExpiresAt should be approximately 24h from now (allow 5 minutes of slop).
+	want := time.Now().Add(24 * time.Hour)
+	diff := sess.ExpiresAt.Sub(want)
+	if diff < -5*time.Minute || diff > 5*time.Minute {
+		t.Errorf("NewSession: ExpiresAt %v is not ~24h from now (want %v)", sess.ExpiresAt, want)
+	}
+}
+
+// TestDeleteByUser verifies that DeleteByUser removes all sessions for a user
+// but leaves sessions for other users intact.
+func TestDeleteByUser(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig()
+	userSvc := user.NewService(userStore, userStore, cfg)
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
+	ctx := context.Background()
+
+	userA, err := userSvc.Register(ctx, "del_user_a", "del_a@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register userA: %v", err)
+	}
+	userB, err := userSvc.Register(ctx, "del_user_b", "del_b@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register userB: %v", err)
+	}
+
+	// Create sessions for both users.
+	if _, err := sessionSvc.NewSession(ctx, userA.ID, nil, "10.0.0.1", "AgentA/1"); err != nil {
+		t.Fatalf("NewSession A1: %v", err)
+	}
+	if _, err := sessionSvc.NewSession(ctx, userA.ID, nil, "10.0.0.2", "AgentA/2"); err != nil {
+		t.Fatalf("NewSession A2: %v", err)
+	}
+	if _, err := sessionSvc.NewSession(ctx, userB.ID, nil, "10.0.0.3", "AgentB/1"); err != nil {
+		t.Fatalf("NewSession B1: %v", err)
+	}
+
+	// Delete all sessions for userA via the store directly.
+	if err := sessionStore.DeleteByUser(ctx, userA.ID); err != nil {
+		t.Fatalf("DeleteByUser: unexpected error: %v", err)
+	}
+
+	// userA should have no sessions.
+	gotA, err := sessionSvc.ListByUser(ctx, userA.ID)
+	if err != nil {
+		t.Fatalf("ListByUser A: %v", err)
+	}
+	if len(gotA) != 0 {
+		t.Errorf("after DeleteByUser: expected 0 sessions for userA, got %d", len(gotA))
+	}
+
+	// userB's session must be untouched.
+	gotB, err := sessionSvc.ListByUser(ctx, userB.ID)
+	if err != nil {
+		t.Fatalf("ListByUser B: %v", err)
+	}
+	if len(gotB) != 1 {
+		t.Errorf("after DeleteByUser: expected 1 session for userB, got %d", len(gotB))
+	}
+}
+
+// TestRevokeAllByUser verifies the service-layer RevokeAllByUser method removes
+// all sessions for the user and leaves other users' sessions intact.
+func TestRevokeAllByUser(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig()
+	userSvc := user.NewService(userStore, userStore, cfg)
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
+	ctx := context.Background()
+
+	userA, err := userSvc.Register(ctx, "revall_user_a", "revall_a@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register userA: %v", err)
+	}
+	userB, err := userSvc.Register(ctx, "revall_user_b", "revall_b@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register userB: %v", err)
+	}
+
+	if _, err := sessionSvc.NewSession(ctx, userA.ID, nil, "10.0.0.1", "AgentA/1"); err != nil {
+		t.Fatalf("NewSession A1: %v", err)
+	}
+	if _, err := sessionSvc.NewSession(ctx, userA.ID, nil, "10.0.0.2", "AgentA/2"); err != nil {
+		t.Fatalf("NewSession A2: %v", err)
+	}
+	if _, err := sessionSvc.NewSession(ctx, userB.ID, nil, "10.0.0.3", "AgentB/1"); err != nil {
+		t.Fatalf("NewSession B1: %v", err)
+	}
+
+	if err := sessionSvc.RevokeAllByUser(ctx, userA.ID); err != nil {
+		t.Fatalf("RevokeAllByUser: unexpected error: %v", err)
+	}
+
+	// userA should have no sessions.
+	gotA, err := sessionSvc.ListByUser(ctx, userA.ID)
+	if err != nil {
+		t.Fatalf("ListByUser A: %v", err)
+	}
+	if len(gotA) != 0 {
+		t.Errorf("after RevokeAllByUser: expected 0 sessions for userA, got %d", len(gotA))
+	}
+
+	// userB's session must be untouched.
+	gotB, err := sessionSvc.ListByUser(ctx, userB.ID)
+	if err != nil {
+		t.Fatalf("ListByUser B: %v", err)
+	}
+	if len(gotB) != 1 {
+		t.Errorf("after RevokeAllByUser: expected 1 session for userB, got %d", len(gotB))
 	}
 }

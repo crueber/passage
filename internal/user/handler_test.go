@@ -75,7 +75,7 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	userSvc := user.NewService(userStore, userStore, cfg)
 
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
 
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
@@ -165,7 +165,7 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 	}
 
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
 	})
@@ -218,7 +218,7 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 	}
 
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
 	})

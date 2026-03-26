@@ -72,7 +72,7 @@ func newFixture(t *testing.T) *fixture {
 	userSvc := user.NewService(userStore, userStore, cfg)
 
 	sessionStore := session.NewStore(database)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
 
 	appStore := app.NewStore(database)
 	appSvc := app.NewService(appStore, appStore, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))

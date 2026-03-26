@@ -71,8 +71,12 @@ func run() error {
 	userStore := user.NewStore(database)
 	userSvc := user.NewService(userStore, userStore, cfg)
 
+	// Build the settings store early so sessionSvc can consult it for
+	// the session_duration_hours setting on every new session.
+	settingsStore := admin.NewSQLiteSettingsStore(database)
+
 	sessionStore := session.NewStore(database)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, logger)
+	sessionSvc := session.NewService(sessionStore, userStore, settingsStore, cfg, logger)
 
 	// Build email sender.
 	mailer, err := email.NewSMTPSender(cfg, logger)
@@ -192,7 +196,6 @@ func run() error {
 	}
 
 	// Build admin handler.
-	settingsStore := admin.NewSQLiteSettingsStore(database)
 	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger)
 
 	// Build forward-auth handler.

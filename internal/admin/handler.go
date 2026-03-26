@@ -64,6 +64,7 @@ type appServiceOps interface {
 type sessionServiceOps interface {
 	ListAll(ctx context.Context) ([]*session.Session, error)
 	RevokeSession(ctx context.Context, token string) error
+	RevokeAllByUser(ctx context.Context, userID string) error
 }
 
 // credentialCounter is the minimal interface for querying passkey credential counts.
@@ -127,6 +128,7 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/users/{id}", h.PostUpdateUser)
 	r.Post("/users/{id}/delete", h.PostDeleteUser)
 	r.Post("/users/{id}/reset-password", h.PostResetUserPassword)
+	r.Post("/users/{id}/sessions/revoke-all", h.PostRevokeAllUserSessions)
 	r.Get("/users/{id}/apps", h.GetUserApps)
 	r.Post("/users/{id}/apps", h.PostUserApps)
 
@@ -190,6 +192,8 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "Deleted successfully."}
 	case "revoked":
 		return &Flash{Type: "success", Message: "Session revoked."}
+	case "sessions-revoked":
+		return &Flash{Type: "success", Message: "All sessions revoked."}
 	case "reset-sent":
 		return &Flash{Type: "success", Message: "Password reset email sent."}
 	case "access-granted":
@@ -454,6 +458,13 @@ func (h *Handler) PostUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If the user was deactivated, revoke all their active sessions immediately.
+	if !u.IsActive {
+		if err := h.sessions.RevokeAllByUser(r.Context(), u.ID); err != nil {
+			h.logger.Warn("admin: revoke sessions for deactivated user", "user_id", u.ID, "error", err)
+		}
+	}
+
 	http.Redirect(w, r, "/admin/users?flash=updated", http.StatusFound)
 }
 
@@ -514,6 +525,20 @@ func (h *Handler) PostResetUserPassword(w http.ResponseWriter, r *http.Request) 
 	}
 
 	http.Redirect(w, r, "/admin/users?flash=reset-sent", http.StatusFound)
+}
+
+// PostRevokeAllUserSessions revokes all active sessions for a user.
+// This is a non-destructive operation — the user account is not modified.
+func (h *Handler) PostRevokeAllUserSessions(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := h.sessions.RevokeAllByUser(r.Context(), id); err != nil {
+		h.logger.Error("admin: revoke all sessions for user", "user_id", id, "error", err)
+		http.Redirect(w, r, fmt.Sprintf("/admin/users/%s?flash=error", id), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/admin/users/%s?flash=sessions-revoked", id), http.StatusFound)
 }
 
 // GetUserApps renders the user app access management page.

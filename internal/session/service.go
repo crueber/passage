@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/crueber/passage/internal/config"
@@ -19,22 +20,50 @@ type userGetter interface {
 	GetByID(ctx context.Context, id string) (*user.User, error)
 }
 
+// settingsReader is the minimal interface needed to read a single setting.
+// Defined here at the consumer boundary to avoid an import cycle with the
+// admin package.
+type settingsReader interface {
+	Get(ctx context.Context, key string) (string, error)
+}
+
 // Service implements business logic for session management.
 type Service struct {
-	store  Store
-	users  userGetter
-	cfg    *config.Config
-	logger *slog.Logger
+	store    Store
+	users    userGetter
+	settings settingsReader // may be nil; used to read session_duration_hours from DB
+	cfg      *config.Config
+	logger   *slog.Logger
 }
 
 // NewService creates a new Service with the given dependencies.
-func NewService(store Store, users userGetter, cfg *config.Config, logger *slog.Logger) *Service {
+// settings may be nil; when non-nil it is consulted for session_duration_hours
+// before falling back to cfg.Session.DurationHours.
+func NewService(store Store, users userGetter, settings settingsReader, cfg *config.Config, logger *slog.Logger) *Service {
 	return &Service{
-		store:  store,
-		users:  users,
-		cfg:    cfg,
-		logger: logger,
+		store:    store,
+		users:    users,
+		settings: settings,
+		cfg:      cfg,
+		logger:   logger,
 	}
+}
+
+// sessionDurationHours returns the effective session duration in hours.
+// It first tries the DB settings key "session_duration_hours"; on any error
+// (key absent, invalid value, nil settings) it falls back to
+// cfg.Session.DurationHours.
+func (s *Service) sessionDurationHours(ctx context.Context) int {
+	if s.settings != nil {
+		val, err := s.settings.Get(ctx, "session_duration_hours")
+		if err == nil && val != "" {
+			n, err := strconv.Atoi(val)
+			if err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return s.cfg.Session.DurationHours
 }
 
 // CreateSession creates a new session and returns the token string and expiry
@@ -49,7 +78,9 @@ func (s *Service) CreateSession(ctx context.Context, userID string, appID *strin
 }
 
 // NewSession creates a new session for the given user. The session token is a
-// 32-byte random value encoded as hex. Expiry is derived from cfg.Session.DurationHours.
+// 32-byte random value encoded as hex. Expiry is derived first from the
+// "session_duration_hours" DB setting (if available), then from
+// cfg.Session.DurationHours.
 func (s *Service) NewSession(ctx context.Context, userID string, appID *string, ip, ua string) (*Session, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -57,6 +88,7 @@ func (s *Service) NewSession(ctx context.Context, userID string, appID *string, 
 	}
 	token := hex.EncodeToString(b)
 
+	hours := s.sessionDurationHours(ctx)
 	now := time.Now().UTC()
 	sess := &Session{
 		ID:        token,
@@ -64,7 +96,7 @@ func (s *Service) NewSession(ctx context.Context, userID string, appID *string, 
 		AppID:     appID,
 		IPAddress: ip,
 		UserAgent: ua,
-		ExpiresAt: now.Add(time.Duration(s.cfg.Session.DurationHours) * time.Hour),
+		ExpiresAt: now.Add(time.Duration(hours) * time.Hour),
 		CreatedAt: now,
 	}
 
@@ -107,6 +139,14 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 func (s *Service) RevokeSession(ctx context.Context, token string) error {
 	if err := s.store.Delete(ctx, token); err != nil {
 		return fmt.Errorf("revoke session: %w", err)
+	}
+	return nil
+}
+
+// RevokeAllByUser deletes all sessions for the given user ID.
+func (s *Service) RevokeAllByUser(ctx context.Context, userID string) error {
+	if err := s.store.DeleteByUser(ctx, userID); err != nil {
+		return fmt.Errorf("revoke all sessions by user: %w", err)
 	}
 	return nil
 }
