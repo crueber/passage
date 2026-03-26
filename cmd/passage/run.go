@@ -115,7 +115,7 @@ func run() error {
 
 	// Build WebAuthn credential store and challenge store.
 	credStore := webauthn.NewSQLiteCredentialStore(database)
-	challenges := webauthn.NewSQLiteChallengeStore(database)
+	challenges := webauthn.NewSQLiteChallengeStore(database, logger)
 
 	// Build the go-webauthn instance from configuration.
 	wa, err := buildWebAuthn(cfg)
@@ -291,7 +291,7 @@ func run() error {
 	// User-facing auth routes (no session middleware).
 	// CSRF protection uses the double-submit cookie pattern for unauthenticated routes.
 	r.Group(func(r chi.Router) {
-		r.Use(csrfpkg.ProtectAnonymous(cfg.CSRF.Key))
+		r.Use(csrfpkg.ProtectAnonymous(cfg.CSRF.Key, cfg.Session.CookieSecure))
 		r.Get("/login", userHandler.GetLogin)
 		r.With(ratelimit.Middleware(loginLimiter)).Post("/login", userHandler.PostLogin)
 		r.Get("/register", userHandler.GetRegister)

@@ -34,7 +34,8 @@ func New(limit int, period time.Duration) *Limiter {
 }
 
 // Allow returns true if the key is within the rate limit, false if exceeded.
-// It records the attempt regardless of the result.
+// Allowed requests are recorded; denied requests are not (the window already
+// has limit entries so no additional recording is needed).
 func (l *Limiter) Allow(key string) bool {
 	l.mu.Lock()
 	w, ok := l.windows[key]

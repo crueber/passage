@@ -298,8 +298,10 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 
 	// Build and sign new id_token JWT.
 	// On refresh, nonce is not re-issued (OIDC spec: nonce is only in the initial id_token).
-	// Use the refresh token's CreatedAt as a proxy for auth_time.
-	idToken, err := s.buildIDToken(u, clientID, rt.CreatedAt, "")
+	// auth_time is omitted: the original authentication time is not persisted on refresh
+	// tokens, and using rt.CreatedAt would be misleading (it reflects token issuance, not
+	// the user's actual authentication event). Omitting auth_time is safer per OIDC Core §2.
+	idToken, err := s.buildIDToken(u, clientID, time.Time{}, "")
 	if err != nil {
 		return nil, fmt.Errorf("oauth refresh tokens: build id token: %w", err)
 	}
@@ -336,6 +338,9 @@ func (s *Service) ValidateAccessToken(ctx context.Context, token string) (*user.
 
 // buildIDToken constructs and signs a JWT id_token using RS256.
 // authTime is the time the user originally authenticated (session creation time).
+// When authTime is the zero value, the auth_time claim is omitted — this is
+// the correct behaviour on token refresh where the original auth time is not
+// available (OIDC Core §2, auth_time is OPTIONAL).
 // nonce is the OIDC nonce from the authorization request; it is included in the
 // claims only when non-empty (OIDC Core §3.1.3.6).
 func (s *Service) buildIDToken(u *user.User, clientID string, authTime time.Time, nonce string) (string, error) {
@@ -346,11 +351,15 @@ func (s *Service) buildIDToken(u *user.User, clientID string, authTime time.Time
 		"aud":                jwtlib.ClaimStrings{clientID},
 		"exp":                now.Add(idTokenTTL).Unix(),
 		"iat":                now.Unix(),
-		"auth_time":          authTime.Unix(),
 		"name":               u.Name,
 		"email":              u.Email,
 		"preferred_username": u.Username,
 		"is_admin":           u.IsAdmin,
+	}
+	// auth_time is included only when the original authentication time is known.
+	// On token refresh, authTime is zero and the claim is deliberately omitted.
+	if !authTime.IsZero() {
+		claims["auth_time"] = authTime.Unix()
 	}
 	if nonce != "" {
 		claims["nonce"] = nonce

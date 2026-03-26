@@ -193,6 +193,10 @@ func ProtectAuthenticated(sessionCookieName string) func(http.Handler) http.Hand
 // token to a server-side secret for additional protection against subdomain
 // attacks. The cfgKey is never transmitted to the client.
 //
+// cookieSecure controls whether the CSRF cookie carries the Secure attribute.
+// Set to true in production when Passage is served over HTTPS (typically via
+// cfg.Session.CookieSecure, which mirrors PASSAGE_SESSION_COOKIE_SECURE).
+//
 // On safe methods: issues/refreshes the CSRF cookie if absent and stores a
 // generated token in the request context.
 //
@@ -200,7 +204,7 @@ func ProtectAuthenticated(sessionCookieName string) func(http.Handler) http.Hand
 // key derived from the CSRF cookie. Returns 403 Forbidden on failure.
 // A request that arrives with no CSRF cookie is rejected — the middleware
 // fails closed, the same as a request with a wrong token.
-func ProtectAnonymous(cfgKey string) func(http.Handler) http.Handler {
+func ProtectAnonymous(cfgKey string, cookieSecure bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			signingKey := csrfCookieKey(r, cfgKey)
@@ -224,6 +228,7 @@ func ProtectAnonymous(cfgKey string) func(http.Handler) http.Handler {
 					Value:    cookieVal,
 					Path:     "/",
 					HttpOnly: false,
+					Secure:   cookieSecure,
 					SameSite: http.SameSiteLaxMode,
 					MaxAge:   int(tokenTTL.Seconds()),
 				})

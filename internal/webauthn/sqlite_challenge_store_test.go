@@ -3,6 +3,7 @@ package webauthn_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -12,9 +13,18 @@ import (
 	"github.com/crueber/passage/internal/webauthn"
 )
 
+// noopLogger returns a slog.Logger that discards all output, for use in tests.
+func noopLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(nopWriter{}, nil))
+}
+
+type nopWriter struct{}
+
+func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
+
 func TestSQLiteChallengeStore_SetAndGetRegistration(t *testing.T) {
 	database := testutil.NewTestDB(t)
-	store := webauthn.NewSQLiteChallengeStore(database)
+	store := webauthn.NewSQLiteChallengeStore(database, noopLogger())
 
 	data := gowebauthn.SessionData{Challenge: "reg-challenge-abc"}
 	store.SetRegistration("session-reg-1", data)
@@ -36,7 +46,7 @@ func TestSQLiteChallengeStore_SetAndGetRegistration(t *testing.T) {
 
 func TestSQLiteChallengeStore_SetAndGetAuthentication(t *testing.T) {
 	database := testutil.NewTestDB(t)
-	store := webauthn.NewSQLiteChallengeStore(database)
+	store := webauthn.NewSQLiteChallengeStore(database, noopLogger())
 
 	data := gowebauthn.SessionData{Challenge: "auth-challenge-xyz"}
 	store.SetAuthentication("session-auth-1", data)
@@ -58,7 +68,7 @@ func TestSQLiteChallengeStore_SetAndGetAuthentication(t *testing.T) {
 
 func TestSQLiteChallengeStore_GetReturnsErrNotFound(t *testing.T) {
 	database := testutil.NewTestDB(t)
-	store := webauthn.NewSQLiteChallengeStore(database)
+	store := webauthn.NewSQLiteChallengeStore(database, noopLogger())
 
 	_, err := store.GetRegistration("does-not-exist")
 	if err == nil {
@@ -71,7 +81,7 @@ func TestSQLiteChallengeStore_GetReturnsErrNotFound(t *testing.T) {
 
 func TestSQLiteChallengeStore_GetReturnsErrExpired(t *testing.T) {
 	database := testutil.NewTestDB(t)
-	store := webauthn.NewSQLiteChallengeStore(database)
+	store := webauthn.NewSQLiteChallengeStore(database, noopLogger())
 
 	// Insert an already-expired row directly, bypassing SetRegistration so we
 	// can control expires_at.
@@ -96,7 +106,7 @@ func TestSQLiteChallengeStore_GetReturnsErrExpired(t *testing.T) {
 
 func TestSQLiteChallengeStore_CrossPrefixIsolation(t *testing.T) {
 	database := testutil.NewTestDB(t)
-	store := webauthn.NewSQLiteChallengeStore(database)
+	store := webauthn.NewSQLiteChallengeStore(database, noopLogger())
 
 	data := gowebauthn.SessionData{Challenge: "same-session-id"}
 	store.SetRegistration("key-x", data)
@@ -113,7 +123,7 @@ func TestSQLiteChallengeStore_CrossPrefixIsolation(t *testing.T) {
 
 func TestSQLiteChallengeStore_DeleteExpired(t *testing.T) {
 	database := testutil.NewTestDB(t)
-	store := webauthn.NewSQLiteChallengeStore(database)
+	store := webauthn.NewSQLiteChallengeStore(database, noopLogger())
 	ctx := context.Background()
 
 	expiredAt := time.Now().Add(-1 * time.Hour).UTC()

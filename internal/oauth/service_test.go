@@ -936,3 +936,40 @@ func TestService_IDToken_AuthTime_FlowedFromCode(t *testing.T) {
 		t.Errorf("id_token auth_time: got %d, want %d (should match session creation time, not exchange time)", gotAuthTime, wantAuthTime)
 	}
 }
+
+// TestService_IDToken_RefreshOmitsAuthTime verifies that the id_token produced
+// by RefreshTokens does NOT include an auth_time claim, since the original
+// authentication time is not available on the refresh token record.
+func TestService_IDToken_RefreshOmitsAuthTime(t *testing.T) {
+	const (
+		clientID    = "test-client-refresh-authtime"
+		plainSecret = "test-secret-refresh-authtime"
+		redirectURI = "https://example.com/callback"
+	)
+
+	ctx := context.Background()
+	db := testutil.NewTestDB(t)
+	testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+	testUser := &user.User{Username: "refreshuser", Email: "refresh@example.com", Name: "Refresh User"}
+	sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI)
+	if err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+
+	refreshResp, err := sc.svc.RefreshTokens(ctx, tokenResp.RefreshToken, clientID, plainSecret)
+	if err != nil {
+		t.Fatalf("RefreshTokens: %v", err)
+	}
+
+	claims := decodeIDTokenClaims(t, refreshResp.IDToken)
+
+	if _, hasAuthTime := claims["auth_time"]; hasAuthTime {
+		t.Error("id_token from RefreshTokens: expected auth_time to be absent, but it was present")
+	}
+}

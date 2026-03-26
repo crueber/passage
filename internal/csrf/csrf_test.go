@@ -290,7 +290,7 @@ func TestProtectAnonymous(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := ProtectAnonymous(cfgKey)
+	mw := ProtectAnonymous(cfgKey, false)
 	handler := mw(next)
 
 	t.Run("GET without CSRF cookie sets cookie and token in context", func(t *testing.T) {

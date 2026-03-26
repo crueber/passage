@@ -85,7 +85,7 @@ WebAuthn challenges are persisted in SQLite (as of Phase 6 of the security audit
 | Network binding | Passage should only listen on `127.0.0.1` or a private interface — never `0.0.0.0` exposed to the internet |
 | Reverse proxy configuration | The reverse proxy must strip any inbound `X-Passage-*` headers before forwarding requests to upstream services, and must only forward requests to Passage's `/auth/*` endpoint — not to the admin UI |
 | Admin credentials | The initial admin account should use a strong passphrase. Add a passkey (WebAuthn credential) as a second factor. |
-| CSRF key | `PASSAGE_CSRF_KEY` must be set to a long random value in production. If not set, the server will refuse to start. |
+| CSRF key | `PASSAGE_CSRF_KEY` should be set to a long random value in production (e.g. `openssl rand -hex 32`). If left unset, Passage will still start but the anonymous CSRF protection falls back to cookie-only signing, which provides weaker defence against subdomain attacks. |
 | HTTPS | TLS must be terminated at the reverse proxy. WebAuthn will not work without HTTPS. |
 | Log retention | Access logs contain request paths, including `/reset/{token}` paths. Implement appropriate log retention and access controls. |
 | `govulncheck` | Run `govulncheck ./...` periodically and after Go toolchain updates. |

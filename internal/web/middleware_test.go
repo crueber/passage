@@ -23,7 +23,7 @@ func TestSecurityHeaders(t *testing.T) {
 		want   string
 	}{
 		{"X-Content-Type-Options", "nosniff"},
-		{"X-Frame-Options", "SAMEORIGIN"},
+		{"X-Frame-Options", "DENY"},
 		{"Referrer-Policy", "strict-origin-when-cross-origin"},
 	}
 
