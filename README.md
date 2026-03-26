@@ -16,20 +16,27 @@ Browser → Nginx/Traefik → Passage /auth/nginx ──→ 200 OK + identity he
 
 On `401`, the reverse proxy redirects the browser to Passage's login page, which sets a session cookie after successful authentication, then bounces the user back to where they were going.
 
+
+### Alternatively
+
+You can use Passage as an OAuth 2/OIDC provider.
+
 ---
 
 ## Features
 
+The single biggest, most important feature: Simplicity. This is built for homelabs, not for enterprise deployment. Which isn't to say that you couldn't use it in an enterprise, but it is not meant to have tons of auth scopes or alterable auth screens, et al. It's the front door. The first point of entry. No more messing with auth in apps, just setup oauth or forwarding auth and call it a day.]
+
 - **Username + password login** — bcrypt-hashed credentials stored in SQLite (cost configurable, default 12)
 - **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and log in without a password
 - **OAuth 2.0 / OIDC Provider** — act as an OpenID Connect identity provider for downstream apps (Grafana, Gitea, etc.)
+- **Identity headers** — on successful auth, Passage forwards user metadata to your upstream apps:
+  - `X-Passage-Username`, `X-Passage-Email`, `X-Passage-Name`, `X-Passage-User-ID`, `X-Passage-Is-Admin`
 - **Per-app access control** — grant or revoke each user's access to each registered application independently
 - **Admin web UI** — manage users, apps, sessions, and settings without touching config files
 - **Self-registration** — optionally let users create their own accounts (togglable by admin at runtime)
 - **Email password reset** — single-use tokens, 1-hour expiry, sent via configurable SMTP
 - **Session management** — DB-backed sessions with configurable duration; admin can revoke any session instantly
-- **Identity headers** — on successful auth, Passage forwards user metadata to your upstream apps:
-  - `X-Passage-Username`, `X-Passage-Email`, `X-Passage-Name`, `X-Passage-User-ID`, `X-Passage-Is-Admin`
 - **Single static binary** — no runtime dependencies, no CGo, no Docker required to run
 - **SQLite backing store** — a single `.db` file; no separate database server
 
@@ -363,7 +370,7 @@ go mod tidy && git diff --exit-code go.mod go.sum
 
 ---
 
-## Security notes
+## Security audit notes
 
 - **Passwords**: bcrypt, minimum cost 10, default 12. Minimum password length: 8 characters.
 - **Session tokens**: 32 bytes of `crypto/rand` entropy (64-char hex). Never `math/rand`.
