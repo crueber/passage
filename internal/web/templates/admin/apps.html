@@ -32,6 +32,7 @@
                 <th scope="col">Slug</th>
                 <th scope="col">Name</th>
                 <th scope="col">Host Pattern</th>
+                <th scope="col">Default URL</th>
                 <th scope="col">Active</th>
                 <th scope="col">Actions</th>
               </tr>
@@ -42,6 +43,14 @@
                 <td>{{.Slug}}</td>
                 <td>{{.Name}}</td>
                 <td><code>{{.HostPattern}}</code></td>
+                <td>
+                  {{if .DefaultURL}}
+                  <a href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer"
+                     class="is-size-7">{{.DefaultURL}}</a>
+                  {{else}}
+                  <span class="has-text-grey-light is-size-7">—</span>
+                  {{end}}
+                </td>
                 <td>{{if .IsActive}}<span class="tag is-info is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
                 <td>
                   <div class="buttons are-small">
@@ -56,7 +65,7 @@
               </tr>
               {{else}}
               <tr>
-                <td colspan="5"><em>No apps found.</em></td>
+                <td colspan="6"><em>No apps found.</em></td>
               </tr>
               {{end}}
             </tbody>

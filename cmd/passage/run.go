@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"encoding/json"
@@ -327,12 +328,35 @@ func run() error {
 				http.Redirect(w, r, "/admin", http.StatusFound)
 				return
 			}
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+			ctx := r.Context()
+			var apps []*app.App
 			if u != nil {
-				fmt.Fprintf(w, "Hello, %s! You are authenticated.\n", u.Username)
-			} else {
-				fmt.Fprintln(w, "Hello! You are authenticated.")
+				var err error
+				apps, err = appSvc.ListAppsForUser(ctx, u.ID)
+				if err != nil {
+					logger.Error("dashboard: list apps for user", "user_id", u.ID, "error", err)
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					return
+				}
 			}
+
+			type dashboardData struct {
+				User *user.User
+				Apps []*app.App
+			}
+
+			var buf bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&buf, "user-dashboard", dashboardData{
+				User: u,
+				Apps: apps,
+			}); err != nil {
+				logger.Error("dashboard: render template", "error", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = buf.WriteTo(w)
 		})
 
 		// Passkey management routes (require session).

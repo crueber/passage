@@ -56,6 +56,16 @@
                 </div>
               </div>
 
+              <div class="field">
+                <label class="label" for="default_url">Default URL</label>
+                <div class="control">
+                  <input class="input" type="url" id="default_url" name="default_url"
+                         autocomplete="off" placeholder="https://grafana.home.example.com"
+                         value="{{if .EditApp}}{{.EditApp.DefaultURL}}{{end}}">
+                </div>
+                <p class="help">Optional. Used as the launch link on the user dashboard.</p>
+              </div>
+
               {{if not .IsNew}}
               <div class="field">
                 <label class="label" for="redirect_uris">Redirect URIs <span class="has-text-weight-normal is-size-7">(one per line)</span></label>

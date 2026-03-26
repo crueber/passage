@@ -754,12 +754,23 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		Name:        strings.TrimSpace(r.FormValue("name")),
 		Description: strings.TrimSpace(r.FormValue("description")),
 		HostPattern: strings.TrimSpace(r.FormValue("host_pattern")),
+		DefaultURL:  strings.TrimSpace(r.FormValue("default_url")),
 		IsActive:    r.FormValue("is_active") == "on",
 	}
 
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
+			EditApp:  a,
+			IsNew:    true,
+			BaseURL:  h.baseURL(),
+		})
+		return
+	}
+
+	if a.DefaultURL != "" && !strings.HasPrefix(a.DefaultURL, "http://") && !strings.HasPrefix(a.DefaultURL, "https://") {
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Default URL must start with http:// or https://."}),
 			EditApp:  a,
 			IsNew:    true,
 			BaseURL:  h.baseURL(),
@@ -842,6 +853,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	a.Name = strings.TrimSpace(r.FormValue("name"))
 	a.Description = strings.TrimSpace(r.FormValue("description"))
 	a.HostPattern = strings.TrimSpace(r.FormValue("host_pattern"))
+	a.DefaultURL = strings.TrimSpace(r.FormValue("default_url"))
 	a.IsActive = r.FormValue("is_active") == "on"
 
 	// Parse redirect_uris from textarea (one per line, trim whitespace, drop blanks).
@@ -858,6 +870,16 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
+			EditApp:  a,
+			IsNew:    false,
+			BaseURL:  h.baseURL(),
+		})
+		return
+	}
+
+	if a.DefaultURL != "" && !strings.HasPrefix(a.DefaultURL, "http://") && !strings.HasPrefix(a.DefaultURL, "https://") {
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Default URL must start with http:// or https://."}),
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),

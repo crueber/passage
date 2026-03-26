@@ -1804,6 +1804,7 @@ func TestAdminUserApps_PostUserApps(t *testing.T) {
 	})
 
 	t.Run("mixed grant and revoke", func(t *testing.T) {
+
 		if _, err := f.userSvc.Register(ctx, "mixedaccessuser", "mixedaccess@example.com", "password123"); err != nil {
 			t.Fatalf("register user: %v", err)
 		}
@@ -1880,4 +1881,159 @@ func TestAdminUserApps_PostUserApps(t *testing.T) {
 			t.Errorf("mixed grant/revoke: app2 %q should have been granted but is absent", mApp2.ID)
 		}
 	})
+}
+
+// ─── PostCreateApp default_url validation ─────────────────────────────────────
+
+func TestAdminApps_Create_DefaultURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		defaultURL string
+		wantStatus int // http.StatusOK = re-render with error; http.StatusFound = success redirect
+	}{
+		{
+			name:       "javascript: scheme is rejected",
+			defaultURL: "javascript:alert(1)",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "ftp scheme is rejected",
+			defaultURL: "ftp://internal.host",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "https URL is accepted",
+			defaultURL: "https://example.com",
+			wantStatus: http.StatusFound,
+		},
+		{
+			name:       "http URL is accepted",
+			defaultURL: "http://example.com",
+			wantStatus: http.StatusFound,
+		},
+		{
+			name:       "empty URL is accepted",
+			defaultURL: "",
+			wantStatus: http.StatusFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+			token := createSession(t, f, adminUser.ID)
+			router := buildAdminRouter(f)
+
+			form := url.Values{}
+			form.Set("slug", "default-url-test-app")
+			form.Set("name", "Default URL Test App")
+			form.Set("is_active", "on")
+			form.Set("default_url", tc.defaultURL)
+
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+			res := rec.Result()
+
+			if res.StatusCode != tc.wantStatus {
+				t.Errorf("default_url %q: got status %d, want %d", tc.defaultURL, res.StatusCode, tc.wantStatus)
+			}
+
+			if tc.wantStatus == http.StatusOK {
+				// Handler must re-render with an error flash about the invalid URL scheme.
+				body := rec.Body.String()
+				if !strings.Contains(body, "Default URL must start with http:// or https://") {
+					t.Errorf("default_url %q: response does not contain expected error message; got: %s", tc.defaultURL, body)
+				}
+			}
+		})
+	}
+}
+
+// ─── PostUpdateApp default_url validation ─────────────────────────────────────
+
+func TestAdminApps_Update_DefaultURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		defaultURL string
+		wantStatus int // http.StatusOK = re-render with error; http.StatusFound = success redirect
+	}{
+		{
+			name:       "javascript: scheme is rejected",
+			defaultURL: "javascript:alert(1)",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "ftp scheme is rejected",
+			defaultURL: "ftp://internal.host",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "https URL is accepted",
+			defaultURL: "https://example.com",
+			wantStatus: http.StatusFound,
+		},
+		{
+			name:       "http URL is accepted",
+			defaultURL: "http://example.com",
+			wantStatus: http.StatusFound,
+		},
+		{
+			name:       "empty URL is accepted",
+			defaultURL: "",
+			wantStatus: http.StatusFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+			token := createSession(t, f, adminUser.ID)
+			router := buildAdminRouter(f)
+
+			// Step 1: Create an app via POST.
+			createForm := url.Values{}
+			createForm.Set("slug", "test-app")
+			createForm.Set("name", "Test App")
+			createForm.Set("is_active", "on")
+
+			createRec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+				strings.NewReader(createForm.Encode()), "application/x-www-form-urlencoded")
+			if createRec.Result().StatusCode != http.StatusFound {
+				t.Fatalf("create app: got status %d, want 302", createRec.Result().StatusCode)
+			}
+
+			// Step 2: Look up the created app to get its UUID.
+			created, err := f.appStore.GetBySlug(context.Background(), "test-app")
+			if err != nil {
+				t.Fatalf("get app by slug: %v", err)
+			}
+
+			// Step 3: POST an update with the test case's default_url.
+			updateForm := url.Values{}
+			updateForm.Set("slug", "test-app")
+			updateForm.Set("name", "Test App")
+			updateForm.Set("is_active", "on")
+			updateForm.Set("default_url", tc.defaultURL)
+
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+				strings.NewReader(updateForm.Encode()), "application/x-www-form-urlencoded")
+			res := rec.Result()
+
+			if res.StatusCode != tc.wantStatus {
+				t.Errorf("default_url %q: got status %d, want %d", tc.defaultURL, res.StatusCode, tc.wantStatus)
+			}
+
+			if tc.wantStatus == http.StatusOK {
+				// Handler must re-render with an error flash about the invalid URL scheme.
+				body := rec.Body.String()
+				if !strings.Contains(body, "Default URL must start with http:// or https://") {
+					t.Errorf("default_url %q: response does not contain expected error message; got: %s", tc.defaultURL, body)
+				}
+			}
+		})
+	}
 }

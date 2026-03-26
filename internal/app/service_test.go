@@ -502,3 +502,29 @@ func TestService_RotateClientSecret(t *testing.T) {
 		})
 	}
 }
+
+// TestCreate_DefaultURL verifies that DefaultURL is persisted and retrieved correctly.
+func TestCreate_DefaultURL(t *testing.T) {
+	t.Parallel()
+	svc, _ := newService(t)
+	ctx := context.Background()
+
+	a := &app.App{
+		Slug:        "urlapp",
+		Name:        "URL App",
+		HostPattern: "urlapp.home.example.com",
+		DefaultURL:  "https://urlapp.home.example.com",
+		IsActive:    true,
+	}
+	if err := svc.Create(ctx, a); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := svc.GetByID(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.DefaultURL != a.DefaultURL {
+		t.Errorf("DefaultURL: got %q, want %q", got.DefaultURL, a.DefaultURL)
+	}
+}
