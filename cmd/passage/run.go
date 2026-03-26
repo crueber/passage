@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -23,10 +24,12 @@ import (
 	"github.com/crueber/passage/internal/admin"
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
+	csrfpkg "github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/forwardauth"
 	"github.com/crueber/passage/internal/oauth"
+	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
@@ -68,8 +71,12 @@ func run() error {
 	userStore := user.NewStore(database)
 	userSvc := user.NewService(userStore, userStore, cfg)
 
+	// Build the settings store early so sessionSvc can consult it for
+	// the session_duration_hours setting on every new session.
+	settingsStore := admin.NewSQLiteSettingsStore(database)
+
 	sessionStore := session.NewStore(database)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, logger)
+	sessionSvc := session.NewService(sessionStore, userStore, settingsStore, cfg, logger)
 
 	// Build email sender.
 	mailer, err := email.NewSMTPSender(cfg, logger)
@@ -77,8 +84,15 @@ func run() error {
 		return fmt.Errorf("create email sender: %w", err)
 	}
 
-	// Parse HTML templates.
-	tmpl, err := web.Parse(web.TemplateFS)
+	// Parse HTML templates, providing the csrfField template function.
+	// csrfField renders a hidden <input> carrying the CSRF token for POST forms.
+	// template.HTML is safe here: the value is a base64url-encoded HMAC token
+	// with no HTML-special characters, produced entirely by our csrf package.
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(token string) template.HTML {
+			return template.HTML(`<input type="hidden" name="` + csrfpkg.FieldName + `" value="` + token + `">`)
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("parse templates: %w", err)
 	}
@@ -101,7 +115,7 @@ func run() error {
 
 	// Build WebAuthn credential store and challenge store.
 	credStore := webauthn.NewSQLiteCredentialStore(database)
-	challenges := webauthn.NewChallengeStore()
+	challenges := webauthn.NewSQLiteChallengeStore(database, logger)
 
 	// Build the go-webauthn instance from configuration.
 	wa, err := buildWebAuthn(cfg)
@@ -127,7 +141,7 @@ func run() error {
 	}()
 
 	// Start challenge store cleanup goroutine.
-	// Removes expired in-memory WebAuthn challenges every 10 minutes.
+	// Removes expired SQLite WebAuthn challenges every 10 minutes.
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
@@ -136,7 +150,9 @@ func run() error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				challenges.Cleanup()
+				if err := challenges.DeleteExpired(ctx); err != nil {
+					logger.Error("webauthn challenge cleanup failed", "error", err)
+				}
 			}
 		}
 	}()
@@ -158,9 +174,33 @@ func run() error {
 		}
 	}()
 
+	// Rate limiters — in-memory sliding-window, no external dependencies.
+	loginLimiter := ratelimit.New(10, 15*time.Minute)
+	resetLimiter := ratelimit.New(5, time.Hour)
+	oauthTokenLimiter := ratelimit.New(20, time.Minute)
+	setupLimiter := ratelimit.New(5, time.Hour)
+
+	// Start rate limiter cleanup goroutines (every 5 minutes each).
+	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter} {
+		rl := rl // capture loop variable
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					rl.Cleanup()
+				}
+			}
+		}()
+	}
+
 	// Build admin handler.
-	settingsStore := admin.NewSQLiteSettingsStore(database)
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger)
+	auditStore := admin.NewSQLiteAuditStore(database)
+	auditSvc := admin.NewAuditService(auditStore, logger)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger, auditSvc)
 
 	// Build forward-auth handler.
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
@@ -220,6 +260,7 @@ func run() error {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(web.SecurityHeaders())
 
 	// Static assets.
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
@@ -238,31 +279,46 @@ func run() error {
 	faHandler.Routes(r)
 
 	// OAuth 2.0 / OIDC endpoints (public — handler performs its own session checks).
-	oauthHandler.Routes(r)
+	// Routes are registered explicitly so the rate limiter can be scoped to the
+	// token endpoint only; JWKS, discovery, and userinfo are read-only and must
+	// not be rate-limited aggressively.
+	r.Get("/.well-known/openid-configuration", oauthHandler.Discovery)
+	r.Get("/.well-known/jwks.json", oauthHandler.JWKS)
+	r.Get("/oauth/authorize", oauthHandler.Authorize)
+	r.With(ratelimit.Middleware(oauthTokenLimiter)).Post("/oauth/token", oauthHandler.Token)
+	r.Get("/oauth/userinfo", oauthHandler.UserInfo)
 
 	// User-facing auth routes (no session middleware).
-	r.Get("/login", userHandler.GetLogin)
-	r.Post("/login", userHandler.PostLogin)
-	r.Get("/register", userHandler.GetRegister)
-	r.Post("/register", userHandler.PostRegister)
-	r.Get("/reset", userHandler.GetResetRequest)
-	r.Post("/reset", userHandler.PostResetRequest)
-	r.Get("/reset/{token}", userHandler.GetResetConfirm)
-	r.Post("/reset/{token}", userHandler.PostResetConfirm)
+	// CSRF protection uses the double-submit cookie pattern for unauthenticated routes.
+	r.Group(func(r chi.Router) {
+		r.Use(csrfpkg.ProtectAnonymous(cfg.CSRF.Key, cfg.Session.CookieSecure))
+		r.Get("/login", userHandler.GetLogin)
+		r.With(ratelimit.Middleware(loginLimiter)).Post("/login", userHandler.PostLogin)
+		r.Get("/register", userHandler.GetRegister)
+		r.Post("/register", userHandler.PostRegister)
+		r.Get("/reset", userHandler.GetResetRequest)
+		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset", userHandler.PostResetRequest)
+		r.Get("/reset/{token}", userHandler.GetResetConfirm)
+		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset/{token}", userHandler.PostResetConfirm)
+		// Setup endpoint — only active when no admin user exists.
+		// The setupManager is nil once an admin account has been created; the
+		// handlers check IsActive() on every request so the endpoint self-disables.
+		r.Get("/setup", userHandler.GetSetup(setupManager))
+		r.With(ratelimit.Middleware(setupLimiter)).Post("/setup", userHandler.PostSetup(setupManager))
+	})
+	// Logout is a GET that revokes a session cookie — no state-changing CSRF risk.
 	r.Get("/logout", userHandler.GetLogout)
 
-	// Setup endpoint — only active when no admin user exists.
-	// The setupManager is nil once an admin account has been created; the
-	// handlers check IsActive() on every request so the endpoint self-disables.
-	r.Get("/setup", userHandler.GetSetup(setupManager))
-	r.Post("/setup", userHandler.PostSetup(setupManager))
-
 	// Passkey login routes (public — no session required).
+	// These are JSON API endpoints driven by passkey.js — no CSRF token needed
+	// because the browser WebAuthn API does not submit cross-origin credentials.
 	passkeyHandler.AuthRoutes(r)
 
 	// Protected routes require a valid session.
+	// CSRF protection is session-bound for authenticated routes.
 	r.Group(func(r chi.Router) {
 		r.Use(session.RequireSession(sessionSvc, cfg))
+		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.CookieName))
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			u, _ := session.UserFromContext(r.Context())
 			if u != nil && u.IsAdmin {
@@ -284,6 +340,7 @@ func run() error {
 	// Admin routes — protected by RequireAdmin middleware.
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(admin.RequireAdmin(sessionSvc, cfg))
+		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.CookieName))
 		adminHandler.Routes(r)
 	})
 

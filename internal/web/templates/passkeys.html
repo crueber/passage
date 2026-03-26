@@ -47,6 +47,7 @@
                       <td>
                         <form method="POST" action="/passkeys/delete/{{.ID}}"
                               onsubmit="return confirm('Remove this passkey?')">
+                          {{csrfField $.CSRFToken}}
                           <button type="submit" class="button is-danger is-small is-light">Remove</button>
                         </form>
                       </td>

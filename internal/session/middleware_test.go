@@ -107,7 +107,7 @@ func TestRequireSession_RedirectsWithExpiredSession(t *testing.T) {
 	cfg := testConfig()
 	userSvc := user.NewService(userStore, userStore, cfg)
 	sessionStore := session.NewStore(db)
-	svc := session.NewService(sessionStore, userStore, cfg, slog.Default())
+	svc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
 
 	ctx := context.Background()
 	u, err := userSvc.Register(ctx, "expired_mw_user", "expiredmw@example.com", "password123")

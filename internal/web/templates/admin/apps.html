@@ -48,6 +48,7 @@
                     <a class="button is-light" href="/admin/apps/{{.ID}}">Edit</a>
                     <a class="button is-light" href="/admin/apps/{{.ID}}/access">Access</a>
                     <form method="POST" action="/admin/apps/{{.ID}}/delete">
+                      {{csrfField $.CSRFToken}}
                       <button type="submit" class="button is-danger is-light">Delete</button>
                     </form>
                   </div>

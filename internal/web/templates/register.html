@@ -27,6 +27,7 @@
               <h1 class="title is-5">Create an account</h1>
 
               <form method="POST" action="/register">
+                {{csrfField .CSRFToken}}
                 <div class="field">
                   <label class="label" for="username">Username</label>
                   <div class="control">

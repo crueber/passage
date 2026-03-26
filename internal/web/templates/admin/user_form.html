@@ -22,6 +22,7 @@
         <div class="columns">
           <div class="column is-half-tablet is-one-third-desktop">
             <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}">
+              {{csrfField .CSRFToken}}
               <div class="field">
                 <label class="label" for="username">Username</label>
                 <div class="control">
@@ -101,6 +102,16 @@
             Manage App Access →
           </a>
         </p>
+        {{end}}
+
+        {{if not .IsNew}}
+        <hr>
+        <h2 class="title is-5">Sessions</h2>
+        <p class="mb-3 has-text-grey">Immediately invalidates all active sessions for this user.</p>
+        <form method="POST" action="/admin/users/{{.EditUser.ID}}/sessions/revoke-all">
+          {{csrfField .CSRFToken}}
+          <button type="submit" class="button is-danger is-light is-small">Revoke All Sessions</button>
+        </form>
         {{end}}
       </main>
     </div>

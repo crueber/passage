@@ -28,6 +28,7 @@
               <p class="mb-4">Enter the email address associated with your account and we'll send you a reset link.</p>
 
               <form method="POST" action="/reset">
+                {{csrfField .CSRFToken}}
                 <div class="field">
                   <label class="label" for="email">Email address</label>
                   <div class="control">

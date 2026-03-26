@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
+	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 )
@@ -34,7 +35,7 @@ type sessionCreator interface {
 type Handler struct {
 	wa         *gowebauthn.WebAuthn
 	credStore  CredentialStore
-	challenges *ChallengeStore
+	challenges ChallengeStorer
 	users      userLookup
 	sessions   sessionCreator
 	cfg        sessionConfig
@@ -52,7 +53,7 @@ type sessionConfig struct {
 func NewHandler(
 	wa *gowebauthn.WebAuthn,
 	credStore CredentialStore,
-	challenges *ChallengeStore,
+	challenges ChallengeStorer,
 	users userLookup,
 	sessions sessionCreator,
 	cookieName string,
@@ -95,6 +96,7 @@ func (h *Handler) AuthRoutes(r chi.Router) {
 type passkeysData struct {
 	Credentials []*Credential
 	Flash       *user.Flash
+	CSRFToken   string
 }
 
 // GetPasskeys renders the passkey management page.
@@ -120,7 +122,11 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 		flash = &user.Flash{Type: "error", Message: "An error occurred."}
 	}
 
-	h.render(w, r, "passkeys.html", passkeysData{Credentials: creds, Flash: flash})
+	h.render(w, r, "passkeys.html", passkeysData{
+		Credentials: creds,
+		Flash:       flash,
+		CSRFToken:   csrf.TokenFromContext(r.Context()),
+	})
 }
 
 // PostDeletePasskey removes a passkey credential by ID (if it belongs to the logged-in user).

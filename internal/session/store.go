@@ -117,6 +117,15 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteByUser removes all sessions for the given user ID.
+func (s *SQLiteStore) DeleteByUser(ctx context.Context, userID string) error {
+	const query = `DELETE FROM sessions WHERE user_id = ?`
+	if _, err := s.db.ExecContext(ctx, query, userID); err != nil {
+		return fmt.Errorf("session store delete by user: %w", err)
+	}
+	return nil
+}
+
 // DeleteExpired removes all sessions whose expiry time is in the past.
 func (s *SQLiteStore) DeleteExpired(ctx context.Context) error {
 	const query = `DELETE FROM sessions WHERE expires_at < ?`

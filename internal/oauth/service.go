@@ -30,6 +30,14 @@ type userReader interface {
 	GetByID(ctx context.Context, id string) (*user.User, error)
 }
 
+// Token TTL constants for the OAuth2/OIDC flows.
+const (
+	authCodeTTL     = 10 * time.Minute
+	accessTokenTTL  = 1 * time.Hour
+	refreshTokenTTL = 30 * 24 * time.Hour
+	idTokenTTL      = 1 * time.Hour
+)
+
 // Service implements the OAuth2/OIDC business logic.
 type Service struct {
 	store      Store
@@ -79,7 +87,7 @@ func (s *Service) KeyID() string {
 
 // Authorize validates the OAuth2 authorization request and creates an
 // authorization code if the user has access to the requesting app.
-func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, state, userID string) (*Code, error) {
+func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce string, sessionCreatedAt time.Time, userID string) (*Code, error) {
 	// Look up app by clientID.
 	a, err := s.apps.GetByClientID(ctx, clientID)
 	if err != nil {
@@ -125,7 +133,9 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 		UserID:      userID,
 		RedirectURI: redirectURI,
 		Scopes:      scope,
-		ExpiresAt:   time.Now().UTC().Add(10 * time.Minute),
+		Nonce:       nonce,
+		AuthTime:    sessionCreatedAt.UTC(),
+		ExpiresAt:   time.Now().UTC().Add(authCodeTTL),
 	}
 	if err := s.store.CreateCode(ctx, code); err != nil {
 		return nil, fmt.Errorf("oauth authorize: create code: %w", err)
@@ -187,7 +197,7 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		AppID:     a.ID,
 		UserID:    u.ID,
 		Scopes:    codeRecord.Scopes,
-		ExpiresAt: time.Now().UTC().Add(1 * time.Hour),
+		ExpiresAt: time.Now().UTC().Add(accessTokenTTL),
 	}
 	if err := s.store.CreateToken(ctx, accessToken); err != nil {
 		return nil, fmt.Errorf("oauth exchange code: create token: %w", err)
@@ -198,14 +208,14 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		AppID:     a.ID,
 		UserID:    u.ID,
 		Scopes:    codeRecord.Scopes,
-		ExpiresAt: time.Now().UTC().Add(30 * 24 * time.Hour),
+		ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
 	}
 	if err := s.store.CreateRefreshToken(ctx, refreshToken); err != nil {
 		return nil, fmt.Errorf("oauth exchange code: create refresh token: %w", err)
 	}
 
 	// Build and sign the id_token JWT.
-	idToken, err := s.buildIDToken(u, clientID)
+	idToken, err := s.buildIDToken(u, clientID, codeRecord.AuthTime, codeRecord.Nonce)
 	if err != nil {
 		return nil, fmt.Errorf("oauth exchange code: build id token: %w", err)
 	}
@@ -269,7 +279,7 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		AppID:     a.ID,
 		UserID:    u.ID,
 		Scopes:    rt.Scopes,
-		ExpiresAt: time.Now().UTC().Add(1 * time.Hour),
+		ExpiresAt: time.Now().UTC().Add(accessTokenTTL),
 	}
 	if err := s.store.CreateToken(ctx, accessToken); err != nil {
 		return nil, fmt.Errorf("oauth refresh tokens: create token: %w", err)
@@ -280,14 +290,18 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		AppID:     a.ID,
 		UserID:    u.ID,
 		Scopes:    rt.Scopes,
-		ExpiresAt: time.Now().UTC().Add(30 * 24 * time.Hour),
+		ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
 	}
 	if err := s.store.CreateRefreshToken(ctx, newRefreshToken); err != nil {
 		return nil, fmt.Errorf("oauth refresh tokens: create refresh token: %w", err)
 	}
 
 	// Build and sign new id_token JWT.
-	idToken, err := s.buildIDToken(u, clientID)
+	// On refresh, nonce is not re-issued (OIDC spec: nonce is only in the initial id_token).
+	// auth_time is omitted: the original authentication time is not persisted on refresh
+	// tokens, and using rt.CreatedAt would be misleading (it reflects token issuance, not
+	// the user's actual authentication event). Omitting auth_time is safer per OIDC Core §2.
+	idToken, err := s.buildIDToken(u, clientID, time.Time{}, "")
 	if err != nil {
 		return nil, fmt.Errorf("oauth refresh tokens: build id token: %w", err)
 	}
@@ -323,21 +337,32 @@ func (s *Service) ValidateAccessToken(ctx context.Context, token string) (*user.
 }
 
 // buildIDToken constructs and signs a JWT id_token using RS256.
-func (s *Service) buildIDToken(u *user.User, clientID string) (string, error) {
+// authTime is the time the user originally authenticated (session creation time).
+// When authTime is the zero value, the auth_time claim is omitted — this is
+// the correct behaviour on token refresh where the original auth time is not
+// available (OIDC Core §2, auth_time is OPTIONAL).
+// nonce is the OIDC nonce from the authorization request; it is included in the
+// claims only when non-empty (OIDC Core §3.1.3.6).
+func (s *Service) buildIDToken(u *user.User, clientID string, authTime time.Time, nonce string) (string, error) {
 	now := time.Now().UTC()
 	claims := jwtlib.MapClaims{
-		"iss": s.baseURL,
-		"sub": u.ID,
-		"aud": jwtlib.ClaimStrings{clientID},
-		"exp": now.Add(1 * time.Hour).Unix(),
-		"iat": now.Unix(),
-		// TODO: auth_time should be the session creation time, not the token issuance time.
-		// This requires storing auth_time in oauth_codes (Phase 2 limitation).
-		"auth_time":          now.Unix(),
+		"iss":                s.baseURL,
+		"sub":                u.ID,
+		"aud":                jwtlib.ClaimStrings{clientID},
+		"exp":                now.Add(idTokenTTL).Unix(),
+		"iat":                now.Unix(),
 		"name":               u.Name,
 		"email":              u.Email,
 		"preferred_username": u.Username,
 		"is_admin":           u.IsAdmin,
+	}
+	// auth_time is included only when the original authentication time is known.
+	// On token refresh, authTime is zero and the claim is deliberately omitted.
+	if !authTime.IsZero() {
+		claims["auth_time"] = authTime.Unix()
+	}
+	if nonce != "" {
+		claims["nonce"] = nonce
 	}
 
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodRS256, claims)

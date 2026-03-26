@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"context"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,14 @@ func (noopMailer) SendPasswordReset(_ context.Context, _, _, _ string) error { r
 type noopCredentialCounter struct{}
 
 func (noopCredentialCounter) CountByUser(_ context.Context, _ string) (int, error) { return 0, nil }
+
+// noopAuditLogger satisfies the auditLogger interface with a no-op implementation.
+type noopAuditLogger struct{}
+
+func (noopAuditLogger) Log(_ context.Context, _ *admin.AuditEvent) {}
+func (noopAuditLogger) List(_ context.Context, _ admin.AuditFilter) ([]*admin.AuditEvent, error) {
+	return nil, nil
+}
 
 // fixture holds the full dependency graph for admin handler tests.
 type fixture struct {
@@ -71,20 +80,22 @@ func newFixture(t *testing.T) *fixture {
 	userSvc := user.NewService(userStore, userStore, cfg)
 
 	sessionStore := session.NewStore(database)
-	sessionSvc := session.NewService(sessionStore, userStore, cfg, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
+	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
 
 	appStore := app.NewStore(database)
 	appSvc := app.NewService(appStore, appStore, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
 
 	settings := admin.NewSQLiteSettingsStore(database)
 
-	tmpl, err := web.Parse(web.TemplateFS)
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, noopAuditLogger{})
 
 	return &fixture{
 		db:           database,
@@ -993,6 +1004,120 @@ func TestAdminApps_Create_DuplicateSlug(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "An app with that slug already exists") {
 		t.Errorf("duplicate slug: response does not contain expected error message; got: %s", body)
+	}
+}
+
+// ─── PostCreateApp host pattern validation ────────────────────────────────────
+
+func TestAdminApps_Create_MalformedHostPattern(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		hostPattern string
+		wantFlash   bool // true = expect re-render with error flash; false = expect redirect (success)
+	}{
+		{
+			name:        "malformed bracket pattern is rejected",
+			hostPattern: "[invalid",
+			wantFlash:   true,
+		},
+		{
+			name:        "valid wildcard pattern is accepted",
+			hostPattern: "*.example.com",
+			wantFlash:   false,
+		},
+		{
+			name:        "valid literal pattern is accepted",
+			hostPattern: "app.example.com",
+			wantFlash:   false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+			token := createSession(t, f, adminUser.ID)
+			router := buildAdminRouter(f)
+
+			form := url.Values{}
+			form.Set("slug", "pattern-test-app")
+			form.Set("name", "Pattern Test App")
+			form.Set("host_pattern", tc.hostPattern)
+			form.Set("is_active", "on")
+
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+			res := rec.Result()
+
+			if tc.wantFlash {
+				// Malformed pattern: handler must re-render (200) with error flash.
+				if res.StatusCode != http.StatusOK {
+					t.Errorf("malformed pattern %q: got status %d, want 200 (re-render)", tc.hostPattern, res.StatusCode)
+				}
+				body := rec.Body.String()
+				if !strings.Contains(strings.ToLower(body), "malformed") {
+					t.Errorf("malformed pattern %q: response does not contain 'malformed'; got: %s", tc.hostPattern, body)
+				}
+			} else {
+				// Valid pattern: handler must redirect (302) on success.
+				if res.StatusCode != http.StatusFound {
+					t.Errorf("valid pattern %q: got status %d, want 302 (redirect)", tc.hostPattern, res.StatusCode)
+				}
+			}
+		})
+	}
+}
+
+func TestAdminApps_Update_MalformedHostPattern(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+	ctx := context.Background()
+
+	// Create an app first.
+	if err := f.appSvc.Create(ctx, &app.App{
+		Slug:        "update-pattern-app",
+		Name:        "Update Pattern App",
+		HostPattern: "valid.example.com",
+		IsActive:    true,
+	}); err != nil {
+		t.Fatalf("create app: %v", err)
+	}
+	created, err := f.appStore.GetBySlug(ctx, "update-pattern-app")
+	if err != nil {
+		t.Fatalf("get app: %v", err)
+	}
+
+	// POST an update with a malformed host pattern.
+	form := url.Values{}
+	form.Set("slug", "update-pattern-app")
+	form.Set("name", "Update Pattern App")
+	form.Set("host_pattern", "[bad")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("malformed update pattern: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(strings.ToLower(body), "malformed") {
+		t.Errorf("malformed update pattern: response does not contain 'malformed'; got: %s", body)
+	}
+
+	// The app's host pattern must not have been changed.
+	unchanged, err := f.appStore.GetByID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get app after failed update: %v", err)
+	}
+	if unchanged.HostPattern != "valid.example.com" {
+		t.Errorf("malformed update pattern: HostPattern changed to %q, expected it to remain %q",
+			unchanged.HostPattern, "valid.example.com")
 	}
 }
 

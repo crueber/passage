@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"net"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 
@@ -16,6 +18,7 @@ import (
 
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
@@ -63,12 +66,20 @@ type appServiceOps interface {
 type sessionServiceOps interface {
 	ListAll(ctx context.Context) ([]*session.Session, error)
 	RevokeSession(ctx context.Context, token string) error
+	RevokeAllByUser(ctx context.Context, userID string) error
 }
 
 // credentialCounter is the minimal interface for querying passkey credential counts.
 // Defined at the consumer boundary.
 type credentialCounter interface {
 	CountByUser(ctx context.Context, userID string) (int, error)
+}
+
+// auditLogger is the minimal interface for recording admin audit events.
+// Defined at the consumer boundary.
+type auditLogger interface {
+	Log(ctx context.Context, e *AuditEvent)
+	List(ctx context.Context, f AuditFilter) ([]*AuditEvent, error)
 }
 
 // Handler holds all admin HTTP handlers in one struct.
@@ -79,6 +90,7 @@ type Handler struct {
 	apps        appServiceOps
 	settings    SettingsStore
 	credentials credentialCounter
+	audit       auditLogger
 	mailer      email.Sender
 	tmpl        *template.Template
 	cfg         *config.Config
@@ -97,6 +109,7 @@ func NewHandler(
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
+	audit auditLogger,
 ) *Handler {
 	return &Handler{
 		userStore:   userStore,
@@ -105,6 +118,7 @@ func NewHandler(
 		apps:        apps,
 		settings:    settings,
 		credentials: credentials,
+		audit:       audit,
 		mailer:      mailer,
 		tmpl:        tmpl,
 		cfg:         cfg,
@@ -126,6 +140,7 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/users/{id}", h.PostUpdateUser)
 	r.Post("/users/{id}/delete", h.PostDeleteUser)
 	r.Post("/users/{id}/reset-password", h.PostResetUserPassword)
+	r.Post("/users/{id}/sessions/revoke-all", h.PostRevokeAllUserSessions)
 	r.Get("/users/{id}/apps", h.GetUserApps)
 	r.Post("/users/{id}/apps", h.PostUserApps)
 
@@ -149,6 +164,9 @@ func (h *Handler) Routes(r chi.Router) {
 	// Settings
 	r.Get("/settings", h.GetSettings)
 	r.Post("/settings", h.PostSettings)
+
+	// Audit log
+	r.Get("/audit-log", h.GetAuditLog)
 }
 
 // ─── base page data ──────────────────────────────────────────────────────────
@@ -157,6 +175,25 @@ func (h *Handler) Routes(r chi.Router) {
 type basePage struct {
 	ActiveNav string
 	Flash     *Flash
+	CSRFToken string
+}
+
+// base constructs a basePage for the given request, populating the CSRF token
+// from the request context (set by csrf.ProtectAuthenticated middleware).
+func (h *Handler) base(r *http.Request, nav string) basePage {
+	return basePage{
+		ActiveNav: nav,
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	}
+}
+
+// baseFlash constructs a basePage with an attached Flash message.
+func (h *Handler) baseFlash(r *http.Request, nav string, flash *Flash) basePage {
+	return basePage{
+		ActiveNav: nav,
+		Flash:     flash,
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	}
 }
 
 // flashFromQuery converts a URL query-param flash code into a Flash value.
@@ -170,6 +207,8 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "Deleted successfully."}
 	case "revoked":
 		return &Flash{Type: "success", Message: "Session revoked."}
+	case "sessions-revoked":
+		return &Flash{Type: "success", Message: "All sessions revoked."}
 	case "reset-sent":
 		return &Flash{Type: "success", Message: "Password reset email sent."}
 	case "access-granted":
@@ -240,7 +279,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-dashboard", dashboardData{
-		basePage:     basePage{ActiveNav: "dashboard"},
+		basePage:     h.base(r, "dashboard"),
 		UserCount:    len(users),
 		AppCount:     len(apps),
 		SessionCount: len(sessions),
@@ -270,7 +309,7 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-users", usersData{
-		basePage: basePage{ActiveNav: "users", Flash: flash},
+		basePage: h.baseFlash(r, "users", flash),
 		Users:    users,
 	})
 }
@@ -285,7 +324,7 @@ type userFormData struct {
 // GetNewUser renders the new user form.
 func (h *Handler) GetNewUser(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-user-form", userFormData{
-		basePage: basePage{ActiveNav: "users"},
+		basePage: h.base(r, "users"),
 		IsNew:    true,
 	})
 }
@@ -294,7 +333,7 @@ func (h *Handler) GetNewUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: "Invalid form submission."}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: "Invalid form submission."}),
 			IsNew:    true,
 		})
 		return
@@ -313,7 +352,7 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 			msg = "Password must be at least 8 characters."
 		}
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: msg}),
 			IsNew:    true,
 		})
 		return
@@ -323,7 +362,7 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("admin: hash password", "error", err)
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: "Internal error. Please try again."}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: "Internal error. Please try again."}),
 			IsNew:    true,
 		})
 		return
@@ -347,12 +386,13 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 			msg = "An account with that email already exists."
 		}
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: msg}),
 			IsNew:    true,
 		})
 		return
 	}
 
+	h.logAudit(r, AuditActionUserCreate, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=created", http.StatusFound)
 }
 
@@ -377,7 +417,7 @@ func (h *Handler) GetEditUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-user-form", userFormData{
-		basePage:     basePage{ActiveNav: "users"},
+		basePage:     h.base(r, "users"),
 		EditUser:     u,
 		IsNew:        false,
 		PasskeyCount: passkeyCount,
@@ -412,7 +452,7 @@ func (h *Handler) PostUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	if u.Username == "" || u.Email == "" {
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: "Username and email are required."}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: "Username and email are required."}),
 			EditUser: u,
 			IsNew:    false,
 		})
@@ -427,13 +467,21 @@ func (h *Handler) PostUpdateUser(w http.ResponseWriter, r *http.Request) {
 			msg = "An account with that email already exists."
 		}
 		h.render(w, r, "admin-user-form", userFormData{
-			basePage: basePage{ActiveNav: "users", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "users", &Flash{Type: "error", Message: msg}),
 			EditUser: u,
 			IsNew:    false,
 		})
 		return
 	}
 
+	// If the user was deactivated, revoke all their active sessions immediately.
+	if !u.IsActive {
+		if err := h.sessions.RevokeAllByUser(r.Context(), u.ID); err != nil {
+			h.logger.Warn("admin: revoke sessions for deactivated user", "user_id", u.ID, "error", err)
+		}
+	}
+
+	h.logAudit(r, AuditActionUserUpdate, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=updated", http.StatusFound)
 }
 
@@ -448,11 +496,20 @@ func (h *Handler) PostDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch the user before deletion to capture the username for the audit log.
+	target, fetchErr := h.userStore.GetByID(r.Context(), id)
+
 	if err := h.userStore.Delete(r.Context(), id); err != nil && !errors.Is(err, user.ErrNotFound) {
 		h.logger.Error("admin: delete user", "id", id, "error", err)
 		http.Redirect(w, r, "/admin/users", http.StatusFound)
 		return
 	}
+
+	username := id
+	if fetchErr == nil && target != nil {
+		username = target.Username
+	}
+	h.logAudit(r, AuditActionUserDelete, "user", id, username)
 	http.Redirect(w, r, "/admin/users?flash=deleted", http.StatusFound)
 }
 
@@ -493,7 +550,28 @@ func (h *Handler) PostResetUserPassword(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	h.logAudit(r, AuditActionUserPasswordReset, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=reset-sent", http.StatusFound)
+}
+
+// PostRevokeAllUserSessions revokes all active sessions for a user.
+// This is a non-destructive operation — the user account is not modified.
+func (h *Handler) PostRevokeAllUserSessions(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := h.sessions.RevokeAllByUser(r.Context(), id); err != nil {
+		h.logger.Error("admin: revoke all sessions for user", "user_id", id, "error", err)
+		http.Redirect(w, r, fmt.Sprintf("/admin/users/%s?flash=error", id), http.StatusFound)
+		return
+	}
+
+	// Best-effort fetch for audit target_name.
+	username := id
+	if u, err := h.userStore.GetByID(r.Context(), id); err == nil {
+		username = u.Username
+	}
+	h.logAudit(r, AuditActionSessionRevokeAll, "user", id, username)
+	http.Redirect(w, r, fmt.Sprintf("/admin/users/%s?flash=sessions-revoked", id), http.StatusFound)
 }
 
 // GetUserApps renders the user app access management page.
@@ -545,7 +623,7 @@ func (h *Handler) GetUserApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-user-apps", userAppsData{
-		basePage:       basePage{ActiveNav: "users", Flash: flash},
+		basePage:       h.baseFlash(r, "users", flash),
 		EditUser:       u,
 		AppsWithAccess: appsWithAccess,
 	})
@@ -638,7 +716,7 @@ func (h *Handler) GetApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-apps", appsData{
-		basePage: basePage{ActiveNav: "apps", Flash: flash},
+		basePage: h.baseFlash(r, "apps", flash),
 		Apps:     apps,
 	})
 }
@@ -654,7 +732,7 @@ type appFormData struct {
 // GetNewApp renders the new app form.
 func (h *Handler) GetNewApp(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage: basePage{ActiveNav: "apps"},
+		basePage: h.base(r, "apps"),
 		IsNew:    true,
 		BaseURL:  h.baseURL(),
 	})
@@ -664,7 +742,7 @@ func (h *Handler) GetNewApp(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Invalid form submission."}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Invalid form submission."}),
 			IsNew:    true,
 			BaseURL:  h.baseURL(),
 		})
@@ -681,7 +759,18 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Slug and name are required."}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
+			EditApp:  a,
+			IsNew:    true,
+			BaseURL:  h.baseURL(),
+		})
+		return
+	}
+
+	if _, err := path.Match(a.HostPattern, "test.example.com"); err != nil {
+		// path.Match only returns an error for syntactically malformed patterns.
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
 			EditApp:  a,
 			IsNew:    true,
 			BaseURL:  h.baseURL(),
@@ -695,7 +784,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			msg = "An app with that slug already exists."
 		}
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			IsNew:    true,
 			BaseURL:  h.baseURL(),
@@ -703,6 +792,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, AuditActionAppCreate, "app", a.ID, a.Name)
 	http.Redirect(w, r, "/admin/apps?flash=created", http.StatusFound)
 }
 
@@ -721,7 +811,7 @@ func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage: basePage{ActiveNav: "apps"},
+		basePage: h.base(r, "apps"),
 		EditApp:  a,
 		IsNew:    false,
 		BaseURL:  h.baseURL(),
@@ -767,7 +857,18 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: "Slug and name are required."}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
+			EditApp:  a,
+			IsNew:    false,
+			BaseURL:  h.baseURL(),
+		})
+		return
+	}
+
+	if _, err := path.Match(a.HostPattern, "test.example.com"); err != nil {
+		// path.Match only returns an error for syntactically malformed patterns.
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
@@ -781,7 +882,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			msg = "An app with that slug already exists."
 		}
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
@@ -789,17 +890,28 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, AuditActionAppUpdate, "app", a.ID, a.Name)
 	http.Redirect(w, r, "/admin/apps?flash=updated", http.StatusFound)
 }
 
 // PostDeleteApp deletes an app by ID.
 func (h *Handler) PostDeleteApp(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Fetch the app before deletion to capture the slug for the audit log.
+	target, fetchErr := h.apps.GetByID(r.Context(), id)
+
 	if err := h.apps.Delete(r.Context(), id); err != nil && !errors.Is(err, app.ErrNotFound) {
 		h.logger.Error("admin: delete app", "id", id, "error", err)
 		http.Redirect(w, r, "/admin/apps?flash=error", http.StatusFound)
 		return
 	}
+
+	slug := id
+	if fetchErr == nil && target != nil {
+		slug = target.Slug
+	}
+	h.logAudit(r, AuditActionAppDelete, "app", id, slug)
 	http.Redirect(w, r, "/admin/apps?flash=deleted", http.StatusFound)
 }
 
@@ -825,7 +937,7 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		msg := "Failed to generate OAuth credentials."
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			BaseURL:  h.baseURL(),
 		})
@@ -840,8 +952,10 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 	} else {
 		a = updatedApp
 	}
+
+	h.logAudit(r, AuditActionOAuthGenerate, "app", a.ID, a.Name)
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}},
+		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}),
 		EditApp:         a,
 		NewClientSecret: secret,
 		BaseURL:         h.cfg.Server.BaseURL,
@@ -869,7 +983,7 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		msg := "Failed to rotate OAuth client secret."
 		h.render(w, r, "admin-app-form", appFormData{
-			basePage: basePage{ActiveNav: "apps", Flash: &Flash{Type: "error", Message: msg}},
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			BaseURL:  h.baseURL(),
 		})
@@ -884,8 +998,10 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 	} else {
 		a = updatedApp
 	}
+
+	h.logAudit(r, AuditActionOAuthRotate, "app", a.ID, a.Name)
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage:        basePage{ActiveNav: "apps", Flash: &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}},
+		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}),
 		EditApp:         a,
 		NewClientSecret: secret,
 		BaseURL:         h.cfg.Server.BaseURL,
@@ -982,7 +1098,7 @@ func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-app-access", appAccessData{
-		basePage:           basePage{ActiveNav: "apps", Flash: flash},
+		basePage:           h.baseFlash(r, "apps", flash),
 		App:                a,
 		UsersWithAccess:    withAccess,
 		UsersWithoutAccess: withoutAccess,
@@ -1009,6 +1125,12 @@ func (h *Handler) PostGrantAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort fetch for audit target_name.
+	appName := appID
+	if a, err := h.apps.GetByID(r.Context(), appID); err == nil {
+		appName = a.Name
+	}
+	h.logAudit(r, AuditActionAppGrantAccess, "app", appID, appName)
 	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access?flash=access-granted", appID), http.StatusFound)
 }
 
@@ -1026,6 +1148,13 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
+	// Best-effort fetch for audit target_name.
+	appName := appID
+	if a, err := h.apps.GetByID(r.Context(), appID); err == nil {
+		appName = a.Name
+	}
+	h.logAudit(r, AuditActionAppRevokeAccess, "app", appID, appName)
 
 	// Support htmx partial response (return empty row with "Revoked" indicator).
 	if r.Header.Get("HX-Request") == "true" {
@@ -1087,7 +1216,7 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-sessions", sessionsData{
-		basePage: basePage{ActiveNav: "sessions", Flash: flash},
+		basePage: h.baseFlash(r, "sessions", flash),
 		Sessions: rows,
 	})
 }
@@ -1104,6 +1233,8 @@ func (h *Handler) PostRevokeSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
+	h.logAudit(r, AuditActionSessionRevoke, "session", id, "")
 
 	// Support htmx partial response.
 	if r.Header.Get("HX-Request") == "true" {
@@ -1140,7 +1271,7 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "admin-settings", settingsData{
-		basePage:             basePage{ActiveNav: "settings", Flash: flash},
+		basePage:             h.baseFlash(r, "settings", flash),
 		AllowRegistration:    all["allow_registration"],
 		SessionDurationHours: all["session_duration_hours"],
 		SMTPFrom:             all["smtp_from"],
@@ -1168,7 +1299,7 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.Atoi(durationStr)
 		if err != nil || n <= 0 {
 			h.render(w, r, "admin-settings", settingsData{
-				basePage:             basePage{ActiveNav: "settings", Flash: &Flash{Type: "error", Message: "Session duration must be a positive number."}},
+				basePage:             h.baseFlash(r, "settings", &Flash{Type: "error", Message: "Session duration must be a positive number."}),
 				AllowRegistration:    allowRegistration,
 				SessionDurationHours: durationStr,
 				SMTPFrom:             strings.TrimSpace(r.FormValue("smtp_from")),
@@ -1193,5 +1324,57 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("admin: set smtp_from", "error", err)
 	}
 
+	h.logAudit(r, AuditActionSettingsUpdate, "settings", "", "")
 	http.Redirect(w, r, "/admin/settings?flash=updated", http.StatusFound)
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+type auditLogData struct {
+	basePage
+	Events       []*AuditEvent
+	ActionFilter string
+}
+
+// GetAuditLog renders the admin audit log page.
+func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
+	actionFilter := r.URL.Query().Get("action")
+	events, err := h.audit.List(r.Context(), AuditFilter{Action: actionFilter, Limit: 100})
+	if err != nil {
+		h.logger.Error("admin: list audit log", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	h.render(w, r, "admin-audit-log", auditLogData{
+		basePage:     h.base(r, "audit-log"),
+		Events:       events,
+		ActionFilter: actionFilter,
+	})
+}
+
+// logAudit records an admin audit event. It extracts the acting user from the
+// request context and the client IP from r.RemoteAddr. Errors are non-fatal.
+func (h *Handler) logAudit(r *http.Request, action, targetType, targetID, targetName string) {
+	actorID := ""
+	actorName := ""
+	if u, ok := session.UserFromContext(r.Context()); ok {
+		actorID = u.ID
+		actorName = u.Username
+	}
+
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		ip = host
+	}
+
+	h.audit.Log(r.Context(), &AuditEvent{
+		ActorID:    actorID,
+		ActorName:  actorName,
+		Action:     action,
+		TargetType: targetType,
+		TargetID:   targetID,
+		TargetName: targetName,
+		IPAddress:  ip,
+	})
 }
