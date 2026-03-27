@@ -34,18 +34,23 @@
    * property whose name ends in "Id", "ID", "Challenge", "userId", or
    * "userHandle" from base64url strings to Uint8Arrays, as required by
    * the WebAuthn API.
+   *
+   * parentKey is passed through recursive calls so that rp.id — which is a
+   * plain domain string, not base64url — is never decoded.
    */
-  function preparePublicKeyOptions(obj) {
+  function preparePublicKeyOptions(obj, parentKey) {
     if (!obj || typeof obj !== 'object') return obj;
     var out = Array.isArray(obj) ? [] : {};
     for (var key in obj) {
       if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
       var val = obj[key];
+      // rp.id is a plain domain string — never decode it.
+      var isBase64Id = key === 'id' && parentKey !== 'rp';
       if (typeof val === 'string' &&
-          (key === 'challenge' || key === 'id' || key === 'userId' || key === 'userHandle')) {
+          (key === 'challenge' || isBase64Id || key === 'userId' || key === 'userHandle')) {
         out[key] = base64urlToBytes(val);
       } else if (typeof val === 'object' && val !== null) {
-        out[key] = preparePublicKeyOptions(val);
+        out[key] = preparePublicKeyOptions(val, key);
       } else {
         out[key] = val;
       }
