@@ -1127,3 +1127,89 @@ func TestService_PKCE(t *testing.T) {
 		}
 	})
 }
+
+// TestService_ExchangeCode_PKCEPublicClient verifies that PKCE public clients
+// (those that send no client_secret) can exchange codes using only their
+// code_verifier, while confidential clients still require a secret.
+// This exercises the RFC 7636 §4.6 behaviour: code_verifier is sufficient
+// proof-of-possession when PKCE was used at authorization time.
+func TestService_ExchangeCode_PKCEPublicClient(t *testing.T) {
+	ctx := context.Background()
+
+	const (
+		clientID    = "pkce-public-client"
+		plainSecret = "public-client-secret"
+		redirectURI = "https://example.com/callback"
+		// verifier is 43 unreserved ASCII chars — valid per RFC 7636 §4.1
+		verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	)
+
+	// 1. PKCE public client — no secret required: correct verifier + empty secret → success.
+	t.Run("pkce_no_secret_correct_verifier_success", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+		testUser := &user.User{Username: "pkce-public", Email: "pkce-public@example.com", Name: "PKCE Public"}
+		sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+		challenge := makeS256Challenge(t, verifier)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID)
+		if err != nil {
+			t.Fatalf("Authorize: %v", err)
+		}
+
+		// Exchange with correct verifier and empty client_secret — must succeed.
+		resp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, "" /* no secret */, redirectURI, verifier)
+		if err != nil {
+			t.Fatalf("ExchangeCode PKCE public client: unexpected error: %v", err)
+		}
+		if resp.AccessToken == "" {
+			t.Error("ExchangeCode PKCE public client: empty access_token")
+		}
+		if resp.RefreshToken == "" {
+			t.Error("ExchangeCode PKCE public client: empty refresh_token")
+		}
+		if resp.IDToken == "" {
+			t.Error("ExchangeCode PKCE public client: empty id_token")
+		}
+	})
+
+	// 2. PKCE public client — wrong verifier + empty secret → ErrPKCEVerificationFailed.
+	t.Run("pkce_no_secret_wrong_verifier_fails", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+		testUser := &user.User{Username: "pkce-public2", Email: "pkce-public2@example.com", Name: "PKCE Public 2"}
+		sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+		challenge := makeS256Challenge(t, verifier)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID)
+		if err != nil {
+			t.Fatalf("Authorize: %v", err)
+		}
+
+		// Exchange with wrong verifier and empty client_secret — must fail with PKCE error.
+		_, err = sc.svc.ExchangeCode(ctx, code.Code, clientID, "" /* no secret */, redirectURI, "wrong-verifier-that-is-definitely-43-chars-long")
+		if !errors.Is(err, oauth.ErrPKCEVerificationFailed) {
+			t.Errorf("ExchangeCode wrong verifier: got %v, want ErrPKCEVerificationFailed", err)
+		}
+	})
+
+	// 3. Confidential client (no PKCE) — empty secret → ErrInvalidClientSecret.
+	t.Run("confidential_no_pkce_empty_secret_fails", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+		testUser := &user.User{Username: "pkce-public3", Email: "pkce-public3@example.com", Name: "PKCE Public 3"}
+		sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+		// Authorize without PKCE — this is a confidential client flow.
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "" /* no challenge */, "", time.Now(), testUser.ID)
+		if err != nil {
+			t.Fatalf("Authorize: %v", err)
+		}
+
+		// Exchange with empty client_secret and no verifier — must fail with secret error.
+		_, err = sc.svc.ExchangeCode(ctx, code.Code, clientID, "" /* no secret */, redirectURI, "")
+		if !errors.Is(err, app.ErrInvalidClientSecret) {
+			t.Errorf("ExchangeCode no PKCE empty secret: got %v, want ErrInvalidClientSecret", err)
+		}
+	})
+}
