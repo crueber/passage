@@ -205,19 +205,25 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		return nil, fmt.Errorf("oauth exchange code: client_id does not match code's app")
 	}
 
-	// Verify client secret.
-	if err := bcrypt.CompareHashAndPassword([]byte(a.ClientSecretHash), []byte(clientSecret)); err != nil {
-		return nil, app.ErrInvalidClientSecret
+	// Verify PKCE challenge if one was stored with this code.
+	// This must run before the client secret check because PKCE public clients
+	// may not have a client_secret — the code_verifier IS their proof of identity.
+	if err := verifyPKCE(codeRecord.CodeChallenge, codeRecord.CodeChallengeMethod, codeVerifier); err != nil {
+		return nil, err
+	}
+
+	// Verify client secret — required for confidential clients (no PKCE).
+	// When PKCE was used, the code_verifier already proved client possession;
+	// the secret check is skipped per RFC 7636 §4.6.
+	if codeRecord.CodeChallenge == "" {
+		if err := bcrypt.CompareHashAndPassword([]byte(a.ClientSecretHash), []byte(clientSecret)); err != nil {
+			return nil, app.ErrInvalidClientSecret
+		}
 	}
 
 	// Validate redirect_uri matches what was stored in the code.
 	if redirectURI != codeRecord.RedirectURI {
 		return nil, app.ErrRedirectURIMismatch
-	}
-
-	// Verify PKCE challenge if one was stored with this code.
-	if err := verifyPKCE(codeRecord.CodeChallenge, codeRecord.CodeChallengeMethod, codeVerifier); err != nil {
-		return nil, err
 	}
 
 	// Atomically mark the code as used — returns ErrCodeUsed on double-spend.
