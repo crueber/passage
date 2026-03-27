@@ -16,6 +16,18 @@ var (
 	ErrRefreshNotFound = errors.New("oauth: refresh token not found")
 	ErrRefreshExpired  = errors.New("oauth: refresh token has expired")
 	ErrRefreshUsed     = errors.New("oauth: refresh token has already been used")
+
+	// ErrPKCEVerificationFailed is returned when the code_verifier does not match
+	// the code_challenge that was stored at authorization time.
+	ErrPKCEVerificationFailed = errors.New("oauth: pkce verification failed")
+)
+
+// PKCEMethod identifies the code challenge transformation method per RFC 7636.
+type PKCEMethod string
+
+const (
+	PKCEMethodS256  PKCEMethod = "S256"
+	PKCEMethodPlain PKCEMethod = "plain"
 )
 
 // Code is a short-lived authorization code (10-minute TTL).
@@ -27,9 +39,17 @@ type Code struct {
 	Scopes      string
 	Nonce       string
 	AuthTime    time.Time
-	ExpiresAt   time.Time
-	UsedAt      *time.Time
-	CreatedAt   time.Time
+
+	// CodeChallenge is the PKCE code challenge sent by the client at authorization time.
+	// Empty when the client did not use PKCE.
+	CodeChallenge string
+
+	// CodeChallengeMethod is "S256" or "plain". Empty when CodeChallenge is empty.
+	CodeChallengeMethod PKCEMethod
+
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	CreatedAt time.Time
 }
 
 // Token is an opaque access token (1-hour TTL).

@@ -116,6 +116,7 @@ func TestHandler_Discovery(t *testing.T) {
 		"subject_types_supported", "id_token_signing_alg_values_supported",
 		"scopes_supported", "token_endpoint_auth_methods_supported",
 		"grant_types_supported", "claims_supported",
+		"code_challenge_methods_supported",
 	}
 	for _, field := range requiredFields {
 		if _, ok := doc[field]; !ok {
@@ -125,6 +126,28 @@ func TestHandler_Discovery(t *testing.T) {
 
 	if doc["issuer"] != "https://auth.example.com" {
 		t.Errorf("Discovery issuer: got %v", doc["issuer"])
+	}
+
+	// Verify code_challenge_methods_supported contains "S256" and "plain".
+	methodsRaw, ok := doc["code_challenge_methods_supported"]
+	if !ok {
+		t.Fatal("Discovery: missing code_challenge_methods_supported")
+	}
+	methods, ok := methodsRaw.([]any)
+	if !ok {
+		t.Fatalf("Discovery: code_challenge_methods_supported is not an array, got %T", methodsRaw)
+	}
+	wantMethods := map[string]bool{"S256": false, "plain": false}
+	for _, m := range methods {
+		s, _ := m.(string)
+		if _, known := wantMethods[s]; known {
+			wantMethods[s] = true
+		}
+	}
+	for method, found := range wantMethods {
+		if !found {
+			t.Errorf("Discovery: code_challenge_methods_supported missing %q", method)
+		}
 	}
 }
 
@@ -290,7 +313,7 @@ func TestHandler_Token_AuthCode(t *testing.T) {
 
 	// Get a code via the service.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-1", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-1", "", "", "", time.Now(), testUser.ID)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -353,11 +376,11 @@ func TestHandler_Token_Refresh(t *testing.T) {
 
 	// Get initial tokens.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI)
+	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
@@ -433,11 +456,11 @@ func TestHandler_UserInfo_Valid(t *testing.T) {
 
 	// Get an access token.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI)
+	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
@@ -553,7 +576,7 @@ func TestHandler_Token_BasicAuth(t *testing.T) {
 
 	// Obtain a code via the service directly.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-basic", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-basic", "", "", "", time.Now(), testUser.ID)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -836,5 +859,317 @@ func TestHandler_Token_InvalidRequests(t *testing.T) {
 				t.Errorf("%s: error %q is not a valid RFC 6749 error code", tc.name, errCode)
 			}
 		})
+	}
+}
+
+// TestHandler_Authorize_PKCE_BadChallenge verifies that sending an unsupported
+// code_challenge_method to the authorize endpoint returns 400 invalid_request.
+func TestHandler_Authorize_PKCE_BadChallenge(t *testing.T) {
+	const (
+		clientID    = "client-pkce-badmethod"
+		plainSecret = "test-secret"
+		redirectURI = "https://example.com/callback"
+	)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(plainSecret), 10)
+	testApp := &app.App{
+		ClientID:         clientID,
+		ClientSecretHash: string(hash),
+		RedirectURIs:     []string{redirectURI},
+		OAuthEnabled:     true,
+	}
+	testUser := &user.User{Username: "pkce-bad", Email: "pkce-bad@example.com", Name: "PKCE Bad"}
+	sv := &fakeSessionValidator{
+		sess: &session.Session{ID: "sess-pkce-bad"},
+	}
+	stack := buildHandlerTestStack(t, sv, testApp, testUser)
+	sv.u = testUser
+	sv.sess.UserID = testUser.ID
+
+	r := newTestRouter(stack.handler)
+
+	// Use a valid-length challenge (43 chars) but an unsupported method.
+	challenge := makeS256Challenge(t, "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+	reqURL := fmt.Sprintf(
+		"/oauth/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=openid&code_challenge=%s&code_challenge_method=bad_method_xyz",
+		clientID,
+		url.QueryEscape(redirectURI),
+		url.QueryEscape(challenge),
+	)
+	req := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	req.AddCookie(&http.Cookie{Name: "passage_session", Value: "sess-token-pkce-bad"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Authorize PKCE bad method: status %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatalf("Authorize PKCE bad method: decode error body: %v", err)
+	}
+	if errResp["error"] != "invalid_request" {
+		t.Errorf("Authorize PKCE bad method: error %q, want invalid_request", errResp["error"])
+	}
+}
+
+// TestHandler_Token_PKCE exercises the token endpoint PKCE scenarios
+// via the full authorize → token exchange flow at the HTTP handler level.
+func TestHandler_Token_PKCE(t *testing.T) {
+	const (
+		clientID    = "client-pkce-token"
+		plainSecret = "pkce-token-secret"
+		redirectURI = "https://example.com/pkce-callback"
+		// verifier is 43 unreserved ASCII chars — valid per RFC 7636 §4.1.
+		verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	)
+
+	s256Challenge := makeS256Challenge(t, verifier)
+
+	tests := []struct {
+		name          string
+		challenge     string
+		method        string
+		tokenVerifier string
+		wantStatus    int
+		wantError     string // empty means success
+	}{
+		{
+			name:          "s256_success",
+			challenge:     s256Challenge,
+			method:        "S256",
+			tokenVerifier: verifier,
+			wantStatus:    http.StatusOK,
+		},
+		{
+			name:          "s256_wrong_verifier",
+			challenge:     s256Challenge,
+			method:        "S256",
+			tokenVerifier: "wrong-verifier-that-is-definitely-43-chars-long",
+			wantStatus:    http.StatusBadRequest,
+			wantError:     "invalid_grant",
+		},
+		{
+			name:          "no_pkce_backward_compat",
+			challenge:     "",
+			method:        "",
+			tokenVerifier: "",
+			wantStatus:    http.StatusOK,
+		},
+		{
+			name:          "no_pkce_spurious_verifier",
+			challenge:     "",
+			method:        "",
+			tokenVerifier: verifier,
+			wantStatus:    http.StatusBadRequest,
+			wantError:     "invalid_grant",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte(plainSecret), 10)
+			testApp := &app.App{
+				ClientID:         clientID,
+				ClientSecretHash: string(hash),
+				RedirectURIs:     []string{redirectURI},
+				OAuthEnabled:     true,
+			}
+			testUser := &user.User{Username: "pkce-token-user", Email: "pkcetoken@example.com", Name: "PKCE Token User"}
+			sv := &fakeSessionValidator{
+				sess: &session.Session{ID: "sess-pkce-token"},
+			}
+			stack := buildHandlerTestStack(t, sv, testApp, testUser)
+			sv.u = testUser
+			sv.sess.UserID = testUser.ID
+
+			r := newTestRouter(stack.handler)
+
+			// ── Step 1: GET /oauth/authorize with PKCE params ──
+			authURL := fmt.Sprintf(
+				"/oauth/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=openid",
+				clientID,
+				url.QueryEscape(redirectURI),
+			)
+			if tc.challenge != "" {
+				authURL += "&code_challenge=" + url.QueryEscape(tc.challenge)
+				if tc.method != "" {
+					authURL += "&code_challenge_method=" + tc.method
+				}
+			}
+
+			req := httptest.NewRequest(http.MethodGet, authURL, nil)
+			req.AddCookie(&http.Cookie{Name: "passage_session", Value: "sess-pkce-token-val"})
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusFound {
+				t.Fatalf("authorize: status %d, want 302; body: %s", w.Code, w.Body.String())
+			}
+			loc := w.Header().Get("Location")
+			parsed, err := url.Parse(loc)
+			if err != nil {
+				t.Fatalf("authorize: parse redirect: %v", err)
+			}
+			code := parsed.Query().Get("code")
+			if code == "" {
+				t.Fatalf("authorize: no code in redirect %q", loc)
+			}
+
+			// ── Step 2: POST /oauth/token with optional code_verifier ──
+			form := url.Values{
+				"grant_type":    {"authorization_code"},
+				"code":          {code},
+				"redirect_uri":  {redirectURI},
+				"client_id":     {clientID},
+				"client_secret": {plainSecret},
+			}
+			if tc.tokenVerifier != "" {
+				form.Set("code_verifier", tc.tokenVerifier)
+			}
+
+			req = httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w = httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("token exchange: status %d, want %d; body: %s", w.Code, tc.wantStatus, w.Body.String())
+			}
+
+			if tc.wantError != "" {
+				var errResp map[string]string
+				if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+					t.Fatalf("token exchange: decode error body: %v", err)
+				}
+				if errResp["error"] != tc.wantError {
+					t.Errorf("token exchange: error %q, want %q", errResp["error"], tc.wantError)
+				}
+			} else {
+				var resp oauth.TokenResponse
+				if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+					t.Fatalf("token exchange: decode response: %v", err)
+				}
+				if resp.AccessToken == "" {
+					t.Error("token exchange: empty access_token")
+				}
+			}
+		})
+	}
+}
+
+// TestHandler_AuthCodeFlow_EndToEnd_PKCE exercises the full OAuth2 authorization
+// code flow with S256 PKCE through every HTTP handler layer:
+// authorize (with challenge) → token exchange (with verifier) → userinfo.
+func TestHandler_AuthCodeFlow_EndToEnd_PKCE(t *testing.T) {
+	const (
+		clientID    = "client-e2e-pkce"
+		plainSecret = "e2e-pkce-secret"
+		redirectURI = "https://example.com/e2e-pkce-callback"
+		// verifier is 43 unreserved ASCII chars — valid per RFC 7636 §4.1.
+		verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	)
+
+	challenge := makeS256Challenge(t, verifier)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(plainSecret), 10)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	testApp := &app.App{
+		ClientID:         clientID,
+		ClientSecretHash: string(hash),
+		RedirectURIs:     []string{redirectURI},
+		OAuthEnabled:     true,
+	}
+	testUser := &user.User{Username: "e2epkceuser", Email: "e2epkce@example.com", Name: "E2E PKCE User"}
+
+	sv := &fakeSessionValidator{}
+	stack := buildHandlerTestStack(t, sv, testApp, testUser)
+	sv.sess = &session.Session{ID: "sess-e2e-pkce", UserID: testUser.ID}
+	sv.u = testUser
+
+	r := newTestRouter(stack.handler)
+
+	// ── Step 1: GET /oauth/authorize with S256 PKCE challenge → expect 302 + code ──
+	reqURL := fmt.Sprintf(
+		"/oauth/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&state=pkce-state&code_challenge=%s&code_challenge_method=S256",
+		clientID,
+		url.QueryEscape(redirectURI),
+		url.QueryEscape("openid profile email"),
+		url.QueryEscape(challenge),
+	)
+	req := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	req.AddCookie(&http.Cookie{Name: "passage_session", Value: "sess-token-e2e-pkce"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("authorize: status %d, want 302; body: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	parsed, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("authorize: parse redirect: %v", err)
+	}
+	code := parsed.Query().Get("code")
+	if code == "" {
+		t.Fatalf("authorize: no code in redirect location %q", loc)
+	}
+	if parsed.Query().Get("state") != "pkce-state" {
+		t.Errorf("authorize: state %q, want pkce-state", parsed.Query().Get("state"))
+	}
+
+	// ── Step 2: POST /oauth/token with correct code_verifier → expect 200 + tokens ──
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {clientID},
+		"client_secret": {plainSecret},
+		"code_verifier": {verifier},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("token exchange: status %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var tokenResp oauth.TokenResponse
+	if err := json.NewDecoder(w.Body).Decode(&tokenResp); err != nil {
+		t.Fatalf("token exchange: decode: %v", err)
+	}
+	if tokenResp.AccessToken == "" {
+		t.Error("token exchange: empty access_token")
+	}
+	if tokenResp.IDToken == "" {
+		t.Error("token exchange: empty id_token")
+	}
+	if tokenResp.RefreshToken == "" {
+		t.Error("token exchange: empty refresh_token")
+	}
+	if tokenResp.TokenType != "Bearer" {
+		t.Errorf("token exchange: token_type %q, want Bearer", tokenResp.TokenType)
+	}
+
+	// ── Step 3: GET /oauth/userinfo with Bearer token → expect 200 ──
+	req = httptest.NewRequest(http.MethodGet, "/oauth/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("userinfo: status %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var userInfo map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&userInfo); err != nil {
+		t.Fatalf("userinfo: decode: %v", err)
+	}
+	sub, _ := userInfo["sub"].(string)
+	if sub != testUser.ID {
+		t.Errorf("userinfo sub: got %q, want %q", sub, testUser.ID)
 	}
 }

@@ -103,6 +103,57 @@ func TestSQLiteStore_Code(t *testing.T) {
 			t.Error("GetCode after MarkCodeUsed: expected UsedAt to be set")
 		}
 	})
+
+	t.Run("with_pkce_s256", func(t *testing.T) {
+		challenge := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk" // 43-char base64url string
+		c := &oauth.Code{
+			AppID:               appID,
+			UserID:              userID,
+			RedirectURI:         "https://example.com/callback",
+			Scopes:              "openid",
+			ExpiresAt:           time.Now().UTC().Add(10 * time.Minute),
+			CodeChallenge:       challenge,
+			CodeChallengeMethod: oauth.PKCEMethodS256,
+		}
+		if err := store.CreateCode(ctx, c); err != nil {
+			t.Fatalf("CreateCode with PKCE: %v", err)
+		}
+		got, err := store.GetCode(ctx, c.Code)
+		if err != nil {
+			t.Fatalf("GetCode with PKCE: %v", err)
+		}
+		if got.CodeChallenge != challenge {
+			t.Errorf("GetCode code_challenge: got %q, want %q", got.CodeChallenge, challenge)
+		}
+		if got.CodeChallengeMethod != oauth.PKCEMethodS256 {
+			t.Errorf("GetCode code_challenge_method: got %q, want %q", got.CodeChallengeMethod, oauth.PKCEMethodS256)
+		}
+	})
+
+	t.Run("without_pkce", func(t *testing.T) {
+		c := &oauth.Code{
+			AppID:               appID,
+			UserID:              userID,
+			RedirectURI:         "https://example.com/callback",
+			Scopes:              "openid",
+			ExpiresAt:           time.Now().UTC().Add(10 * time.Minute),
+			CodeChallenge:       "",
+			CodeChallengeMethod: "",
+		}
+		if err := store.CreateCode(ctx, c); err != nil {
+			t.Fatalf("CreateCode without PKCE: %v", err)
+		}
+		got, err := store.GetCode(ctx, c.Code)
+		if err != nil {
+			t.Fatalf("GetCode without PKCE: %v", err)
+		}
+		if got.CodeChallenge != "" {
+			t.Errorf("GetCode code_challenge: got %q, want empty", got.CodeChallenge)
+		}
+		if got.CodeChallengeMethod != "" {
+			t.Errorf("GetCode code_challenge_method: got %q, want empty", got.CodeChallengeMethod)
+		}
+	})
 }
 
 func TestSQLiteStore_Token(t *testing.T) {

@@ -47,12 +47,16 @@ func (s *SQLiteStore) CreateCode(ctx context.Context, c *Code) error {
 	c.CreatedAt = now
 
 	const query = `
-		INSERT INTO oauth_codes (code, app_id, user_id, redirect_uri, scopes, nonce, auth_time, expires_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO oauth_codes (code, app_id, user_id, redirect_uri, scopes, nonce, auth_time,
+		                         code_challenge, code_challenge_method,
+		                         expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		c.Code, c.AppID, c.UserID, c.RedirectURI, c.Scopes,
-		c.Nonce, c.AuthTime, c.ExpiresAt, c.CreatedAt, now,
+		c.Nonce, c.AuthTime,
+		c.CodeChallenge, string(c.CodeChallengeMethod),
+		c.ExpiresAt, c.CreatedAt, now,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth store create code: %w", err)
@@ -64,15 +68,21 @@ func (s *SQLiteStore) CreateCode(ctx context.Context, c *Code) error {
 // Returns ErrCodeNotFound if the code does not exist.
 func (s *SQLiteStore) GetCode(ctx context.Context, code string) (*Code, error) {
 	const query = `
-		SELECT code, app_id, user_id, redirect_uri, scopes, nonce, auth_time, expires_at, used_at, created_at
+		SELECT code, app_id, user_id, redirect_uri, scopes, nonce, auth_time,
+		       code_challenge, code_challenge_method,
+		       expires_at, used_at, created_at
 		FROM oauth_codes WHERE code = ?`
 
 	row := s.db.QueryRowContext(ctx, query, code)
 	var c Code
 	var usedAt sql.NullTime
+	var codeChallenge sql.NullString
+	var codeChallengeMethod sql.NullString
 	err := row.Scan(
 		&c.Code, &c.AppID, &c.UserID, &c.RedirectURI, &c.Scopes,
-		&c.Nonce, &c.AuthTime, &c.ExpiresAt, &usedAt, &c.CreatedAt,
+		&c.Nonce, &c.AuthTime,
+		&codeChallenge, &codeChallengeMethod,
+		&c.ExpiresAt, &usedAt, &c.CreatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -83,6 +93,12 @@ func (s *SQLiteStore) GetCode(ctx context.Context, code string) (*Code, error) {
 	if usedAt.Valid {
 		t := usedAt.Time
 		c.UsedAt = &t
+	}
+	if codeChallenge.Valid {
+		c.CodeChallenge = codeChallenge.String
+	}
+	if codeChallengeMethod.Valid {
+		c.CodeChallengeMethod = PKCEMethod(codeChallengeMethod.String)
 	}
 	return &c, nil
 }

@@ -3,7 +3,10 @@ package oauth
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -87,7 +90,7 @@ func (s *Service) KeyID() string {
 
 // Authorize validates the OAuth2 authorization request and creates an
 // authorization code if the user has access to the requesting app.
-func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce string, sessionCreatedAt time.Time, userID string) (*Code, error) {
+func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID string) (*Code, error) {
 	// Look up app by clientID.
 	a, err := s.apps.GetByClientID(ctx, clientID)
 	if err != nil {
@@ -122,6 +125,35 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 		return nil, fmt.Errorf("oauth authorize: user does not have access to this application")
 	}
 
+	// Validate PKCE parameters per RFC 7636 §4.3.
+	var pkceMethod PKCEMethod
+	if codeChallenge != "" {
+		switch codeChallengeMethod {
+		case string(PKCEMethodS256):
+			pkceMethod = PKCEMethodS256
+		case string(PKCEMethodPlain):
+			pkceMethod = PKCEMethodPlain
+		case "":
+			// method omitted; default to S256 per RFC 7636 §4.3 ABNF default.
+			pkceMethod = PKCEMethodS256
+		default:
+			return nil, fmt.Errorf("oauth authorize: unsupported code_challenge_method: %w", ErrPKCEVerificationFailed)
+		}
+		// Validate challenge length per RFC 7636 §4.2.
+		switch pkceMethod {
+		case PKCEMethodS256:
+			// S256 challenge is always BASE64URL(SHA256(verifier)): 32 bytes → exactly 43 chars.
+			if len(codeChallenge) != 43 {
+				return nil, fmt.Errorf("oauth authorize: S256 code_challenge must be 43 characters: %w", ErrPKCEVerificationFailed)
+			}
+		case PKCEMethodPlain:
+			// Plain challenge == verifier; RFC 7636 §4.1 range: 43-128 chars.
+			if l := len(codeChallenge); l < 43 || l > 128 {
+				return nil, fmt.Errorf("oauth authorize: plain code_challenge length must be 43-128 characters: %w", ErrPKCEVerificationFailed)
+			}
+		}
+	}
+
 	// Normalize scope.
 	if scope == "" {
 		scope = "openid"
@@ -129,13 +161,15 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 
 	// Create authorization code.
 	code := &Code{
-		AppID:       a.ID,
-		UserID:      userID,
-		RedirectURI: redirectURI,
-		Scopes:      scope,
-		Nonce:       nonce,
-		AuthTime:    sessionCreatedAt.UTC(),
-		ExpiresAt:   time.Now().UTC().Add(authCodeTTL),
+		AppID:               a.ID,
+		UserID:              userID,
+		RedirectURI:         redirectURI,
+		Scopes:              scope,
+		Nonce:               nonce,
+		AuthTime:            sessionCreatedAt.UTC(),
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: pkceMethod,
+		ExpiresAt:           time.Now().UTC().Add(authCodeTTL),
 	}
 	if err := s.store.CreateCode(ctx, code); err != nil {
 		return nil, fmt.Errorf("oauth authorize: create code: %w", err)
@@ -146,7 +180,7 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 
 // ExchangeCode validates an authorization code and issues an access token,
 // refresh token, and id_token.
-func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI string) (*TokenResponse, error) {
+func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier string) (*TokenResponse, error) {
 	// Look up the authorization code.
 	codeRecord, err := s.store.GetCode(ctx, code)
 	if err != nil {
@@ -179,6 +213,11 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 	// Validate redirect_uri matches what was stored in the code.
 	if redirectURI != codeRecord.RedirectURI {
 		return nil, app.ErrRedirectURIMismatch
+	}
+
+	// Verify PKCE challenge if one was stored with this code.
+	if err := verifyPKCE(codeRecord.CodeChallenge, codeRecord.CodeChallengeMethod, codeVerifier); err != nil {
+		return nil, err
 	}
 
 	// Atomically mark the code as used — returns ErrCodeUsed on double-spend.
@@ -372,4 +411,42 @@ func (s *Service) buildIDToken(u *user.User, clientID string, authTime time.Time
 		return "", fmt.Errorf("sign id token: %w", err)
 	}
 	return signed, nil
+}
+
+// verifyPKCE checks that verifier satisfies challenge per RFC 7636 §4.6.
+// Returns nil if verification succeeds, ErrPKCEVerificationFailed otherwise.
+//
+// Rules:
+//   - If challenge is empty: the code was issued without PKCE; verifier must also be empty.
+//   - If challenge is non-empty: verifier must be non-empty and must satisfy the challenge.
+//   - method S256:  BASE64URL(SHA256(ASCII(verifier))) == challenge
+//   - method plain: verifier == challenge
+func verifyPKCE(challenge string, method PKCEMethod, verifier string) error {
+	if challenge == "" {
+		// Code was issued without PKCE. No verifier expected.
+		if verifier != "" {
+			return ErrPKCEVerificationFailed
+		}
+		return nil
+	}
+	// Code was issued with PKCE. Verifier is required.
+	if verifier == "" {
+		return ErrPKCEVerificationFailed
+	}
+	switch method {
+	case PKCEMethodS256:
+		h := sha256.Sum256([]byte(verifier))
+		computed := base64.RawURLEncoding.EncodeToString(h[:])
+		if subtle.ConstantTimeCompare([]byte(computed), []byte(challenge)) != 1 {
+			return ErrPKCEVerificationFailed
+		}
+	case PKCEMethodPlain:
+		if subtle.ConstantTimeCompare([]byte(verifier), []byte(challenge)) != 1 {
+			return ErrPKCEVerificationFailed
+		}
+	default:
+		// Unknown method stored in DB — fail closed.
+		return ErrPKCEVerificationFailed
+	}
+	return nil
 }

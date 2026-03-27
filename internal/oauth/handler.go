@@ -23,8 +23,8 @@ import (
 // oauthService is the interface the Handler uses for OAuth operations.
 // Defined here at the consumer boundary, per Go convention.
 type oauthService interface {
-	Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce string, sessionCreatedAt time.Time, userID string) (*Code, error)
-	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI string) (*TokenResponse, error)
+	Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID string) (*Code, error)
+	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier string) (*TokenResponse, error)
 	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret string) (*TokenResponse, error)
 	ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error)
 }
@@ -84,6 +84,7 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "preferred_username"},
 		"nonce_supported":                       true,
+		"code_challenge_methods_supported":      []string{"S256", "plain"},
 	}
 
 	h.writeJSON(w, http.StatusOK, doc)
@@ -138,6 +139,8 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	scope := q.Get("scope")
 	state := q.Get("state")
 	nonce := q.Get("nonce")
+	codeChallenge := q.Get("code_challenge")
+	codeChallengeMethod := q.Get("code_challenge_method")
 
 	// Validate required parameters.
 	if responseType != "code" {
@@ -168,10 +171,11 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Attempt to authorize.
-	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, sess.CreatedAt, u.ID)
+	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod, sess.CreatedAt, u.ID)
 	if err != nil {
-		if errors.Is(err, app.ErrRedirectURIMismatch) || errors.Is(err, app.ErrOAuthNotEnabled) {
-			h.writeJSONError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		if errors.Is(err, app.ErrRedirectURIMismatch) || errors.Is(err, app.ErrOAuthNotEnabled) || errors.Is(err, ErrPKCEVerificationFailed) {
+			h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
+				"invalid code_challenge or code_challenge_method")
 			return
 		}
 		h.logger.Warn("oauth authorize: access denied", "user_id", u.ID, "error", err)
@@ -232,6 +236,7 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter, r *http.Request, clientID, clientSecret string) {
 	code := r.FormValue("code")
 	redirectURI := r.FormValue("redirect_uri")
+	codeVerifier := r.FormValue("code_verifier")
 
 	if code == "" {
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "code is required")
@@ -242,7 +247,7 @@ func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter
 		return
 	}
 
-	resp, err := h.svc.ExchangeCode(ctx, code, clientID, clientSecret, redirectURI)
+	resp, err := h.svc.ExchangeCode(ctx, code, clientID, clientSecret, redirectURI, codeVerifier)
 	if err != nil {
 		h.writeTokenError(w, err)
 		return
@@ -278,6 +283,7 @@ func (h *Handler) writeTokenError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrRefreshNotFound),
 		errors.Is(err, ErrRefreshUsed),
 		errors.Is(err, ErrRefreshExpired),
+		errors.Is(err, ErrPKCEVerificationFailed),
 		errors.Is(err, app.ErrRedirectURIMismatch):
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_grant",
 			"The provided authorization grant is invalid, expired, revoked, or does not match.")
