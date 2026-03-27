@@ -51,6 +51,8 @@ COPY --from=builder /out/passage /usr/local/bin/passage
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:8080/healthz || exit 1
 
+USER passage
+
 EXPOSE 8080
 
 # Default: no config file — configure entirely via PASSAGE_* env vars.
