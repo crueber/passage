@@ -10,68 +10,99 @@
   <script src="/static/passkey.js" defer></script>
 </head>
 <body>
-<section class="hero is-fullheight">
-  <div class="hero-body">
-    <div class="container">
-      <div class="columns is-centered">
-        <div class="column is-5">
-          <p class="passage-wordmark">passage</p>
-
-          {{if .Flash}}
-          <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
-            {{.Flash.Message}}
-          </div>
-          {{end}}
-
-          <div class="card">
-            <div class="card-content">
-              <h1 class="title is-5">Passkeys</h1>
-
-              {{if .Credentials}}
-              <div class="table-container mb-4">
-                <table class="table is-fullwidth is-striped is-hoverable">
-                  <thead>
-                    <tr>
-                      <th scope="col">Name</th>
-                      <th scope="col">Registered</th>
-                      <th scope="col">Last used</th>
-                      <th scope="col"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {{range .Credentials}}
-                    <tr>
-                      <td>{{if .Name}}{{.Name}}{{else}}<em>Unnamed passkey</em>{{end}}</td>
-                      <td>{{.CreatedAt.Format "2006-01-02"}}</td>
-                      <td>{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}Never{{end}}</td>
-                      <td>
-                        <form method="POST" action="/passkeys/delete/{{.ID}}"
-                              onsubmit="return confirm('Remove this passkey?')">
-                          {{csrfField $.CSRFToken}}
-                          <button type="submit" class="button is-danger is-small is-light">Remove</button>
-                        </form>
-                      </td>
-                    </tr>
-                    {{end}}
-                  </tbody>
-                </table>
-              </div>
-              {{else}}
-              <p class="has-text-grey mb-4">You have no passkeys registered yet.</p>
-              {{end}}
-
-              <hr>
-              <h2 class="title is-6">Register a new passkey</h2>
-              <p class="mb-3">Passkeys let you sign in securely without a password.</p>
-              <button type="button" id="register-passkey-btn" class="button is-primary">Register passkey</button>
-              <p id="passkey-register-status" class="help mt-2" aria-live="polite"></p>
-            </div>
-          </div>
-        </div>
+<nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
+  <div class="passage-admin-container">
+    <div class="navbar-brand">
+      <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/">passage</a>
+      {{if and .User .User.IsAdmin}}
+      <a class="navbar-item is-size-7 has-text-grey-dark" href="/admin">Admin</a>
+      {{end}}
+    </div>
+    <div class="navbar-menu">
+      <div class="navbar-end">
+        {{if .User}}<span class="navbar-item has-text-grey-dark is-size-7">{{.User.Username}}</span>{{end}}
+        <a class="navbar-item" href="/">My Apps</a>
+        <a class="navbar-item" href="/logout">Sign out</a>
       </div>
     </div>
   </div>
-</section>
+</nav>
+
+<div class="passage-admin-body">
+  <div class="passage-admin-container">
+    <main style="padding: 2rem 0;">
+      <h1 class="title is-4 mb-5">Passkeys</h1>
+
+      {{if .Flash}}
+      <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light mb-4">
+        {{.Flash.Message}}
+      </div>
+      {{end}}
+
+      {{if .Credentials}}
+      <div class="table-container mb-4">
+        <table class="table is-fullwidth is-striped is-hoverable">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Registered</th>
+              <th scope="col">Last used</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Credentials}}
+            <tr>
+              <td>{{if .Name}}{{.Name}}{{else}}<em>Unnamed passkey</em>{{end}}</td>
+              <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+              <td>{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}Never{{end}}</td>
+              <td>
+                <form method="POST" action="/passkeys/delete/{{.ID}}"
+                      onsubmit="return confirm('Remove this passkey?')">
+                  {{csrfField $.CSRFToken}}
+                  <button type="submit" class="button is-danger is-small is-light">Remove</button>
+                </form>
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <p class="has-text-grey mb-4">You have no passkeys registered yet.</p>
+      {{end}}
+
+      <hr>
+      <h2 class="title is-6">Register a new passkey</h2>
+      <p class="mb-3">Passkeys let you sign in securely without a password.</p>
+      <div class="field">
+        <label class="label" for="passkey-name">Passkey name <span class="has-text-grey is-size-7">(optional)</span></label>
+        <div class="control">
+          <input class="input" type="text" id="passkey-name" name="passkey-name"
+                 placeholder="e.g. MacBook Touch ID" maxlength="64" autocomplete="off">
+        </div>
+        <p class="help">A label to help you identify this passkey.</p>
+      </div>
+      <button type="button" id="register-passkey-btn" class="button is-primary">Register passkey</button>
+      <p id="passkey-register-status" class="help mt-2" aria-live="polite"></p>
+
+    </main>
+  </div>
+  <footer class="passage-admin-footer" aria-label="Site footer">
+    <div class="passage-admin-footer-inner">
+      <span>
+        <a href="https://github.com/crueber/passage" target="_blank" rel="noopener noreferrer">passage</a>
+        &mdash; self-hosted auth proxy
+      </span>
+      <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
+      <span>
+        <a href="https://github.com/crueber/passage/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+      </span>
+      <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
+      <span>&copy; 2026 C. Rueber</span>
+    </div>
+  </footer>
+</div>
 </body>
 </html>
 {{end}}
