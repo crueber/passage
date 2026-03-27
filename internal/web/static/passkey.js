@@ -128,10 +128,15 @@
         if (nameVal) {
           finishURL += '?name=' + encodeURIComponent(nameVal);
         }
+        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
         var finishResp = await fetch(finishURL, {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'HX-CSRF-Token': csrfToken
+          },
           body: JSON.stringify(credentialToJSON(credential))
         });
 
