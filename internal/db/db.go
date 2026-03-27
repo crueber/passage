@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 
 	"github.com/pressly/goose/v3"
-	_ "modernc.org/sqlite" // SQLite driver (pure Go, no CGo).
+	"modernc.org/sqlite" // SQLite driver (pure Go, no CGo). Named import also registers the driver.
 )
 
 //go:embed migrations/*.sql
@@ -32,6 +33,12 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*sql.DB, error
 	// Verify the connection is usable.
 	if err := database.PingContext(ctx); err != nil {
 		database.Close()
+		// SQLite error code 14 (SQLITE_CANTOPEN) surfaces with the misleading
+		// message "out of memory". Detect it explicitly and report the real cause.
+		var sqliteErr *sqlite.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code() == 14 {
+			return nil, fmt.Errorf("cannot open database file %q: check that the directory exists and the process has read/write permission", path)
+		}
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
