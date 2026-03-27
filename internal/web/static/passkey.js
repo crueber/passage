@@ -30,32 +30,32 @@
   }
 
   /**
-   * Recursively walk an object returned from the server and convert any
-   * property whose name ends in "Id", "ID", "Challenge", "userId", or
-   * "userHandle" from base64url strings to Uint8Arrays, as required by
-   * the WebAuthn API.
+   * Decode the base64url-encoded binary fields in a PublicKeyCredential
+   * options object (creation or assertion) to Uint8Arrays, as required by
+   * the WebAuthn browser API.
    *
-   * parentKey is passed through recursive calls so that rp.id — which is a
-   * plain domain string, not base64url — is never decoded.
+   * Only the four field paths the WebAuthn spec defines as BufferSource are
+   * decoded; everything else (including rp.id, which is a plain domain string)
+   * is left untouched.
    */
-  function preparePublicKeyOptions(obj, parentKey) {
-    if (!obj || typeof obj !== 'object') return obj;
-    var out = Array.isArray(obj) ? [] : {};
-    for (var key in obj) {
-      if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
-      var val = obj[key];
-      // rp.id is a plain domain string — never decode it.
-      var isBase64Id = key === 'id' && parentKey !== 'rp';
-      if (typeof val === 'string' &&
-          (key === 'challenge' || isBase64Id || key === 'userId' || key === 'userHandle')) {
-        out[key] = base64urlToBytes(val);
-      } else if (typeof val === 'object' && val !== null) {
-        out[key] = preparePublicKeyOptions(val, key);
-      } else {
-        out[key] = val;
-      }
+  function preparePublicKeyOptions(opts) {
+    if (opts.challenge) {
+      opts.challenge = base64urlToBytes(opts.challenge);
     }
-    return out;
+    if (opts.user && opts.user.id) {
+      opts.user.id = base64urlToBytes(opts.user.id);
+    }
+    if (Array.isArray(opts.excludeCredentials)) {
+      opts.excludeCredentials = opts.excludeCredentials.map(function (c) {
+        return Object.assign({}, c, { id: base64urlToBytes(c.id) });
+      });
+    }
+    if (Array.isArray(opts.allowCredentials)) {
+      opts.allowCredentials = opts.allowCredentials.map(function (c) {
+        return Object.assign({}, c, { id: base64urlToBytes(c.id) });
+      });
+    }
+    return opts;
   }
 
   /**
