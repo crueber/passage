@@ -117,7 +117,13 @@
         var credential = await navigator.credentials.create({ publicKey: publicKey });
 
         // 4. Post the result to the server.
-        var finishResp = await fetch('/passkeys/register/finish', {
+        var nameInput = document.getElementById('passkey-name');
+        var nameVal = nameInput ? nameInput.value.trim() : '';
+        var finishURL = '/passkeys/register/finish';
+        if (nameVal) {
+          finishURL += '?name=' + encodeURIComponent(nameVal);
+        }
+        var finishResp = await fetch(finishURL, {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },

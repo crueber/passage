@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-webauthn/webauthn/protocol"
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/crueber/passage/internal/csrf"
@@ -25,6 +26,15 @@ type userLookup interface {
 	GetByID(ctx context.Context, id string) (*user.User, error)
 }
 
+// webAuthnCeremony is the minimal interface for the WebAuthn library operations
+// used by the Handler. Defined at the consumer boundary per Go convention.
+type webAuthnCeremony interface {
+	BeginRegistration(user gowebauthn.User, opts ...gowebauthn.RegistrationOption) (creation *protocol.CredentialCreation, session *gowebauthn.SessionData, err error)
+	FinishRegistration(user gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (credential *gowebauthn.Credential, err error)
+	BeginDiscoverableLogin(opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error)
+	FinishPasskeyLogin(handler gowebauthn.DiscoverableUserHandler, session gowebauthn.SessionData, r *http.Request) (gowebauthn.User, *gowebauthn.Credential, error)
+}
+
 // sessionCreator is the minimal interface for creating a session after passkey login.
 // Defined at the consumer boundary per Go convention.
 type sessionCreator interface {
@@ -33,7 +43,7 @@ type sessionCreator interface {
 
 // Handler handles all WebAuthn/passkey HTTP endpoints.
 type Handler struct {
-	wa         *gowebauthn.WebAuthn
+	wa         webAuthnCeremony
 	credStore  CredentialStore
 	challenges ChallengeStorer
 	users      userLookup
@@ -51,7 +61,7 @@ type sessionConfig struct {
 
 // NewHandler creates a new WebAuthn Handler.
 func NewHandler(
-	wa *gowebauthn.WebAuthn,
+	wa webAuthnCeremony,
 	credStore CredentialStore,
 	challenges ChallengeStorer,
 	users userLookup,
@@ -94,6 +104,7 @@ func (h *Handler) AuthRoutes(r chi.Router) {
 // ─── passkeys page ───────────────────────────────────────────────────────────
 
 type passkeysData struct {
+	User        *user.User
 	Credentials []*Credential
 	Flash       *user.Flash
 	CSRFToken   string
@@ -123,6 +134,7 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "passkeys.html", passkeysData{
+		User:        u,
 		Credentials: creds,
 		Flash:       flash,
 		CSRFToken:   csrf.TokenFromContext(r.Context()),
@@ -282,10 +294,15 @@ func (h *Handler) PostFinishRegistration(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	name := r.URL.Query().Get("name")
+	if runes := []rune(name); len(runes) > 64 {
+		name = string(runes[:64])
+	}
+
 	dbCred := &Credential{
 		ID:        credIDStr,
 		UserID:    u.ID,
-		Name:      "",
+		Name:      name,
 		PublicKey: pubKeyJSON,
 		SignCount: credential.Authenticator.SignCount,
 	}

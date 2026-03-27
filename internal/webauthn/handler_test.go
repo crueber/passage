@@ -3,15 +3,18 @@ package webauthn_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-webauthn/webauthn/protocol"
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/crueber/passage/internal/config"
@@ -386,5 +389,173 @@ func TestGetBeginLogin_ReturnsJSON(t *testing.T) {
 	}
 	if !foundAuthCookie {
 		t.Error("expected wa_auth_session cookie to be set in response")
+	}
+}
+
+// ─── fakes for PostFinishRegistration name tests ──────────────────────────────
+
+// fakeWebAuthn implements the webAuthnCeremony interface (unexported, satisfied
+// structurally) for use in PostFinishRegistration name tests.
+// FinishRegistration always succeeds and returns a minimal credential with ID = [1].
+type fakeWebAuthn struct{}
+
+func (fakeWebAuthn) BeginRegistration(u gowebauthn.User, opts ...gowebauthn.RegistrationOption) (*protocol.CredentialCreation, *gowebauthn.SessionData, error) {
+	return nil, nil, errors.New("not implemented in fake")
+}
+
+func (fakeWebAuthn) FinishRegistration(u gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (*gowebauthn.Credential, error) {
+	return &gowebauthn.Credential{
+		ID:        []byte{1},
+		PublicKey: []byte(`{}`),
+	}, nil
+}
+
+func (fakeWebAuthn) BeginDiscoverableLogin(opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
+	return nil, nil, errors.New("not implemented in fake")
+}
+
+func (fakeWebAuthn) FinishPasskeyLogin(handler gowebauthn.DiscoverableUserHandler, session gowebauthn.SessionData, r *http.Request) (gowebauthn.User, *gowebauthn.Credential, error) {
+	return nil, nil, errors.New("not implemented in fake")
+}
+
+// capturingCredStore implements CredentialStore; it captures the credential
+// passed to Create and delegates reads to an embedded SQLiteCredentialStore.
+type capturingCredStore struct {
+	*webauthn.SQLiteCredentialStore
+	created *webauthn.Credential
+}
+
+func (s *capturingCredStore) Create(ctx context.Context, cred *webauthn.Credential) error {
+	s.created = cred
+	return s.SQLiteCredentialStore.Create(ctx, cred)
+}
+
+// newFinishRegistrationFixture sets up a handlerFixture and a capturingCredStore
+// so subtests can assert on what Name was stored. Each subtest builds its own
+// Handler with a fresh ChallengeStore; this fixture deliberately does NOT
+// construct a Handler to avoid dead code.
+func newFinishRegistrationFixture(t *testing.T) (*handlerFixture, *capturingCredStore) {
+	t.Helper()
+	f := newHandlerFixture(t)
+
+	capturing := &capturingCredStore{
+		SQLiteCredentialStore: f.credStore,
+	}
+
+	return f, capturing
+}
+
+// seedRegistrationSession pre-loads a fake registration challenge and sets the
+// wa_reg_session cookie on the request so PostFinishRegistration finds a session.
+func seedRegistrationSession(t *testing.T, req *http.Request, challenges *webauthn.ChallengeStore) {
+	t.Helper()
+	sessionID := "test-session-id"
+	challenges.SetRegistration(sessionID, gowebauthn.SessionData{})
+	req.AddCookie(&http.Cookie{Name: "wa_reg_session", Value: sessionID})
+}
+
+// TestPostFinishRegistration_Name verifies that the stored credential Name
+// reflects the ?name= query parameter, handles the empty case, and truncates
+// names longer than 64 characters.
+func TestPostFinishRegistration_Name(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		query    string
+		wantName string
+	}{
+		{
+			name:     "with name",
+			query:    "?name=MyKey",
+			wantName: "MyKey",
+		},
+		{
+			name:     "without name",
+			query:    "",
+			wantName: "",
+		},
+		{
+			name:     "name truncation",
+			query:    "?name=" + strings.Repeat("a", 65),
+			wantName: strings.Repeat("a", 64),
+		},
+		{
+			name:     "name truncation multibyte",
+			query:    "?name=" + url.QueryEscape(strings.Repeat("あ", 65)),
+			wantName: strings.Repeat("あ", 64),
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f, capturing := newFinishRegistrationFixture(t)
+
+			// Register a user and create a session.
+			_, err := f.userSvc.Register(context.Background(), "finuser-"+tc.name, "finuser@example.com", "password123")
+			if err != nil {
+				t.Fatalf("register user: %v", err)
+			}
+			u, err := f.userStore.GetByUsername(context.Background(), "finuser-"+tc.name)
+			if err != nil {
+				t.Fatalf("get user: %v", err)
+			}
+			token, _, err := f.sessionSvc.CreateSession(context.Background(), u.ID, nil, "127.0.0.1", "test")
+			if err != nil {
+				t.Fatalf("create session: %v", err)
+			}
+
+			challenges := webauthn.NewChallengeStore()
+
+			// Build a handler with this specific challenge store.
+			tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+				"csrfField": func(_ string) template.HTML { return "" },
+			})
+			if err != nil {
+				t.Fatalf("parse templates: %v", err)
+			}
+			logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+			h := webauthn.NewHandler(
+				fakeWebAuthn{},
+				capturing,
+				challenges,
+				f.userStore,
+				f.sessionSvc,
+				f.cfg.Session.CookieName,
+				f.cfg.Session.CookieSecure,
+				tmpl,
+				logger,
+			)
+
+			router := chi.NewRouter()
+			router.Group(func(r chi.Router) {
+				r.Use(session.RequireSession(f.sessionSvc, f.cfg))
+				h.ProfileRoutes(r)
+			})
+
+			req := httptest.NewRequest(http.MethodPost, "/passkeys/register/finish"+tc.query, strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: token})
+			seedRegistrationSession(t, req, challenges)
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			res := rec.Result()
+			if res.StatusCode != http.StatusCreated {
+				body, _ := io.ReadAll(res.Body)
+				t.Fatalf("got %d, want 201; body: %s", res.StatusCode, body)
+			}
+
+			if capturing.created == nil {
+				t.Fatal("expected credential to be stored, but Create was never called")
+			}
+			if capturing.created.Name != tc.wantName {
+				t.Errorf("credential Name: got %q, want %q", capturing.created.Name, tc.wantName)
+			}
+		})
 	}
 }
