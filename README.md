@@ -1,37 +1,32 @@
 # Passage
 
-A self-hosted authentication proxy for home labs. Implements the **forward-auth pattern** so that Nginx, Traefik, or Caddy can delegate all authentication decisions to a single lightweight service — your apps never handle logins.
+A self-hosted authentication service for home labs. Passage provides a single front door for all your self-hosted applications — users log in once, and every app they access can trust that identity.
 
 ---
 
 ## How it works
 
-Your reverse proxy intercepts every incoming request and asks Passage: *"Is this user authenticated and allowed to access this app?"* Passage checks the session cookie and app-access grant, then returns `200 OK` (proceed) or `401` (redirect to login). The protected application never sees unauthenticated traffic.
+Passage is an **OAuth 2.0 / OpenID Connect (OIDC) identity provider**. Applications delegate authentication to Passage using the standard authorization code flow. Users log in at Passage and are redirected back to the application with a verified identity — no per-app login screens, no duplicated credential stores.
 
 ```
-Browser → Nginx/Traefik → Passage /auth/nginx ──→ 200 OK + identity headers
-                        ↑                                    ↓
-                        └── protected app ←── upstream service
+Browser → App → Passage /oauth/authorize → login → redirect back with code
+              ↓
+         App exchanges code for tokens → id_token contains verified user identity
 ```
 
-On `401`, the reverse proxy redirects the browser to Passage's login page, which sets a session cookie after successful authentication, then bounces the user back to where they were going.
+Any application that speaks OAuth 2.0 or OIDC works out of the box: Grafana, Gitea, Nextcloud, Jellyfin, and hundreds more.
 
-
-### Alternatively
-
-You can use Passage as an OAuth 2/OIDC provider.
+Passage also supports the **forward-auth pattern** for reverse proxies (Nginx, Traefik) as an alternative for applications with no built-in auth support — see [docs/forward-auth.md](docs/forward-auth.md).
 
 ---
 
 ## Features
 
-The single biggest, most important feature: Simplicity. This is built for homelabs, not for enterprise deployment. Which isn't to say that you couldn't use it in an enterprise, but it is not meant to have tons of auth scopes or alterable auth screens, et al. It's the front door. The first point of entry. No more messing with auth in apps, just setup oauth or forwarding auth and call it a day.]
+The single biggest, most important feature: **simplicity**. Passage is built for homelabs, not enterprise deployment. It is not meant to have dozens of auth scopes, brandable screens, or complex policy engines. It is the front door — one place to log in, one place to manage who has access to what.
 
+- **OAuth 2.0 / OIDC Provider** — act as an OpenID Connect identity provider for downstream apps; standard authorization code flow with `openid profile email` scopes
 - **Username + password login** — bcrypt-hashed credentials stored in SQLite (cost configurable, default 12)
 - **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and log in without a password
-- **OAuth 2.0 / OIDC Provider** — act as an OpenID Connect identity provider for downstream apps (Grafana, Gitea, etc.)
-- **Identity headers** — on successful auth, Passage forwards user metadata to your upstream apps:
-  - `X-Passage-Username`, `X-Passage-Email`, `X-Passage-Name`, `X-Passage-User-ID`, `X-Passage-Is-Admin`
 - **Per-app access control** — grant or revoke each user's access to each registered application independently
 - **Admin web UI** — manage users, apps, sessions, and settings without touching config files
 - **Self-registration** — optionally let users create their own accounts (togglable by admin at runtime)
@@ -199,82 +194,9 @@ Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → 
 
 ---
 
-## Reverse proxy integration
-
-### Nginx
-
-Passage exposes `/auth/nginx` for use with Nginx's `auth_request` module.
-
-```nginx
-# In your server {} block for the protected application
-location /auth/ {
-    internal;
-    proxy_pass              http://localhost:8080;
-    proxy_pass_request_body off;
-    proxy_set_header        Content-Length "";
-    proxy_set_header        X-Original-URL $scheme://$http_host$request_uri;
-}
-
-location / {
-    auth_request /auth/nginx;
-    error_page 401 403 = @login;
-
-    # Forward identity headers to your upstream
-    auth_request_set $passage_user  $upstream_http_x_passage_username;
-    auth_request_set $passage_email $upstream_http_x_passage_email;
-    auth_request_set $passage_name  $upstream_http_x_passage_name;
-    auth_request_set $passage_uid   $upstream_http_x_passage_user_id;
-    auth_request_set $passage_admin $upstream_http_x_passage_is_admin;
-
-    proxy_set_header X-Passage-Username $passage_user;
-    proxy_set_header X-Passage-Email    $passage_email;
-    proxy_set_header X-Passage-Name     $passage_name;
-    proxy_set_header X-Passage-User-ID  $passage_uid;
-    proxy_set_header X-Passage-Is-Admin $passage_admin;
-
-    proxy_pass http://your-upstream-service;
-}
-
-location @login {
-    return 302 https://auth.home.example.com/auth/start?rd=$request_uri;
-}
-```
-
-See [`docs/nginx-example.conf`](docs/nginx-example.conf) for the full annotated example.
-
-### Traefik
-
-Passage exposes `/auth/traefik` for use with Traefik's `forwardAuth` middleware.
-
-```yaml
-http:
-  middlewares:
-    passage-auth:
-      forwardAuth:
-        address: "http://passage:8080/auth/traefik"
-        authResponseHeaders:
-          - "X-Passage-Username"
-          - "X-Passage-Email"
-          - "X-Passage-Name"
-          - "X-Passage-User-ID"
-          - "X-Passage-Is-Admin"
-        trustForwardHeader: true
-
-  routers:
-    my-app:
-      rule: "Host(`myapp.home.example.com`)"
-      middlewares:
-        - passage-auth
-      service: my-app-service
-```
-
-See [`docs/traefik-example.yaml`](docs/traefik-example.yaml) for the full annotated example.
-
----
-
 ## OAuth 2.0 / OIDC Provider
 
-Passage can act as an OpenID Connect identity provider for downstream applications (Grafana, Gitea, Nextcloud, etc.) using the standard authorization code flow.
+Passage acts as an OpenID Connect identity provider for downstream applications (Grafana, Gitea, Nextcloud, etc.) using the standard authorization code flow.
 
 > **Requirement**: `server.base_url` (or `PASSAGE_SERVER_BASE_URL`) must be set to Passage's public URL for OIDC discovery to work correctly.
 
@@ -294,7 +216,7 @@ The RSA signing key is auto-generated on first start and stored in the database 
 
 1. In the Passage admin UI, open an application and enable OAuth. Generate OAuth credentials to receive a `client_id` and `client_secret`.
 2. Add the downstream app's callback URL(s) as allowed redirect URIs.
-3. Use the `client_id` and `client_secret` in the downstream application's OAuth/OIDC configuration, pointing at Passage's `base_url`.
+3. Configure the downstream application with the `client_id`, `client_secret`, and Passage's `base_url` as the issuer.
 
 ### Grafana example (Generic OAuth)
 
@@ -314,6 +236,12 @@ role_attribute_path = is_admin && 'Admin' || 'Viewer'
 ```
 
 id_tokens are signed with RS256. Grafana (and any OIDC-compliant library) can verify them automatically via the JWKS endpoint.
+
+---
+
+## Forward-auth (reverse proxy)
+
+For applications without native OAuth/OIDC support, Passage supports the forward-auth pattern with Nginx and Traefik. See [docs/forward-auth.md](docs/forward-auth.md) for setup instructions.
 
 ---
 
