@@ -400,6 +400,10 @@ func (s *Service) buildIDToken(u *user.User, clientID string, authTime time.Time
 		"email":              u.Email,
 		"preferred_username": u.Username,
 		"is_admin":           u.IsAdmin,
+		// email_verified is required by OIDC Core §5.1. Passage is a
+		// self-hosted IdP where all accounts are admin-created, so all
+		// stored addresses are considered administratively verified.
+		"email_verified": true,
 	}
 	// auth_time is included only when the original authentication time is known.
 	// On token refresh, authTime is zero and the claim is deliberately omitted.

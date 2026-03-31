@@ -474,18 +474,26 @@ func TestHandler_UserInfo_Valid(t *testing.T) {
 		t.Fatalf("UserInfo valid: status %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 
-	var info map[string]string
+	var info map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&info); err != nil {
 		t.Fatalf("UserInfo valid: decode: %v", err)
 	}
-	if info["sub"] != testUser.ID {
-		t.Errorf("UserInfo sub: got %q, want %q", info["sub"], testUser.ID)
+	if sub, _ := info["sub"].(string); sub != testUser.ID {
+		t.Errorf("UserInfo sub: got %q, want %q", sub, testUser.ID)
 	}
-	if info["email"] != testUser.Email {
-		t.Errorf("UserInfo email: got %q, want %q", info["email"], testUser.Email)
+	if email, _ := info["email"].(string); email != testUser.Email {
+		t.Errorf("UserInfo email: got %q, want %q", email, testUser.Email)
 	}
-	if info["preferred_username"] != testUser.Username {
-		t.Errorf("UserInfo preferred_username: got %q, want %q", info["preferred_username"], testUser.Username)
+	if username, _ := info["preferred_username"].(string); username != testUser.Username {
+		t.Errorf("UserInfo preferred_username: got %q, want %q", username, testUser.Username)
+	}
+	// email_verified must be the JSON boolean true — Grist and other OIDC
+	// clients use a strict === true check; a string "true" is not sufficient.
+	emailVerified, ok := info["email_verified"].(bool)
+	if !ok {
+		t.Errorf("UserInfo email_verified: expected bool, got %T", info["email_verified"])
+	} else if !emailVerified {
+		t.Errorf("UserInfo email_verified: got false, want true")
 	}
 }
 

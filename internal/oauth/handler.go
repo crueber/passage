@@ -82,7 +82,7 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 		"scopes_supported":                      []string{"openid", "profile", "email"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "preferred_username"},
+		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "email_verified", "preferred_username"},
 		"nonce_supported":                       true,
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
 	}
@@ -331,11 +331,16 @@ func (h *Handler) UserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]string{
+	h.writeJSON(w, http.StatusOK, map[string]any{
 		"sub":                u.ID,
 		"name":               u.Name,
 		"email":              u.Email,
 		"preferred_username": u.Username,
+		// email_verified is required by OIDC Core §5.1 and checked by many
+		// OIDC clients (e.g. Grist). Passage is a self-hosted IdP where an
+		// admin creates and controls all accounts, so all stored addresses
+		// are considered administratively verified.
+		"email_verified": true,
 	})
 }
 
