@@ -1173,3 +1173,108 @@ func TestHandler_AuthCodeFlow_EndToEnd_PKCE(t *testing.T) {
 		t.Errorf("userinfo sub: got %q, want %q", sub, testUser.ID)
 	}
 }
+
+// TestHandler_Authorize_ErrorRouting verifies that the /oauth/authorize endpoint
+// returns the correct RFC 6749 error code and description for each distinct
+// failure mode. Previously, ErrOAuthNotEnabled and ErrRedirectURIMismatch were
+// both incorrectly mapped to the PKCE error message "invalid code_challenge or
+// code_challenge_method", which masked the true cause of failures for non-PKCE
+// clients.
+func TestHandler_Authorize_ErrorRouting(t *testing.T) {
+	const (
+		clientID    = "client-error-routing"
+		plainSecret = "test-secret"
+		redirectURI = "https://example.com/callback"
+	)
+
+	tests := []struct {
+		name            string
+		oauthEnabled    bool
+		requestClientID string
+		requestRedirect string
+		// code_challenge is intentionally empty for all cases — this tests
+		// that non-PKCE requests are diagnosed correctly.
+		wantStatus int
+		wantError  string
+		wantDesc   string
+	}{
+		{
+			name:            "oauth_not_enabled_returns_unauthorized_client",
+			oauthEnabled:    false,
+			requestClientID: clientID,
+			requestRedirect: redirectURI,
+			wantStatus:      http.StatusBadRequest,
+			wantError:       "unauthorized_client",
+			wantDesc:        "OAuth is not enabled for this client",
+		},
+		{
+			name:            "redirect_uri_mismatch_returns_specific_message",
+			oauthEnabled:    true,
+			requestClientID: clientID,
+			requestRedirect: "https://evil.example.com/callback",
+			wantStatus:      http.StatusBadRequest,
+			wantError:       "invalid_request",
+			wantDesc:        "redirect_uri does not match registered URIs",
+		},
+		{
+			// Regression: neither of the above should ever return the PKCE
+			// error message when no code_challenge was sent.
+			name:            "redirect_uri_mismatch_does_not_mention_pkce",
+			oauthEnabled:    true,
+			requestClientID: clientID,
+			requestRedirect: "https://evil.example.com/callback",
+			wantStatus:      http.StatusBadRequest,
+			wantError:       "invalid_request",
+			wantDesc:        "redirect_uri does not match registered URIs",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hash, _ := bcrypt.GenerateFromPassword([]byte(plainSecret), 10)
+			testApp := &app.App{
+				ClientID:         clientID,
+				ClientSecretHash: string(hash),
+				RedirectURIs:     []string{redirectURI},
+				OAuthEnabled:     tc.oauthEnabled,
+			}
+			testUser := &user.User{Username: "frank", Email: "frank@example.com", Name: "Frank"}
+
+			sv := &fakeSessionValidator{}
+			stack := buildHandlerTestStack(t, sv, testApp, testUser)
+			sv.sess = &session.Session{ID: "sess-routing", UserID: testUser.ID}
+			sv.u = testUser
+
+			r := newTestRouter(stack.handler)
+
+			reqURL := fmt.Sprintf(
+				"/oauth/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=openid",
+				tc.requestClientID,
+				url.QueryEscape(tc.requestRedirect),
+			)
+			req := httptest.NewRequest(http.MethodGet, reqURL, nil)
+			req.AddCookie(&http.Cookie{Name: "passage_session", Value: "sess-token"})
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status: got %d, want %d; body: %s", w.Code, tc.wantStatus, w.Body.String())
+			}
+
+			var body map[string]string
+			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+				t.Fatalf("decode response body: %v", err)
+			}
+			if body["error"] != tc.wantError {
+				t.Errorf("error: got %q, want %q", body["error"], tc.wantError)
+			}
+			if body["error_description"] != tc.wantDesc {
+				t.Errorf("error_description: got %q, want %q", body["error_description"], tc.wantDesc)
+			}
+			// Regression guard: none of these cases should blame PKCE.
+			if body["error_description"] == "invalid code_challenge or code_challenge_method" {
+				t.Errorf("error_description incorrectly mentions PKCE for a non-PKCE request")
+			}
+		})
+	}
+}

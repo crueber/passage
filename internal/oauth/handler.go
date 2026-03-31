@@ -173,13 +173,20 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	// Attempt to authorize.
 	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod, sess.CreatedAt, u.ID)
 	if err != nil {
-		if errors.Is(err, app.ErrRedirectURIMismatch) || errors.Is(err, app.ErrOAuthNotEnabled) || errors.Is(err, ErrPKCEVerificationFailed) {
+		switch {
+		case errors.Is(err, app.ErrOAuthNotEnabled):
+			h.writeJSONError(w, http.StatusBadRequest, "unauthorized_client",
+				"OAuth is not enabled for this client")
+		case errors.Is(err, app.ErrRedirectURIMismatch):
+			h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
+				"redirect_uri does not match registered URIs")
+		case errors.Is(err, ErrPKCEVerificationFailed):
 			h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
 				"invalid code_challenge or code_challenge_method")
-			return
+		default:
+			h.logger.Warn("oauth authorize: access denied", "user_id", u.ID, "error", err)
+			h.writeJSONError(w, http.StatusForbidden, "access_denied", err.Error())
 		}
-		h.logger.Warn("oauth authorize: access denied", "user_id", u.ID, "error", err)
-		h.writeJSONError(w, http.StatusForbidden, "access_denied", err.Error())
 		return
 	}
 
