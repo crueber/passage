@@ -528,3 +528,94 @@ func TestCreate_DefaultURL(t *testing.T) {
 		t.Errorf("DefaultURL: got %q, want %q", got.DefaultURL, a.DefaultURL)
 	}
 }
+
+// TestSessionDurationHoursRoundTrip verifies that SessionDurationHours is
+// persisted and retrieved correctly for both non-zero and zero values.
+func TestSessionDurationHoursRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name                 string
+		sessionDurationHours int
+	}{
+		{
+			name:                 "non-zero value round-trips",
+			sessionDurationHours: 48,
+		},
+		{
+			name:                 "zero value round-trips",
+			sessionDurationHours: 0,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc, _ := newService(t)
+			ctx := context.Background()
+
+			a := &app.App{
+				Slug:                 "durationapp-" + tc.name,
+				Name:                 "Duration App",
+				HostPattern:          "durationapp.home.example.com",
+				IsActive:             true,
+				SessionDurationHours: tc.sessionDurationHours,
+			}
+			if err := svc.Create(ctx, a); err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+
+			got, err := svc.GetByID(ctx, a.ID)
+			if err != nil {
+				t.Fatalf("GetByID after Create: %v", err)
+			}
+			if got.SessionDurationHours != tc.sessionDurationHours {
+				t.Errorf("SessionDurationHours after Create: got %d, want %d",
+					got.SessionDurationHours, tc.sessionDurationHours)
+			}
+		})
+	}
+}
+
+// TestSessionDurationHoursUpdate verifies that SessionDurationHours can be
+// written via Create, then changed and persisted via Update.
+func TestSessionDurationHoursUpdate(t *testing.T) {
+	t.Parallel()
+	svc, _ := newService(t)
+	ctx := context.Background()
+
+	// Step 1: create with SessionDurationHours = 48.
+	a := &app.App{
+		Slug:                 "updatedurationapp",
+		Name:                 "Update Duration App",
+		HostPattern:          "updatedurationapp.home.example.com",
+		IsActive:             true,
+		SessionDurationHours: 48,
+	}
+	if err := svc.Create(ctx, a); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := svc.GetByID(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetByID after Create: %v", err)
+	}
+	if got.SessionDurationHours != 48 {
+		t.Errorf("SessionDurationHours after Create: got %d, want 48", got.SessionDurationHours)
+	}
+
+	// Step 2: update SessionDurationHours to 0 (revert to global default).
+	got.SessionDurationHours = 0
+	if err := svc.Update(ctx, got); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	reloaded, err := svc.GetByID(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetByID after Update: %v", err)
+	}
+	if reloaded.SessionDurationHours != 0 {
+		t.Errorf("SessionDurationHours after Update to 0: got %d, want 0", reloaded.SessionDurationHours)
+	}
+}

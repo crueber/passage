@@ -11,12 +11,14 @@ import (
 
 // selectAppColumns is the ordered list of columns returned by all app SELECT
 // queries. It must stay in sync with scanApp.
-const selectAppColumns = `id, slug, name, description, host_pattern, default_url, is_active, created_at, updated_at,
+const selectAppColumns = `id, slug, name, description, host_pattern, default_url, is_active,
+		session_duration_hours, created_at, updated_at,
 		client_id, client_secret_hash, redirect_uris, oauth_enabled`
 
 // selectAppColumnsAliased is the same column list but prefixed with a table
 // alias "a." for use in queries that JOIN other tables to avoid ambiguity.
-const selectAppColumnsAliased = `a.id, a.slug, a.name, a.description, a.host_pattern, a.default_url, a.is_active, a.created_at, a.updated_at,
+const selectAppColumnsAliased = `a.id, a.slug, a.name, a.description, a.host_pattern, a.default_url, a.is_active,
+		a.session_duration_hours, a.created_at, a.updated_at,
 		a.client_id, a.client_secret_hash, a.redirect_uris, a.oauth_enabled`
 
 // SQLiteStore implements Store and AccessStore using a SQLite database.
@@ -57,13 +59,14 @@ func (s *SQLiteStore) Create(ctx context.Context, a *App) error {
 	a.UpdatedAt = now
 
 	const query = `
-		INSERT INTO apps (id, slug, name, description, host_pattern, default_url, is_active, created_at, updated_at,
+		INSERT INTO apps (id, slug, name, description, host_pattern, default_url, is_active,
+		                  session_duration_hours, created_at, updated_at,
 		                  client_id, client_secret_hash, redirect_uris, oauth_enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		a.ID, a.Slug, a.Name, a.Description, a.HostPattern, a.DefaultURL,
-		boolToInt(a.IsActive), a.CreatedAt, a.UpdatedAt,
+		boolToInt(a.IsActive), a.SessionDurationHours, a.CreatedAt, a.UpdatedAt,
 		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
 		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
 	)
@@ -156,13 +159,14 @@ func (s *SQLiteStore) Update(ctx context.Context, a *App) error {
 
 	const query = `
 		UPDATE apps
-		SET slug = ?, name = ?, description = ?, host_pattern = ?, default_url = ?, is_active = ?, updated_at = ?,
+		SET slug = ?, name = ?, description = ?, host_pattern = ?, default_url = ?,
+		    is_active = ?, session_duration_hours = ?, updated_at = ?,
 		    client_id = ?, client_secret_hash = ?, redirect_uris = ?, oauth_enabled = ?
 		WHERE id = ?`
 
 	res, err := s.db.ExecContext(ctx, query,
 		a.Slug, a.Name, a.Description, a.HostPattern, a.DefaultURL,
-		boolToInt(a.IsActive), a.UpdatedAt,
+		boolToInt(a.IsActive), a.SessionDurationHours, a.UpdatedAt,
 		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
 		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
 		a.ID,
@@ -286,7 +290,7 @@ func scanApp(s appScanner) (*App, error) {
 	var redirectURIsRaw string
 	err := s.Scan(
 		&a.ID, &a.Slug, &a.Name, &a.Description, &a.HostPattern, &a.DefaultURL,
-		&isActive, &a.CreatedAt, &a.UpdatedAt,
+		&isActive, &a.SessionDurationHours, &a.CreatedAt, &a.UpdatedAt,
 		&clientID, &clientSecretHash, &redirectURIsRaw, &oauthEnabled,
 	)
 	if err != nil {

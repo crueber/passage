@@ -80,7 +80,7 @@ func newFixture(t *testing.T) *fixture {
 	userSvc := user.NewService(userStore, userStore, cfg)
 
 	sessionStore := session.NewStore(database)
-	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
 
 	appStore := app.NewStore(database)
 	appSvc := app.NewService(appStore, appStore, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
@@ -1946,6 +1946,177 @@ func TestAdminApps_Create_DefaultURL(t *testing.T) {
 				if !strings.Contains(body, "Default URL must start with http:// or https://") {
 					t.Errorf("default_url %q: response does not contain expected error message; got: %s", tc.defaultURL, body)
 				}
+			}
+		})
+	}
+}
+
+// ─── PostCreateApp session_duration_hours validation ──────────────────────────
+
+func TestPostCreateApp_SessionDuration(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                     string
+		inputValue               string
+		wantStatus               int // http.StatusFound = success redirect; http.StatusOK = re-render
+		wantSessionDurationHours int // only checked when wantStatus == http.StatusFound
+	}{
+		{
+			name:                     "blank uses global default",
+			inputValue:               "",
+			wantStatus:               http.StatusFound,
+			wantSessionDurationHours: 0,
+		},
+		{
+			name:                     "zero uses global default",
+			inputValue:               "0",
+			wantStatus:               http.StatusFound,
+			wantSessionDurationHours: 0,
+		},
+		{
+			name:                     "positive integer sets override",
+			inputValue:               "48",
+			wantStatus:               http.StatusFound,
+			wantSessionDurationHours: 48,
+		},
+		{
+			name:       "negative integer is rejected",
+			inputValue: "-1",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "non-numeric value is rejected",
+			inputValue: "abc",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+			token := createSession(t, f, adminUser.ID)
+			router := buildAdminRouter(f)
+
+			form := url.Values{}
+			form.Set("slug", "session-duration-test")
+			form.Set("name", "Session Duration Test")
+			form.Set("is_active", "on")
+			form.Set("session_duration_hours", tc.inputValue)
+
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+			res := rec.Result()
+
+			if res.StatusCode != tc.wantStatus {
+				t.Errorf("session_duration_hours %q: got status %d, want %d", tc.inputValue, res.StatusCode, tc.wantStatus)
+			}
+
+			if tc.wantStatus == http.StatusOK {
+				body := rec.Body.String()
+				if !strings.Contains(body, "Session duration must be a non-negative integer") {
+					t.Errorf("session_duration_hours %q: response does not contain expected error message; got: %s", tc.inputValue, body)
+				}
+				return
+			}
+
+			// Redirect case: verify the stored value.
+			created, err := f.appStore.GetBySlug(context.Background(), "session-duration-test")
+			if err != nil {
+				t.Fatalf("get app by slug: %v", err)
+			}
+			if created.SessionDurationHours != tc.wantSessionDurationHours {
+				t.Errorf("session_duration_hours %q: got SessionDurationHours %d, want %d",
+					tc.inputValue, created.SessionDurationHours, tc.wantSessionDurationHours)
+			}
+		})
+	}
+}
+
+// ─── PostUpdateApp session_duration_hours validation ──────────────────────────
+
+func TestPostUpdateApp_SessionDuration(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                     string
+		inputValue               string
+		wantStatus               int // http.StatusFound = success redirect; http.StatusOK = re-render
+		wantSessionDurationHours int // only checked when wantStatus == http.StatusFound
+	}{
+		{
+			name:                     "positive integer sets override",
+			inputValue:               "72",
+			wantStatus:               http.StatusFound,
+			wantSessionDurationHours: 72,
+		},
+		{
+			name:                     "zero clears override",
+			inputValue:               "0",
+			wantStatus:               http.StatusFound,
+			wantSessionDurationHours: 0,
+		},
+		{
+			name:       "negative integer is rejected",
+			inputValue: "-5",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+			token := createSession(t, f, adminUser.ID)
+			router := buildAdminRouter(f)
+			ctx := context.Background()
+
+			// Create the app first.
+			if err := f.appSvc.Create(ctx, &app.App{
+				Slug:        "update-session-duration-app",
+				Name:        "Update Session Duration App",
+				HostPattern: "update-session-duration.example.com",
+				IsActive:    true,
+			}); err != nil {
+				t.Fatalf("create app: %v", err)
+			}
+			created, err := f.appStore.GetBySlug(ctx, "update-session-duration-app")
+			if err != nil {
+				t.Fatalf("get app by slug: %v", err)
+			}
+
+			form := url.Values{}
+			form.Set("slug", "update-session-duration-app")
+			form.Set("name", "Update Session Duration App")
+			form.Set("host_pattern", "update-session-duration.example.com")
+			form.Set("is_active", "on")
+			form.Set("session_duration_hours", tc.inputValue)
+
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+			res := rec.Result()
+
+			if res.StatusCode != tc.wantStatus {
+				t.Errorf("session_duration_hours %q: got status %d, want %d", tc.inputValue, res.StatusCode, tc.wantStatus)
+			}
+
+			if tc.wantStatus == http.StatusOK {
+				body := rec.Body.String()
+				if !strings.Contains(body, "Session duration must be a non-negative integer") {
+					t.Errorf("session_duration_hours %q: response does not contain expected error message; got: %s", tc.inputValue, body)
+				}
+				return
+			}
+
+			// Redirect case: verify the stored value.
+			updated, err := f.appStore.GetByID(ctx, created.ID)
+			if err != nil {
+				t.Fatalf("get updated app: %v", err)
+			}
+			if updated.SessionDurationHours != tc.wantSessionDurationHours {
+				t.Errorf("session_duration_hours %q: got SessionDurationHours %d, want %d",
+					tc.inputValue, updated.SessionDurationHours, tc.wantSessionDurationHours)
 			}
 		})
 	}

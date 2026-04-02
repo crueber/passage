@@ -758,6 +758,24 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		IsActive:    r.FormValue("is_active") == "on",
 	}
 
+	// Parse optional per-app session duration override.
+	var appSessionDuration int
+	if raw := strings.TrimSpace(r.FormValue("session_duration_hours")); raw != "" && raw != "0" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			h.render(w, r, "admin-app-form", appFormData{
+				basePage: h.baseFlash(r, "apps", &Flash{Type: "error",
+					Message: "Session duration must be a non-negative integer (0 = use global default)."}),
+				EditApp: a,
+				IsNew:   true,
+				BaseURL: h.baseURL(),
+			})
+			return
+		}
+		appSessionDuration = n
+	}
+	a.SessionDurationHours = appSessionDuration
+
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
@@ -855,6 +873,24 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	a.HostPattern = strings.TrimSpace(r.FormValue("host_pattern"))
 	a.DefaultURL = strings.TrimSpace(r.FormValue("default_url"))
 	a.IsActive = r.FormValue("is_active") == "on"
+
+	// Parse optional per-app session duration override.
+	var appSessionDuration int
+	if raw := strings.TrimSpace(r.FormValue("session_duration_hours")); raw != "" && raw != "0" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			h.render(w, r, "admin-app-form", appFormData{
+				basePage: h.baseFlash(r, "apps", &Flash{Type: "error",
+					Message: "Session duration must be a non-negative integer (0 = use global default)."}),
+				EditApp: a,
+				IsNew:   false,
+				BaseURL: h.baseURL(),
+			})
+			return
+		}
+		appSessionDuration = n
+	}
+	a.SessionDurationHours = appSessionDuration
 
 	// Parse redirect_uris from textarea (one per line, trim whitespace, drop blanks).
 	rawURIs := r.FormValue("redirect_uris")

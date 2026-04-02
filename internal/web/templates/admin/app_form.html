@@ -66,6 +66,19 @@
                 <p class="help">Optional. Used as the launch link on the user dashboard.</p>
               </div>
 
+              <div class="field">
+                <label class="label" for="session_duration_hours">Session Duration (hours)</label>
+                <div class="control">
+                  <input class="input" type="number" id="session_duration_hours"
+                         name="session_duration_hours" min="0" max="8760" autocomplete="off"
+                         value="{{if and .EditApp (gt .EditApp.SessionDurationHours 0)}}{{.EditApp.SessionDurationHours}}{{end}}">
+                </div>
+                <p class="help">
+                  Override the global session lifetime for this app.
+                  Leave blank or set to 0 to use the global default.
+                </p>
+              </div>
+
               {{if not .IsNew}}
               <div class="field">
                 <label class="label" for="redirect_uris">Redirect URIs <span class="has-text-weight-normal is-size-7">(one per line)</span></label>

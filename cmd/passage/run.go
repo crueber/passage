@@ -40,6 +40,22 @@ import (
 // version is set at build time via -ldflags "-X main.version=1.0.0".
 var version = "dev"
 
+// appDurationAdapter adapts the app store to session.appDurationReader.
+// It is unexported and lives at the wiring layer to avoid cross-package coupling.
+type appDurationAdapter struct {
+	store interface {
+		GetByID(ctx context.Context, id string) (*app.App, error)
+	}
+}
+
+func (a *appDurationAdapter) GetSessionDurationHours(ctx context.Context, appID string) (int, error) {
+	ap, err := a.store.GetByID(ctx, appID)
+	if err != nil {
+		return 0, err
+	}
+	return ap.SessionDurationHours, nil
+}
+
 func run() error {
 	// Parse flags.
 	configPath := flag.String("config", "passage.yaml", "path to configuration file")
@@ -76,8 +92,11 @@ func run() error {
 	// the session_duration_hours setting on every new session.
 	settingsStore := admin.NewSQLiteSettingsStore(database)
 
+	// Build app store early so sessionSvc can use per-app duration overrides.
+	appStore := app.NewStore(database)
+
 	sessionStore := session.NewStore(database)
-	sessionSvc := session.NewService(sessionStore, userStore, settingsStore, cfg, logger)
+	sessionSvc := session.NewService(sessionStore, userStore, settingsStore, &appDurationAdapter{store: appStore}, cfg, logger)
 
 	// Build email sender.
 	mailer, err := email.NewSMTPSender(cfg, logger)
@@ -98,8 +117,7 @@ func run() error {
 		return fmt.Errorf("parse templates: %w", err)
 	}
 
-	// Build app store and service.
-	appStore := app.NewStore(database)
+	// Build app service.
 	appSvc := app.NewService(appStore, appStore, logger)
 
 	// Load or generate the OIDC RSA signing key.

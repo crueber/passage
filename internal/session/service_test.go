@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
 
+	applib "github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
@@ -39,8 +41,8 @@ func setup(t *testing.T) (userSvc *user.Service, userStore *user.SQLiteStore, se
 	userSvc = user.NewService(userStore, userStore, cfg)
 
 	sessionStore := session.NewStore(db)
-	// nil settings: fall back to cfg.Session.DurationHours (24h).
-	sessionSvc = session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
+	// nil settings, nil apps: fall back to cfg.Session.DurationHours (24h).
+	sessionSvc = session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 
 	ctx := context.Background()
 	u, err := userSvc.Register(ctx, "tester", "tester@example.com", "password123")
@@ -144,7 +146,7 @@ func TestValidateSession_Expired(t *testing.T) {
 	// Use a 0-hour duration so sessions expire immediately.
 	expiredCfg := *cfg
 	expiredCfg.Session.DurationHours = 0
-	sessionSvc := session.NewService(sessionStore, userStore, nil, &expiredCfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, &expiredCfg, slog.Default())
 
 	ctx := context.Background()
 	u, err := userSvc.Register(ctx, "expiry_user", "expiry@example.com", "password123")
@@ -221,7 +223,7 @@ func TestListByUser(t *testing.T) {
 	cfg := testConfig()
 	userSvc := user.NewService(userStore, userStore, cfg)
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	ctx := context.Background()
 
 	// Register two distinct users.
@@ -310,7 +312,7 @@ func TestNewSession_UsesDurationFromDB(t *testing.T) {
 	// DB setting overrides config: 48 hours.
 	settings := &stubSettings{data: map[string]string{"session_duration_hours": "48"}}
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, settings, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, settings, nil, cfg, slog.Default())
 
 	ctx := context.Background()
 	u, err := userSvc.Register(ctx, "db_duration_user", "dbdur@example.com", "password123")
@@ -343,7 +345,7 @@ func TestNewSession_FallsBackToConfig(t *testing.T) {
 	// Settings store has no "session_duration_hours" key.
 	settings := &stubSettings{data: map[string]string{}}
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, settings, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, settings, nil, cfg, slog.Default())
 
 	ctx := context.Background()
 	u, err := userSvc.Register(ctx, "fallback_user", "fallback@example.com", "password123")
@@ -373,7 +375,7 @@ func TestDeleteByUser(t *testing.T) {
 	cfg := testConfig()
 	userSvc := user.NewService(userStore, userStore, cfg)
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	ctx := context.Background()
 
 	userA, err := userSvc.Register(ctx, "del_user_a", "del_a@example.com", "password123")
@@ -429,7 +431,7 @@ func TestRevokeAllByUser(t *testing.T) {
 	cfg := testConfig()
 	userSvc := user.NewService(userStore, userStore, cfg)
 	sessionStore := session.NewStore(db)
-	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, slog.Default())
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	ctx := context.Background()
 
 	userA, err := userSvc.Register(ctx, "revall_user_a", "revall_a@example.com", "password123")
@@ -471,5 +473,221 @@ func TestRevokeAllByUser(t *testing.T) {
 	}
 	if len(gotB) != 1 {
 		t.Errorf("after RevokeAllByUser: expected 1 session for userB, got %d", len(gotB))
+	}
+}
+
+// ─── Per-app duration tests ───────────────────────────────────────────────────
+
+// stubAppDuration implements appDurationReader for tests.
+type stubAppDuration struct {
+	hours map[string]int
+}
+
+func (s *stubAppDuration) GetSessionDurationHours(_ context.Context, id string) (int, error) {
+	h, ok := s.hours[id]
+	if !ok {
+		return 0, fmt.Errorf("app not found: %s", id)
+	}
+	return h, nil
+}
+
+// ptr returns a pointer to the given string value. Used to create *string
+// literals inline in test code.
+func ptr(s string) *string { return &s }
+
+// TestNewSession_UsesAppDuration verifies that when a non-zero app-level
+// duration override is present it takes precedence over the global DB setting.
+func TestNewSession_UsesAppDuration(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig() // DurationHours = 24
+	userSvc := user.NewService(userStore, userStore, cfg)
+
+	// Insert a real app row so the sessions FK constraint is satisfied.
+	ctx := context.Background()
+	const insertApp = `INSERT INTO apps (id, slug, name, host_pattern) VALUES ('app-1', 'app-1', 'App One', 'app1.example.com')`
+	if _, err := db.ExecContext(ctx, insertApp); err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
+
+	// App override: 72 hours. Global DB setting: 48 hours. Config: 24 hours.
+	// App override must win.
+	appDur := &stubAppDuration{hours: map[string]int{"app-1": 72}}
+	settings := &stubSettings{data: map[string]string{"session_duration_hours": "48"}}
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, settings, appDur, cfg, slog.Default())
+
+	u, err := userSvc.Register(ctx, "app_dur_user", "appdur@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	sess, err := sessionSvc.NewSession(ctx, u.ID, ptr("app-1"), "127.0.0.1", "TestAgent/1.0")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// ExpiresAt should be approximately 72h from now (allow 5 minutes of slop).
+	want := time.Now().Add(72 * time.Hour)
+	diff := sess.ExpiresAt.Sub(want)
+	if diff < -5*time.Minute || diff > 5*time.Minute {
+		t.Errorf("NewSession: ExpiresAt %v is not ~72h from now (want %v)", sess.ExpiresAt, want)
+	}
+}
+
+// TestNewSession_DurationResolutionOrder exercises the full three-level
+// priority chain: app override > global DB setting > config fallback.
+func TestNewSession_DurationResolutionOrder(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name         string
+		hasApp       bool
+		appHours     int
+		settingsData map[string]string
+		cfgHours     int
+		wantHours    int
+	}
+
+	cases := []testCase{
+		{
+			name:         "app override wins",
+			hasApp:       true,
+			appHours:     72,
+			settingsData: map[string]string{"session_duration_hours": "48"},
+			cfgHours:     24,
+			wantHours:    72,
+		},
+		{
+			name:         "global DB setting wins when app override is zero",
+			hasApp:       true,
+			appHours:     0,
+			settingsData: map[string]string{"session_duration_hours": "48"},
+			cfgHours:     24,
+			wantHours:    48,
+		},
+		{
+			name:         "config fallback when both overrides are absent",
+			hasApp:       false,
+			appHours:     0,
+			settingsData: map[string]string{},
+			cfgHours:     24,
+			wantHours:    24,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := testutil.NewTestDB(t)
+			store := session.NewStore(db)
+			userStore := user.NewStore(db)
+
+			ctx := context.Background()
+
+			// Create a test user.
+			u := &user.User{
+				Username: "u-" + tc.name,
+				Email:    tc.name + "@example.com",
+				Name:     "Test",
+				IsActive: true,
+			}
+			if err := userStore.Create(ctx, u); err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+
+			// For cases with an app, create a real app row in the DB so the
+			// sessions.app_id FK constraint is satisfied. Use the generated ID
+			// to seed the stubAppDuration so durations are looked up correctly.
+			var (
+				appID    *string
+				appHours map[string]int
+			)
+			if tc.hasApp {
+				appStore := applib.NewStore(db)
+				a := &applib.App{
+					Slug:        "app-" + tc.name,
+					Name:        "App " + tc.name,
+					HostPattern: "*.example.com",
+					IsActive:    true,
+				}
+				if err := appStore.Create(ctx, a); err != nil {
+					t.Fatalf("create app: %v", err)
+				}
+				appID = &a.ID
+				appHours = map[string]int{a.ID: tc.appHours}
+			}
+
+			cfg := &config.Config{
+				Session: config.SessionConfig{
+					DurationHours: tc.cfgHours,
+					CookieName:    "passage_session",
+				},
+			}
+
+			svc := session.NewService(
+				store,
+				userStore,
+				&stubSettings{data: tc.settingsData},
+				&stubAppDuration{hours: appHours},
+				cfg,
+				slog.New(slog.NewTextHandler(io.Discard, nil)),
+			)
+
+			_, expiresAt, err := svc.CreateSession(ctx, u.ID, appID, "127.0.0.1", "test-agent")
+			if err != nil {
+				t.Fatalf("CreateSession: %v", err)
+			}
+
+			want := time.Now().Add(time.Duration(tc.wantHours) * time.Hour)
+			diff := expiresAt.Sub(want)
+			if diff < -5*time.Minute || diff > 5*time.Minute {
+				t.Errorf("ExpiresAt = %v, want ~%v (diff %v, expected wantHours=%d)", expiresAt, want, diff, tc.wantHours)
+			}
+		})
+	}
+}
+
+// TestNewSession_AppDurationZeroFallsToGlobal verifies that when the app-level
+// duration override is zero (not set), the global DB setting is used instead.
+func TestNewSession_AppDurationZeroFallsToGlobal(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig() // DurationHours = 24
+	userSvc := user.NewService(userStore, userStore, cfg)
+
+	// Insert a real app row so the sessions FK constraint is satisfied.
+	ctx := context.Background()
+	const insertApp = `INSERT INTO apps (id, slug, name, host_pattern) VALUES ('app-2', 'app-2', 'App Two', 'app2.example.com')`
+	if _, err := db.ExecContext(ctx, insertApp); err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
+
+	// App override: 0 (not set). Global DB setting: 48 hours. Config: 24 hours.
+	// Global DB setting must win.
+	appDur := &stubAppDuration{hours: map[string]int{"app-2": 0}}
+	settings := &stubSettings{data: map[string]string{"session_duration_hours": "48"}}
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, settings, appDur, cfg, slog.Default())
+
+	u, err := userSvc.Register(ctx, "app_dur_zero_user", "appdur_zero@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	sess, err := sessionSvc.NewSession(ctx, u.ID, ptr("app-2"), "127.0.0.1", "TestAgent/1.0")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	// ExpiresAt should be approximately 48h from now (allow 5 minutes of slop).
+	want := time.Now().Add(48 * time.Hour)
+	diff := sess.ExpiresAt.Sub(want)
+	if diff < -5*time.Minute || diff > 5*time.Minute {
+		t.Errorf("NewSession: ExpiresAt %v is not ~48h from now (want %v)", sess.ExpiresAt, want)
 	}
 }

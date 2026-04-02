@@ -26,8 +26,11 @@ type App struct {
 	HostPattern string
 	DefaultURL  string // empty string means not set
 	IsActive    bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// SessionDurationHours overrides the global session duration for sessions
+	// created for this app. Zero means "use the global default."
+	SessionDurationHours int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 
 	// OAuth client fields. Zero values mean OAuth is not enabled for this app.
 	ClientID         string
