@@ -27,33 +27,53 @@ type settingsReader interface {
 	Get(ctx context.Context, key string) (string, error)
 }
 
+// appDurationReader is the minimal interface needed to read the per-app
+// session duration override. Defined here at the consumer boundary to avoid
+// importing the concrete app.App type.
+type appDurationReader interface {
+	GetSessionDurationHours(ctx context.Context, appID string) (int, error)
+}
+
 // Service implements business logic for session management.
 type Service struct {
 	store    Store
 	users    userGetter
-	settings settingsReader // may be nil; used to read session_duration_hours from DB
+	settings settingsReader    // may be nil; used to read session_duration_hours from DB
+	apps     appDurationReader // may be nil; used for per-app duration overrides
 	cfg      *config.Config
 	logger   *slog.Logger
 }
 
 // NewService creates a new Service with the given dependencies.
-// settings may be nil; when non-nil it is consulted for session_duration_hours
-// before falling back to cfg.Session.DurationHours.
-func NewService(store Store, users userGetter, settings settingsReader, cfg *config.Config, logger *slog.Logger) *Service {
+// settings may be nil; apps may be nil. When non-nil, each is consulted for
+// session duration before falling back to cfg.Session.DurationHours.
+func NewService(store Store, users userGetter, settings settingsReader, apps appDurationReader, cfg *config.Config, logger *slog.Logger) *Service {
 	return &Service{
 		store:    store,
 		users:    users,
 		settings: settings,
+		apps:     apps,
 		cfg:      cfg,
 		logger:   logger,
 	}
 }
 
-// sessionDurationHours returns the effective session duration in hours.
-// It first tries the DB settings key "session_duration_hours"; on any error
-// (key absent, invalid value, nil settings) it falls back to
-// cfg.Session.DurationHours.
-func (s *Service) sessionDurationHours(ctx context.Context) int {
+// sessionDurationHours returns the effective session duration in hours for the
+// given app (nil = global/admin session). Resolution order:
+//  1. App-level override (apps.GetSessionDurationHours > 0)
+//  2. Global DB setting (session_duration_hours key in settings)
+//  3. cfg.Session.DurationHours (config-file / env-var default)
+func (s *Service) sessionDurationHours(ctx context.Context, appID *string) int {
+	// 1. Per-app override.
+	if appID != nil && s.apps != nil {
+		hours, err := s.apps.GetSessionDurationHours(ctx, *appID)
+		if err == nil && hours > 0 {
+			return hours
+		}
+		// On error (app deleted mid-request, etc.) fall through silently.
+	}
+
+	// 2. Global DB setting.
 	if s.settings != nil {
 		val, err := s.settings.Get(ctx, "session_duration_hours")
 		if err == nil && val != "" {
@@ -63,6 +83,8 @@ func (s *Service) sessionDurationHours(ctx context.Context) int {
 			}
 		}
 	}
+
+	// 3. Config fallback.
 	return s.cfg.Session.DurationHours
 }
 
@@ -88,7 +110,7 @@ func (s *Service) NewSession(ctx context.Context, userID string, appID *string, 
 	}
 	token := hex.EncodeToString(b)
 
-	hours := s.sessionDurationHours(ctx)
+	hours := s.sessionDurationHours(ctx, appID)
 	now := time.Now().UTC()
 	sess := &Session{
 		ID:        token,

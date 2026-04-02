@@ -49,7 +49,7 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 	userSvc := user.NewService(userStore, userStore, cfg)
 	sessionStore := session.NewStore(db)
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	sessionSvc := session.NewService(sessionStore, userStore, nil, cfg, logger)
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, logger)
 	credStore := webauthn.NewSQLiteCredentialStore(db)
 	challenges := webauthn.NewChallengeStore()
 

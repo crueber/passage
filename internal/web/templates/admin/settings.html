@@ -38,7 +38,10 @@
                   <input class="input" type="number" id="session_duration_hours" name="session_duration_hours"
                          min="1" max="8760" value="{{.SessionDurationHours}}">
                 </div>
-                <p class="help">Requires restart to take effect.</p>
+                <p class="help">
+                  Global default for all apps. Takes effect immediately for new sessions.
+                  Per-app overrides can be set on each app's edit page.
+                </p>
               </div>
 
               <div class="field">
