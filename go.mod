@@ -2,7 +2,7 @@ module github.com/crueber/passage
 
 go 1.25.0
 
-toolchain go1.25.8
+toolchain go1.26.1
 
 require (
 	github.com/go-chi/chi/v5 v5.2.5
