@@ -27,6 +27,7 @@
             <div class="card-content">
               <h1 class="title is-5">Sign in to continue</h1>
 
+              {{if .AllowPassword}}
               <form method="POST" action="/login">
                 <input type="hidden" name="rd" value="{{.RedirectTo}}">
                 {{csrfField .CSRFToken}}
@@ -53,7 +54,9 @@
                   </div>
                 </div>
               </form>
+              {{end}}
 
+              {{if .AllowPasskey}}
               <div class="field mt-4">
                 <div class="control">
                   <button type="button" id="passkey-login-btn" class="button is-light is-fullwidth">
@@ -62,6 +65,7 @@
                 </div>
                 <p id="passkey-login-status" class="help mt-1" aria-live="polite"></p>
               </div>
+              {{end}}
 
               <div class="has-text-centered mt-4 is-size-7">
                 <a href="/reset">Forgot password?</a>

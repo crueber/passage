@@ -59,6 +59,52 @@
                 </div>
               </div>
             </form>
+
+            <hr>
+
+            <h2 class="title is-5">Authentication Methods</h2>
+            <form method="POST" action="/admin/settings/auth-methods">
+              {{csrfField .CSRFToken}}
+              <div class="field">
+                <div class="control">
+                  <label class="checkbox">
+                    <input type="checkbox" id="auth_password_enabled" name="auth_password_enabled"
+                           {{if eq .AuthPasswordEnabled "true"}}checked{{end}}>
+                    Enable password authentication
+                  </label>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="control">
+                  <label class="checkbox">
+                    <input type="checkbox" id="auth_passkey_enabled" name="auth_passkey_enabled"
+                           {{if eq .AuthPasskeyEnabled "true"}}checked{{end}}>
+                    Enable passkey (WebAuthn) authentication
+                  </label>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="control">
+                  <label class="checkbox">
+                     <input type="checkbox" id="auth_magic_link_enabled" name="auth_magic_link_enabled"
+                           {{if eq .AuthMagicLinkEnabled "true"}}checked{{end}}
+                           {{if not .SMTPConfigured}}disabled{{end}}>
+                    Enable magic link authentication
+                  </label>
+                </div>
+                {{if not .SMTPConfigured}}
+                <p class="help">Requires SMTP to be configured.</p>
+                {{end}}
+              </div>
+
+              <div class="field">
+                <div class="control">
+                  <button type="submit" class="button is-primary">Save Auth Methods</button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
       </main>

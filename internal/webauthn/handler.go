@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,6 +42,12 @@ type sessionCreator interface {
 	CreateSession(ctx context.Context, userID string, appID *string, ip, ua string) (token string, expiresAt time.Time, err error)
 }
 
+// passkeySettingsReader is the minimal interface for reading the passkey enable flag.
+// Defined at the consumer boundary per Go convention.
+type passkeySettingsReader interface {
+	Get(ctx context.Context, key string) (string, error)
+}
+
 // Handler handles all WebAuthn/passkey HTTP endpoints.
 type Handler struct {
 	wa         webAuthnCeremony
@@ -51,6 +58,7 @@ type Handler struct {
 	cfg        sessionConfig
 	tmpl       *template.Template
 	logger     *slog.Logger
+	settings   passkeySettingsReader
 }
 
 // sessionConfig provides cookie configuration for setting the session after passkey login.
@@ -70,6 +78,7 @@ func NewHandler(
 	cookieSecure bool,
 	tmpl *template.Template,
 	logger *slog.Logger,
+	settings passkeySettingsReader,
 ) *Handler {
 	return &Handler{
 		wa:         wa,
@@ -81,9 +90,23 @@ func NewHandler(
 			CookieName:   cookieName,
 			CookieSecure: cookieSecure,
 		},
-		tmpl:   tmpl,
-		logger: logger,
+		tmpl:     tmpl,
+		logger:   logger,
+		settings: settings,
 	}
+}
+
+// passkeyEnabled returns true unless the passkey feature flag is explicitly set
+// to "false" in settings. Fail-open: missing key or DB error → enabled.
+func (h *Handler) passkeyEnabled(ctx context.Context) bool {
+	if h.settings == nil {
+		return true
+	}
+	val, err := h.settings.Get(ctx, "auth_passkey_enabled")
+	if err != nil {
+		return true
+	}
+	return strings.ToLower(strings.TrimSpace(val)) != "false"
 }
 
 // ProfileRoutes registers passkey management routes. The router must already have
@@ -323,6 +346,13 @@ func (h *Handler) PostFinishRegistration(w http.ResponseWriter, r *http.Request)
 
 // GetBeginLogin starts a passkey login (discoverable credential) ceremony.
 func (h *Handler) GetBeginLogin(w http.ResponseWriter, r *http.Request) {
+	if !h.passkeyEnabled(r.Context()) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"passkey login is disabled"}`))
+		return
+	}
+
 	options, sessionData, err := h.wa.BeginDiscoverableLogin()
 	if err != nil {
 		h.logger.Error("webauthn: begin login", "error", err)
@@ -351,6 +381,13 @@ func (h *Handler) GetBeginLogin(w http.ResponseWriter, r *http.Request) {
 
 // PostFinishLogin completes a passkey login ceremony.
 func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
+	if !h.passkeyEnabled(r.Context()) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"passkey login is disabled"}`))
+		return
+	}
+
 	cookie, err := r.Cookie("wa_auth_session")
 	if err != nil {
 		jsonError(w, "missing auth session", http.StatusBadRequest)

@@ -1,0 +1,39 @@
+{{define "magic_link_sent.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Check your email — Passage</title>
+  <link rel="stylesheet" href="/static/bulma.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+<section class="hero is-fullheight">
+  <div class="hero-body">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-narrow">
+          <p class="passage-wordmark">passage</p>
+
+          <div class="card" style="min-width:22rem;max-width:26rem;">
+            <div class="card-content">
+              <h1 class="title is-5">Check your email</h1>
+              <p class="mb-4">
+                We've sent you a sign-in link. Click the link in the email to sign in.
+                The link can only be used once and expires shortly.
+              </p>
+              <p class="is-size-7 has-text-grey">
+                Didn't receive the email? Check your spam folder, or
+                <a href="/login/magic">request a new link</a>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</body>
+</html>
+{{end}}

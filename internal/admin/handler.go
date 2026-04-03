@@ -164,6 +164,7 @@ func (h *Handler) Routes(r chi.Router) {
 	// Settings
 	r.Get("/settings", h.GetSettings)
 	r.Post("/settings", h.PostSettings)
+	r.Post("/settings/auth-methods", h.PostAuthMethodSettings)
 
 	// Audit log
 	r.Get("/audit-log", h.GetAuditLog)
@@ -1311,6 +1312,11 @@ type settingsData struct {
 	AllowRegistration    string
 	SessionDurationHours string
 	SMTPFrom             string
+	// Auth method flags
+	AuthPasswordEnabled  string
+	AuthPasskeyEnabled   string
+	AuthMagicLinkEnabled string
+	SMTPConfigured       bool
 }
 
 // GetSettings renders the settings page.
@@ -1328,12 +1334,47 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 		flash = flashFromQuery(code)
 	}
 
-	h.render(w, r, "admin-settings", settingsData{
-		basePage:             h.baseFlash(r, "settings", flash),
+	h.render(w, r, "admin-settings", h.buildSettingsData(r, all, h.baseFlash(r, "settings", flash)))
+}
+
+// buildSettingsData populates a settingsData from the given settings map and basePage.
+// Applies defaults: password and passkey default to "true", magic link defaults to "false".
+func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base basePage) settingsData {
+	authPassword := all["auth_password_enabled"]
+	if authPassword == "" {
+		authPassword = "true"
+	}
+	authPasskey := all["auth_passkey_enabled"]
+	if authPasskey == "" {
+		authPasskey = "true"
+	}
+	authMagicLink := all["auth_magic_link_enabled"]
+	if authMagicLink == "" {
+		authMagicLink = "false"
+	}
+	return settingsData{
+		basePage:             base,
 		AllowRegistration:    all["allow_registration"],
 		SessionDurationHours: all["session_duration_hours"],
 		SMTPFrom:             all["smtp_from"],
-	})
+		AuthPasswordEnabled:  authPassword,
+		AuthPasskeyEnabled:   authPasskey,
+		AuthMagicLinkEnabled: authMagicLink,
+		SMTPConfigured:       h.cfg.SMTP.Host != "",
+	}
+}
+
+// renderSettingsWithError re-loads settings from the store and renders the settings
+// page with the given flash error.
+func (h *Handler) renderSettingsWithError(w http.ResponseWriter, r *http.Request, msg string) {
+	ctx := r.Context()
+	all, err := h.settings.GetAll(ctx)
+	if err != nil {
+		h.logger.Error("admin: get all settings (error render)", "error", err)
+		all = map[string]string{}
+	}
+	base := h.baseFlash(r, "settings", &Flash{Type: "error", Message: msg})
+	h.render(w, r, "admin-settings", h.buildSettingsData(r, all, base))
 }
 
 // PostSettings saves the settings form.
@@ -1383,6 +1424,56 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logAudit(r, AuditActionSettingsUpdate, "settings", "", "")
+	http.Redirect(w, r, "/admin/settings?flash=updated", http.StatusFound)
+}
+
+// PostAuthMethodSettings saves the authentication method feature flags.
+// Guards against locking out all authentication methods and requires SMTP
+// to be configured before enabling magic link.
+func (h *Handler) PostAuthMethodSettings(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/admin/settings", http.StatusFound)
+		return
+	}
+
+	ctx := r.Context()
+
+	authPasswordEnabled := "false"
+	if r.FormValue("auth_password_enabled") == "on" {
+		authPasswordEnabled = "true"
+	}
+	authPasskeyEnabled := "false"
+	if r.FormValue("auth_passkey_enabled") == "on" {
+		authPasskeyEnabled = "true"
+	}
+	authMagicLinkEnabled := "false"
+	if r.FormValue("auth_magic_link_enabled") == "on" {
+		authMagicLinkEnabled = "true"
+	}
+
+	// Lockout guard: at least one auth method must remain enabled.
+	if authPasswordEnabled == "false" && authPasskeyEnabled == "false" && authMagicLinkEnabled == "false" {
+		h.renderSettingsWithError(w, r, "At least one authentication method must be enabled.")
+		return
+	}
+
+	// SMTP guard: magic link requires SMTP to be configured.
+	if authMagicLinkEnabled == "true" && h.cfg.SMTP.Host == "" {
+		h.renderSettingsWithError(w, r, "Magic link requires SMTP to be configured.")
+		return
+	}
+
+	if err := h.settings.Set(ctx, "auth_password_enabled", authPasswordEnabled); err != nil {
+		h.logger.Error("admin: set auth_password_enabled", "error", err)
+	}
+	if err := h.settings.Set(ctx, "auth_passkey_enabled", authPasskeyEnabled); err != nil {
+		h.logger.Error("admin: set auth_passkey_enabled", "error", err)
+	}
+	if err := h.settings.Set(ctx, "auth_magic_link_enabled", authMagicLinkEnabled); err != nil {
+		h.logger.Error("admin: set auth_magic_link_enabled", "error", err)
+	}
+
+	h.logAudit(r, AuditActionAuthMethodUpdate, "settings", "", "")
 	http.Redirect(w, r, "/admin/settings?flash=updated", http.StatusFound)
 }
 

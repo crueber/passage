@@ -70,7 +70,7 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 	}
 
 	h := webauthn.NewHandler(wa, credStore, challenges, userStore, sessionSvc,
-		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger)
+		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil)
 
 	return &handlerFixture{
 		userStore:    userStore,
@@ -528,6 +528,7 @@ func TestPostFinishRegistration_Name(t *testing.T) {
 				f.cfg.Session.CookieSecure,
 				tmpl,
 				logger,
+				nil,
 			)
 
 			router := chi.NewRouter()
@@ -557,5 +558,62 @@ func TestPostFinishRegistration_Name(t *testing.T) {
 				t.Errorf("credential Name: got %q, want %q", capturing.created.Name, tc.wantName)
 			}
 		})
+	}
+}
+
+// ─── Auth method flag tests ───────────────────────────────────────────────────
+
+// disabledPasskeySettings is a test-only passkeySettingsReader that always
+// returns "false" — simulating the passkey auth method being disabled.
+type disabledPasskeySettings struct{}
+
+func (disabledPasskeySettings) Get(_ context.Context, _ string) (string, error) {
+	return "false", nil
+}
+
+// TestGetBeginLogin_PasskeyDisabled verifies that GetBeginLogin returns 403 JSON
+// when the auth_passkey_enabled setting is "false".
+func TestGetBeginLogin_PasskeyDisabled(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+
+	// Build a webauthn fixture with passkey disabled.
+	wa, err := gowebauthn.New(&gowebauthn.Config{
+		RPDisplayName: "Passage Test",
+		RPID:          "localhost",
+		RPOrigins:     []string{"http://localhost:8080"},
+	})
+	if err != nil {
+		t.Fatalf("create webauthn: %v", err)
+	}
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	challenges := webauthn.NewChallengeStore()
+	h := webauthn.NewHandler(wa, f.credStore, challenges, f.userStore, f.sessionSvc,
+		f.cfg.Session.CookieName, f.cfg.Session.CookieSecure, tmpl, logger, disabledPasskeySettings{})
+
+	req := httptest.NewRequest(http.MethodGet, "/login/passkey/begin", nil)
+	rec := httptest.NewRecorder()
+	h.GetBeginLogin(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("GetBeginLogin with passkey disabled: got status %d, want %d", res.StatusCode, http.StatusForbidden)
+	}
+	ct := res.Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("GetBeginLogin with passkey disabled: Content-Type = %q, want application/json", ct)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	if body["error"] == "" {
+		t.Errorf("GetBeginLogin with passkey disabled: missing error field in JSON response")
 	}
 }

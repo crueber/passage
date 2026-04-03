@@ -27,6 +27,7 @@ import (
 type noopSender struct{}
 
 func (noopSender) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
+func (noopSender) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
 
 // noopSettings satisfies the settingsReader interface with a no-op implementation.
 // Always returns an error so the handler falls back to the static config.
@@ -1028,5 +1029,55 @@ func TestHandler_PostResetRequest_MinimumResponseTime(t *testing.T) {
 				t.Errorf("%s: got status %d, want %d", tc.name, res.StatusCode, http.StatusOK)
 			}
 		})
+	}
+}
+
+// ─── Auth method flag tests ───────────────────────────────────────────────────
+
+// disabledSettings is a test-only settingsReader that returns "false" for any key.
+type disabledSettings struct{}
+
+func (disabledSettings) Get(_ context.Context, _ string) (string, error) {
+	return "false", nil
+}
+
+// TestHandler_PostLogin_PasswordDisabled verifies that PostLogin returns 403
+// when the auth_password_enabled setting is "false".
+func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := &config.Config{
+		Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
+		Session: config.SessionConfig{DurationHours: 24, CookieName: "passage_session"},
+	}
+	userSvc := user.NewService(userStore, userStore, cfg)
+	if _, err := userSvc.Register(context.Background(), "pwuser", "pwuser@example.com", "password123"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	h := user.NewHandler(userSvc, sessionSvc, disabledSettings{}, noopSender{}, tmpl, cfg, logger)
+
+	form := url.Values{}
+	form.Set("username", "pwuser")
+	form.Set("password", "password123")
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.PostLogin(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("PostLogin with password disabled: got status %d, want %d", res.StatusCode, http.StatusForbidden)
 	}
 }

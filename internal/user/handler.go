@@ -93,6 +93,8 @@ type loginData struct {
 	RedirectTo        string
 	Username          string
 	AllowRegistration bool
+	AllowPassword     bool
+	AllowPasskey      bool
 	CSRFToken         string
 }
 
@@ -130,12 +132,19 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		Flash:             flash,
 		RedirectTo:        rd,
 		AllowRegistration: h.registrationAllowed(r.Context()),
+		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
+		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
 
 // PostLogin handles credential submission.
 func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
+	if !isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled) {
+		http.Error(w, "Password login is disabled.", http.StatusForbidden)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		h.renderLoginError(w, r, "Invalid form submission.", r.FormValue("rd"), r.FormValue("username"))
 		return
@@ -410,6 +419,8 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		RedirectTo:        rd,
 		Username:          username,
 		AllowRegistration: h.registrationAllowed(r.Context()),
+		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
+		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
@@ -450,6 +461,14 @@ func flashFromCode(code string) *Flash {
 		return &Flash{Type: "error", Message: "Registration is currently disabled."}
 	case "registered":
 		return &Flash{Type: "success", Message: "Account created. Please sign in."}
+	case "link-expired":
+		return &Flash{Type: "error", Message: "This sign-in link has expired. Please request a new one."}
+	case "link-used":
+		return &Flash{Type: "error", Message: "This sign-in link has already been used."}
+	case "invalid-token":
+		return &Flash{Type: "error", Message: "This sign-in link is invalid. Please request a new one."}
+	case "account-inactive":
+		return &Flash{Type: "error", Message: "Your account is inactive. Please contact an administrator."}
 	default:
 		return nil
 	}

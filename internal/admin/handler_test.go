@@ -27,6 +27,7 @@ import (
 type noopMailer struct{}
 
 func (noopMailer) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
+func (noopMailer) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
 
 // noopCredentialCounter satisfies the credentialCounter interface with a zero-returning implementation.
 type noopCredentialCounter struct{}
@@ -2206,5 +2207,98 @@ func TestAdminApps_Update_DefaultURL(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ─── PostAuthMethodSettings ───────────────────────────────────────────────────
+
+// TestPostAuthMethodSettings_LockoutGuard verifies that disabling all methods
+// is rejected and re-renders the settings page with an error.
+func TestPostAuthMethodSettings_LockoutGuard(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	// Submit form with all methods unchecked (all absent → "false").
+	form := url.Values{}
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("lockout guard: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "At least one authentication method must be enabled") {
+		t.Errorf("lockout guard: response does not contain expected error; got:\n%s", body)
+	}
+}
+
+// TestPostAuthMethodSettings_SMTPGuard verifies that enabling magic link without
+// SMTP configured is rejected with an appropriate error message.
+func TestPostAuthMethodSettings_SMTPGuard(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	// cfg.SMTP.Host is empty by default — SMTP not configured.
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("auth_magic_link_enabled", "on")
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("smtp guard: got status %d, want 200 (re-render)", res.StatusCode)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Magic link requires SMTP") {
+		t.Errorf("smtp guard: response does not contain expected error; got:\n%s", body)
+	}
+}
+
+// TestPostAuthMethodSettings_HappyPath verifies that a valid submission saves the
+// settings and redirects with the updated flash.
+func TestPostAuthMethodSettings_HappyPath(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	// Enable only passkey (password and magic link off).
+	form := url.Values{}
+	form.Set("auth_passkey_enabled", "on")
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("happy path: got status %d, want 302", res.StatusCode)
+	}
+	loc := res.Header.Get("Location")
+	if !strings.Contains(loc, "flash=updated") {
+		t.Errorf("happy path: redirect %q does not contain flash=updated", loc)
+	}
+
+	// Verify the settings were persisted.
+	ctx := context.Background()
+	passEnabled, err := f.settings.Get(ctx, "auth_passkey_enabled")
+	if err != nil {
+		t.Fatalf("get auth_passkey_enabled: %v", err)
+	}
+	if passEnabled != "true" {
+		t.Errorf("auth_passkey_enabled: got %q, want %q", passEnabled, "true")
+	}
+	pwEnabled, err := f.settings.Get(ctx, "auth_password_enabled")
+	if err != nil {
+		t.Fatalf("get auth_password_enabled: %v", err)
+	}
+	if pwEnabled != "false" {
+		t.Errorf("auth_password_enabled: got %q, want %q", pwEnabled, "false")
 	}
 }

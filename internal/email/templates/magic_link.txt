@@ -1,0 +1,7 @@
+{{if .Name}}Hi {{.Name}},
+
+{{end}}Here is your Passage sign-in link. It can only be used once and expires shortly.
+
+Sign in: {{.MagicURL}}
+
+If you did not request this link, you can safely ignore this email.
