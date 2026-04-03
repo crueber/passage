@@ -96,8 +96,10 @@ func NewHandler(
 	}
 }
 
-// passkeyEnabled returns true unless the passkey feature flag is explicitly set
-// to "false" in settings. Fail-open: missing key or DB error → enabled.
+// passkeyEnabled duplicates the isAuthMethodEnabled check for passkeys.
+// This intentional duplication avoids a circular import: the webauthn package
+// cannot import internal/user (which owns isAuthMethodEnabled) without a cycle.
+// Fail-open: missing key or DB error → enabled.
 func (h *Handler) passkeyEnabled(ctx context.Context) bool {
 	if h.settings == nil {
 		return true

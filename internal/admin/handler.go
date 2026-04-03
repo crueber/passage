@@ -1465,12 +1465,18 @@ func (h *Handler) PostAuthMethodSettings(w http.ResponseWriter, r *http.Request)
 
 	if err := h.settings.Set(ctx, "auth_password_enabled", authPasswordEnabled); err != nil {
 		h.logger.Error("admin: set auth_password_enabled", "error", err)
+		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
+		return
 	}
 	if err := h.settings.Set(ctx, "auth_passkey_enabled", authPasskeyEnabled); err != nil {
 		h.logger.Error("admin: set auth_passkey_enabled", "error", err)
+		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
+		return
 	}
 	if err := h.settings.Set(ctx, "auth_magic_link_enabled", authMagicLinkEnabled); err != nil {
 		h.logger.Error("admin: set auth_magic_link_enabled", "error", err)
+		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
+		return
 	}
 
 	h.logAudit(r, AuditActionAuthMethodUpdate, "settings", "", "")

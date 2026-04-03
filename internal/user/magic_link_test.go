@@ -3,11 +3,19 @@ package user_test
 import (
 	"context"
 	"errors"
+	"html/template"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // TestFindOrCreateByEmail_ExistingUser verifies that FindOrCreateByEmail returns
@@ -186,4 +194,257 @@ func TestConsumeMagicLinkToken_UnknownToken(t *testing.T) {
 	if !errors.Is(err, user.ErrMagicLinkTokenNotFound) {
 		t.Errorf("ConsumeMagicLinkToken unknown: got %v, want ErrMagicLinkTokenNotFound", err)
 	}
+}
+
+// ─── GetMagicLinkVerify handler tests ────────────────────────────────────────
+
+// magicLinkEnabledSettings always returns "true" for any settings key.
+// Used to enable magic link authentication in handler tests.
+type magicLinkEnabledSettings struct{}
+
+func (magicLinkEnabledSettings) Get(_ context.Context, _ string) (string, error) {
+	return "true", nil
+}
+
+// newMagicLinkHandlerFixture builds a Handler fixture with magic link enabled.
+// Returns the handler, db, service and config so tests can create tokens.
+func newMagicLinkHandlerFixture(t *testing.T) (*user.Handler, *handlerFixture) {
+	t.Helper()
+
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+
+	cfg := &config.Config{
+		Auth: config.AuthConfig{
+			AllowRegistration: true,
+			BcryptCost:        10,
+		},
+		Session: config.SessionConfig{
+			DurationHours: 24,
+			CookieName:    "passage_session",
+			CookieSecure:  false,
+		},
+		SMTP: config.SMTPConfig{
+			Host: "localhost", // non-empty so magic link handler won't block on SMTP check
+		},
+	}
+
+	userSvc := user.NewService(userStore, userStore, cfg)
+
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
+
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	h := user.NewHandler(userSvc, sessionSvc, magicLinkEnabledSettings{}, noopSender{}, tmpl, cfg, logger)
+
+	f := &handlerFixture{
+		db:      db,
+		handler: h,
+		userSvc: userSvc,
+		cfg:     cfg,
+	}
+	return h, f
+}
+
+// TestHandler_GetMagicLinkVerify covers the five main cases for the verify endpoint.
+func TestHandler_GetMagicLinkVerify(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid token sets session cookie and redirects", func(t *testing.T) {
+		t.Parallel()
+		h, f := newMagicLinkHandlerFixture(t)
+
+		// Register a user and create a valid magic link token.
+		u, err := f.userSvc.Register(context.Background(), "mlverifyok", "mlverifyok@example.com", "password123")
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		tok, err := f.userSvc.CreateMagicLinkToken(context.Background(), u.ID, 15)
+		if err != nil {
+			t.Fatalf("CreateMagicLinkToken: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token="+tok.Token, nil)
+		rec := httptest.NewRecorder()
+		h.GetMagicLinkVerify(rec, req)
+
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("valid token: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		// Session cookie must be set.
+		var sessionCookieSet bool
+		for _, c := range res.Cookies() {
+			if c.Name == f.cfg.Session.CookieName && c.Value != "" {
+				sessionCookieSet = true
+				break
+			}
+		}
+		if !sessionCookieSet {
+			t.Errorf("valid token: session cookie %q not set", f.cfg.Session.CookieName)
+		}
+	})
+
+	t.Run("invalid token redirects to error page", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newMagicLinkHandlerFixture(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token=badtokenvalue", nil)
+		rec := httptest.NewRecorder()
+		h.GetMagicLinkVerify(rec, req)
+
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("invalid token: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		loc := res.Header.Get("Location")
+		if loc == "" {
+			t.Error("invalid token: expected redirect Location header")
+		}
+		// Must not redirect to a success page; must carry an error signal.
+		if loc == "/" || loc == "/admin" {
+			t.Errorf("invalid token: redirected to %q — looks like a success redirect", loc)
+		}
+	})
+
+	t.Run("missing token redirects to error page", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newMagicLinkHandlerFixture(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify", nil)
+		rec := httptest.NewRecorder()
+		h.GetMagicLinkVerify(rec, req)
+
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("missing token: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		loc := res.Header.Get("Location")
+		if loc == "" {
+			t.Error("missing token: expected redirect Location header")
+		}
+		if loc == "/" || loc == "/admin" {
+			t.Errorf("missing token: redirected to %q — looks like a success redirect", loc)
+		}
+	})
+
+	t.Run("expired token redirects to error page", func(t *testing.T) {
+		t.Parallel()
+		h, f := newMagicLinkHandlerFixture(t)
+
+		// Register a user and insert an already-expired token via raw SQL.
+		if _, err := f.userSvc.Register(context.Background(), "mlverifyexp", "mlverifyexp@example.com", "password123"); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		expiredToken := "expiredmagictokenverify12345678901234567890"
+		past := time.Now().UTC().Add(-2 * time.Hour)
+		_, err := f.db.ExecContext(context.Background(),
+			`INSERT INTO magic_link_tokens (token, user_id, expires_at)
+			 SELECT ?, id, ? FROM users WHERE username = ?`,
+			expiredToken, past, "mlverifyexp",
+		)
+		if err != nil {
+			t.Fatalf("insert expired token: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token="+expiredToken, nil)
+		rec := httptest.NewRecorder()
+		h.GetMagicLinkVerify(rec, req)
+
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("expired token: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		loc := res.Header.Get("Location")
+		if loc == "" {
+			t.Error("expired token: expected redirect Location header")
+		}
+		if loc == "/" || loc == "/admin" {
+			t.Errorf("expired token: redirected to %q — looks like a success redirect", loc)
+		}
+		// No session cookie must be set.
+		for _, c := range res.Cookies() {
+			if c.Name == f.cfg.Session.CookieName && c.Value != "" {
+				t.Errorf("expired token: unexpected session cookie set")
+			}
+		}
+	})
+
+	t.Run("inactive user redirects to account-inactive error", func(t *testing.T) {
+		t.Parallel()
+		h, f := newMagicLinkHandlerFixture(t)
+
+		// Register a user then deactivate them.
+		u, err := f.userSvc.Register(context.Background(), "mlinactive", "mlinactive@example.com", "password123")
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		u.IsActive = false
+		store := user.NewStore(f.db)
+		if err := store.Update(context.Background(), u); err != nil {
+			t.Fatalf("Update (deactivate): %v", err)
+		}
+
+		tok, err := f.userSvc.CreateMagicLinkToken(context.Background(), u.ID, 15)
+		if err != nil {
+			t.Fatalf("CreateMagicLinkToken: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token="+tok.Token, nil)
+		rec := httptest.NewRecorder()
+		h.GetMagicLinkVerify(rec, req)
+
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Errorf("inactive user: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		loc := res.Header.Get("Location")
+		if loc != "/login?flash=account-inactive" {
+			t.Errorf("inactive user: got redirect %q, want %q", loc, "/login?flash=account-inactive")
+		}
+		// No session cookie.
+		for _, c := range res.Cookies() {
+			if c.Name == f.cfg.Session.CookieName && c.Value != "" {
+				t.Errorf("inactive user: unexpected session cookie set")
+			}
+		}
+	})
+
+	t.Run("magic link method disabled returns 403", func(t *testing.T) {
+		t.Parallel()
+		db := testutil.NewTestDB(t)
+		userStore := user.NewStore(db)
+		cfg := &config.Config{
+			Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
+			Session: config.SessionConfig{DurationHours: 24, CookieName: "passage_session"},
+		}
+		userSvc := user.NewService(userStore, userStore, cfg)
+		sessionStore := session.NewStore(db)
+		sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
+		tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+			"csrfField": func(_ string) template.HTML { return "" },
+		})
+		if err != nil {
+			t.Fatalf("parse templates: %v", err)
+		}
+		logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+		// disabledSettings returns "false" for every key, disabling all auth methods.
+		h := user.NewHandler(userSvc, sessionSvc, disabledSettings{}, noopSender{}, tmpl, cfg, logger)
+
+		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token=anytoken", nil)
+		rec := httptest.NewRecorder()
+		h.GetMagicLinkVerify(rec, req)
+
+		res := rec.Result()
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("magic link disabled: got status %d, want %d", res.StatusCode, http.StatusForbidden)
+		}
+	})
 }

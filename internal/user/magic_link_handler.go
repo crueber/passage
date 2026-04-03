@@ -17,9 +17,7 @@ type magicLinkRequestData struct {
 	CSRFToken  string
 }
 
-type magicLinkSentData struct {
-	CSRFToken string
-}
+type magicLinkSentData struct{}
 
 // GetMagicLinkRequest renders the email input form for magic link login.
 func (h *Handler) GetMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +47,10 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	email := strings.TrimSpace(r.FormValue("email"))
 	rd := r.FormValue("rd")
+	// Open-redirect guard: only accept relative paths starting with "/" but not "//".
+	if rd != "" && !(strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//")) {
+		rd = ""
+	}
 
 	renderErr := func(msg string) {
 		h.render(w, r, "magic_link_request.html", magicLinkRequestData{
@@ -96,19 +98,15 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 		magicURL += "&rd=" + url.QueryEscape(rd)
 	}
 
-	displayName := u.Username
-	if u.Email != "" {
-		displayName = u.Email
-	}
+	// u.Email is always non-empty at this point (it was used to find/create the user).
+	displayName := u.Email
 	if err := h.mailer.SendMagicLink(ctx, email, displayName, magicURL); err != nil {
 		h.logger.Warn("magic link: send email", "email", email, "error", err)
 		renderErr("Failed to send email. Please try again.")
 		return
 	}
 
-	h.render(w, r, "magic_link_sent.html", magicLinkSentData{
-		CSRFToken: csrf.TokenFromContext(ctx),
-	})
+	h.render(w, r, "magic_link_sent.html", magicLinkSentData{})
 }
 
 // GetMagicLinkVerify consumes a magic link token and creates a session.
@@ -157,13 +155,14 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, sessionToken, expiresAt, h.cfg)
 
 	// Redirect: passage_rd cookie → rd query param → /admin for admins → /.
+	// Open-redirect guard: only redirect to paths that start with "/" but not "//".
 	rd := r.URL.Query().Get("rd")
 	if rdCookie, err := r.Cookie("passage_rd"); err == nil && rdCookie.Value != "" && rd == "" {
 		rd = rdCookie.Value
 		// Clear the cookie.
 		http.SetCookie(w, &http.Cookie{Name: "passage_rd", Value: "", MaxAge: -1, Path: "/"})
 	}
-	if rd != "" {
+	if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") {
 		http.Redirect(w, r, rd, http.StatusFound)
 		return
 	}
