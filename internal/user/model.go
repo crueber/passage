@@ -19,6 +19,10 @@ var (
 	ErrPasswordTooShort     = errors.New("user: password must be at least 8 characters")
 	ErrUsernameRequired     = errors.New("user: username is required")
 	ErrEmailRequired        = errors.New("user: email is required")
+
+	ErrMagicLinkTokenNotFound = errors.New("user: magic link token not found")
+	ErrMagicLinkTokenExpired  = errors.New("user: magic link token expired")
+	ErrMagicLinkTokenUsed     = errors.New("user: magic link token already used")
 )
 
 // User represents a Passage user account.
@@ -41,6 +45,16 @@ type ResetToken struct {
 	UserID    string
 	ExpiresAt time.Time
 	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
+// MagicLinkToken is a single-use, time-limited token that authenticates a user
+// by clicking a link sent to their email address.
+type MagicLinkToken struct {
+	Token     string
+	UserID    string
+	ExpiresAt time.Time
+	UsedAt    *time.Time // nil = not yet consumed
 	CreatedAt time.Time
 }
 
@@ -67,4 +81,10 @@ type TokenStore interface {
 	CreateResetToken(ctx context.Context, userID string) (string, error)
 	GetResetToken(ctx context.Context, token string) (*ResetToken, error)
 	MarkResetTokenUsed(ctx context.Context, token string) error
+
+	// Magic link tokens.
+	CreateMagicLinkToken(ctx context.Context, userID string, ttlMinutes int) (*MagicLinkToken, error)
+	GetMagicLinkToken(ctx context.Context, token string) (*MagicLinkToken, error)
+	MarkMagicLinkTokenUsed(ctx context.Context, token string) error
+	DeleteExpiredMagicLinkTokens(ctx context.Context) error
 }

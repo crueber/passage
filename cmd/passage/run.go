@@ -267,6 +267,7 @@ func run() error {
 		cfg.Session.CookieSecure,
 		tmpl,
 		logger,
+		settingsStore,
 	)
 
 	// Prepare static file server from embedded FS.

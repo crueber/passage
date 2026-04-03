@@ -240,6 +240,89 @@ func (s *SQLiteStore) MarkResetTokenUsed(ctx context.Context, token string) erro
 	return nil
 }
 
+// CreateMagicLinkToken generates a 32-byte token using crypto/rand, stores it
+// with the specified TTL, and returns the full MagicLinkToken.
+func (s *SQLiteStore) CreateMagicLinkToken(ctx context.Context, userID string, ttlMinutes int) (*MagicLinkToken, error) {
+	if ttlMinutes <= 0 {
+		ttlMinutes = 15
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, fmt.Errorf("generate magic link token: %w", err)
+	}
+	token := hex.EncodeToString(b)
+
+	interval := fmt.Sprintf("+%d minutes", ttlMinutes)
+	const insertQuery = `
+		INSERT INTO magic_link_tokens (token, user_id, expires_at)
+		VALUES (?, ?, datetime('now', ?))`
+	if _, err := s.db.ExecContext(ctx, insertQuery, token, userID, interval); err != nil {
+		return nil, fmt.Errorf("store magic link token: %w", err)
+	}
+
+	const selectQuery = `
+		SELECT token, user_id, expires_at, used_at, created_at
+		FROM magic_link_tokens WHERE token = ?`
+	row := s.db.QueryRowContext(ctx, selectQuery, token)
+	var mlt MagicLinkToken
+	var usedAt sql.NullTime
+	if err := row.Scan(&mlt.Token, &mlt.UserID, &mlt.ExpiresAt, &usedAt, &mlt.CreatedAt); err != nil {
+		return nil, fmt.Errorf("fetch magic link token after insert: %w", err)
+	}
+	if usedAt.Valid {
+		mlt.UsedAt = &usedAt.Time
+	}
+	return &mlt, nil
+}
+
+// GetMagicLinkToken looks up a magic link token by its token string.
+func (s *SQLiteStore) GetMagicLinkToken(ctx context.Context, token string) (*MagicLinkToken, error) {
+	const query = `
+		SELECT token, user_id, expires_at, used_at, created_at
+		FROM magic_link_tokens WHERE token = ?`
+	row := s.db.QueryRowContext(ctx, query, token)
+	var mlt MagicLinkToken
+	var usedAt sql.NullTime
+	err := row.Scan(&mlt.Token, &mlt.UserID, &mlt.ExpiresAt, &usedAt, &mlt.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrMagicLinkTokenNotFound
+		}
+		return nil, fmt.Errorf("get magic link token: %w", err)
+	}
+	if usedAt.Valid {
+		mlt.UsedAt = &usedAt.Time
+	}
+	return &mlt, nil
+}
+
+// MarkMagicLinkTokenUsed atomically marks a magic link token as used.
+// Returns ErrMagicLinkTokenUsed if the token was already used (double-spend protection).
+func (s *SQLiteStore) MarkMagicLinkTokenUsed(ctx context.Context, token string) error {
+	const query = `UPDATE magic_link_tokens SET used_at = datetime('now') WHERE token = ? AND used_at IS NULL`
+	res, err := s.db.ExecContext(ctx, query, token)
+	if err != nil {
+		return fmt.Errorf("mark magic link token used: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark magic link token used rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrMagicLinkTokenUsed
+	}
+	return nil
+}
+
+// DeleteExpiredMagicLinkTokens removes all expired or already-used magic link tokens.
+func (s *SQLiteStore) DeleteExpiredMagicLinkTokens(ctx context.Context) error {
+	const query = `DELETE FROM magic_link_tokens WHERE expires_at < datetime('now') OR used_at IS NOT NULL`
+	if _, err := s.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("delete expired magic link tokens: %w", err)
+	}
+	return nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error

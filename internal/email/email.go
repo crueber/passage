@@ -21,6 +21,7 @@ var templateFS embed.FS
 // consumer boundary.
 type Sender interface {
 	SendPasswordReset(ctx context.Context, toEmail, toName, resetURL string) error
+	SendMagicLink(ctx context.Context, toEmail, toName, magicURL string) error
 }
 
 // resetData holds the data passed to password reset email templates.
@@ -29,12 +30,20 @@ type resetData struct {
 	ResetURL string
 }
 
+// magicLinkData holds the data passed to magic link email templates.
+type magicLinkData struct {
+	Name     string
+	MagicURL string
+}
+
 // SMTPSender sends emails via SMTP using go-mail.
 type SMTPSender struct {
-	cfg      *config.Config
-	logger   *slog.Logger
-	htmlTmpl *template.Template
-	textTmpl *ttext.Template
+	cfg               *config.Config
+	logger            *slog.Logger
+	htmlTmpl          *template.Template
+	textTmpl          *ttext.Template
+	magicLinkHTMLTmpl *template.Template
+	magicLinkTextTmpl *ttext.Template
 }
 
 // NewSMTPSender creates a new SMTPSender. Templates are parsed at construction time.
@@ -47,11 +56,21 @@ func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error)
 	if err != nil {
 		return nil, fmt.Errorf("email: parse text template: %w", err)
 	}
+	magicLinkHTMLTmpl, err := template.ParseFS(templateFS, "templates/magic_link.html")
+	if err != nil {
+		return nil, fmt.Errorf("email: parse magic link html template: %w", err)
+	}
+	magicLinkTextTmpl, err := ttext.ParseFS(templateFS, "templates/magic_link.txt")
+	if err != nil {
+		return nil, fmt.Errorf("email: parse magic link text template: %w", err)
+	}
 	return &SMTPSender{
-		cfg:      cfg,
-		logger:   logger,
-		htmlTmpl: htmlTmpl,
-		textTmpl: textTmpl,
+		cfg:               cfg,
+		logger:            logger,
+		htmlTmpl:          htmlTmpl,
+		textTmpl:          textTmpl,
+		magicLinkHTMLTmpl: magicLinkHTMLTmpl,
+		magicLinkTextTmpl: magicLinkTextTmpl,
 	}, nil
 }
 
@@ -107,6 +126,62 @@ func (s *SMTPSender) SendPasswordReset(ctx context.Context, toEmail, toName, res
 
 	if err := client.DialAndSendWithContext(ctx, msg); err != nil {
 		return fmt.Errorf("email: send: %w", err)
+	}
+	return nil
+}
+
+// SendMagicLink sends a magic sign-in link email to the given recipient.
+// If SMTP host is not configured, an error is returned.
+func (s *SMTPSender) SendMagicLink(ctx context.Context, toEmail, toName, magicURL string) error {
+	if s.cfg.SMTP.Host == "" {
+		s.logger.Warn("SMTP not configured: cannot send magic link email", "to", toEmail)
+		return fmt.Errorf("email: SMTP host is not configured")
+	}
+
+	data := magicLinkData{Name: toName, MagicURL: magicURL}
+
+	var htmlBuf, textBuf bytes.Buffer
+	if err := s.magicLinkHTMLTmpl.Execute(&htmlBuf, data); err != nil {
+		return fmt.Errorf("email: render magic link html template: %w", err)
+	}
+	if err := s.magicLinkTextTmpl.Execute(&textBuf, data); err != nil {
+		return fmt.Errorf("email: render magic link text template: %w", err)
+	}
+
+	// Build the go-mail client options.
+	opts := []mail.Option{
+		mail.WithPort(s.cfg.SMTP.Port),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithUsername(s.cfg.SMTP.Username),
+		mail.WithPassword(s.cfg.SMTP.Password),
+	}
+	switch s.cfg.SMTP.TLS {
+	case "tls":
+		opts = append(opts, mail.WithSSL())
+	case "none":
+		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
+	default: // "starttls" and anything else
+		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
+	}
+
+	client, err := mail.NewClient(s.cfg.SMTP.Host, opts...)
+	if err != nil {
+		return fmt.Errorf("email: create smtp client: %w", err)
+	}
+
+	msg := mail.NewMsg()
+	if err := msg.From(s.cfg.SMTP.From); err != nil {
+		return fmt.Errorf("email: set from: %w", err)
+	}
+	if err := msg.AddToFormat(toName, toEmail); err != nil {
+		return fmt.Errorf("email: set to: %w", err)
+	}
+	msg.Subject("Your Passage sign-in link")
+	msg.SetBodyString(mail.TypeTextPlain, textBuf.String())
+	msg.AddAlternativeString(mail.TypeTextHTML, htmlBuf.String())
+
+	if err := client.DialAndSendWithContext(ctx, msg); err != nil {
+		return fmt.Errorf("email: send magic link: %w", err)
 	}
 	return nil
 }
