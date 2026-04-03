@@ -67,6 +67,16 @@
               </div>
               {{end}}
 
+              {{if .AllowMagicLink}}
+              <div class="field mt-4">
+                <div class="control">
+                  <a href="/login/magic{{if .RedirectTo}}?rd={{.RedirectTo}}{{end}}" class="button is-light is-fullwidth">
+                    Email me a sign-in link
+                  </a>
+                </div>
+              </div>
+              {{end}}
+
               <div class="has-text-centered mt-4 is-size-7">
                 <a href="/reset">Forgot password?</a>
                 {{if .AllowRegistration}}

@@ -322,6 +322,9 @@ func run() error {
 		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset", userHandler.PostResetRequest)
 		r.Get("/reset/{token}", userHandler.GetResetConfirm)
 		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset/{token}", userHandler.PostResetConfirm)
+		r.Get("/login/magic", userHandler.GetMagicLinkRequest)
+		r.Post("/login/magic", userHandler.PostMagicLinkRequest)
+		r.Get("/login/magic/verify", userHandler.GetMagicLinkVerify)
 		// Setup endpoint — only active when no admin user exists.
 		// The setupManager is nil once an admin account has been created; the
 		// handlers check IsActive() on every request so the endpoint self-disables.

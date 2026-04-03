@@ -95,6 +95,7 @@ type loginData struct {
 	AllowRegistration bool
 	AllowPassword     bool
 	AllowPasskey      bool
+	AllowMagicLink    bool
 	CSRFToken         string
 }
 
@@ -134,6 +135,7 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		AllowRegistration: h.registrationAllowed(r.Context()),
 		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
+		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
@@ -421,6 +423,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		AllowRegistration: h.registrationAllowed(r.Context()),
 		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
+		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
