@@ -4,6 +4,18 @@ A self-hosted authentication service for home labs. Passage provides a single fr
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <a href="screenshots/01-sign-in.png"><img src="screenshots/01-sign-in.png" alt="Sign in" width="19%" /></a>
+  <a href="screenshots/02-my-apps.png"><img src="screenshots/02-my-apps.png" alt="My apps" width="19%" /></a>
+  <a href="screenshots/03-dashboard.png"><img src="screenshots/03-dashboard.png" alt="Admin dashboard" width="19%" /></a>
+  <a href="screenshots/04-apps.png"><img src="screenshots/04-apps.png" alt="Admin apps" width="19%" /></a>
+  <a href="screenshots/05-settings.png"><img src="screenshots/05-settings.png" alt="Admin settings" width="19%" /></a>
+</p>
+
+---
+
 ## How it works
 
 Passage is an **OAuth 2.0 / OpenID Connect (OIDC) identity provider**. Applications delegate authentication to Passage using the standard authorization code flow. Users log in at Passage and are redirected back to the application with a verified identity — no per-app login screens, no duplicated credential stores.
