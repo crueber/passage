@@ -848,8 +848,13 @@ func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var flash *Flash
+	if code := r.URL.Query().Get("flash"); code != "" {
+		flash = flashFromQuery(code)
+	}
+
 	h.render(w, r, "admin-app-form", appFormData{
-		basePage: h.base(r, "apps"),
+		basePage: h.baseFlash(r, "apps", flash),
 		appTabs:  appTabs{App: a, ActiveTab: "details"},
 		EditApp:  a,
 		IsNew:    false,
@@ -915,9 +920,9 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			h.render(w, r, "admin-app-form", appFormData{
 				basePage: h.baseFlash(r, "apps", &Flash{Type: "error",
 					Message: "Session duration must be a non-negative integer (0 = use global default)."}),
-				appTabs:  appTabs{App: a, ActiveTab: "details"},
-				EditApp:  a,
-				IsNew:    false,
+				appTabs: appTabs{App: a, ActiveTab: "details"},
+				EditApp: a,
+				IsNew:   false,
 				BaseURL: h.baseURL(),
 			})
 			return
