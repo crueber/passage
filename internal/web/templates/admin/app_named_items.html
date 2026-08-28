@@ -86,6 +86,7 @@
                 <fieldset>
                   <legend class="label">Groups granted by this role</legend>
                   {{range .AllGroups}}
+                  <label class="checkbox">
                     <input type="checkbox" name="group_ids" value="{{.ID}}" {{if index $.CheckedGroups .ID}}checked{{end}}>
                     {{.Name}}{{if .Description}} <span class="has-text-grey-light">— {{.Description}}</span>{{end}}
                   </label>
@@ -112,6 +113,7 @@
               <tr>
                 <th scope="col">Name</th>
                 <th scope="col">Description</th>
+                {{if eq .Kind "roles"}}<th scope="col">Groups</th>{{end}}
                 <th scope="col"></th>
               </tr>
             </thead>
@@ -120,6 +122,11 @@
               <tr>
                 <td>{{.Name}}</td>
                 <td>{{.Description}}</td>
+                {{if eq $.Kind "roles"}}
+                <td>
+                  {{range .Groups}}<span class="tag is-info is-light">{{.}}</span> {{else}}<span class="has-text-grey-light">—</span>{{end}}
+                </td>
+                {{end}}
                 <td>
                   <div class="buttons are-small">
                     <a class="button is-light" href="/admin/apps/{{$.App.ID}}/{{$.Kind}}/{{.ID}}/edit">Edit</a>
@@ -132,7 +139,7 @@
               </tr>
             {{else}}
               <tr>
-                <td colspan="3" class="has-text-grey-light"><em>No {{.Kind}} defined yet.</em></td>
+                <td colspan="{{if eq .Kind "roles"}}4{{else}}3{{end}}" class="has-text-grey-light"><em>No {{.Kind}} defined yet.</em></td>
               </tr>
             {{end}}
             </tbody>

@@ -1269,7 +1269,8 @@ func (h *Handler) PostGrantAccess(w http.ResponseWriter, r *http.Request) {
 		appName = a.Name
 	}
 	h.logAudit(r, AuditActionAppGrantAccess, "app", appID, appName)
-	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access?flash=access-granted", appID), http.StatusFound)
+	// No success flash: the user's move between the tables is the feedback.
+	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access", appID), http.StatusFound)
 }
 
 // PostRevokeAccess revokes a user's access to an app.
@@ -1294,9 +1295,7 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 		appName = a.Name
 	}
 	h.logAudit(r, AuditActionAppRevokeAccess, "app", appID, appName)
-
-	redirectURL := fmt.Sprintf("/admin/apps/%s/access?flash=access-revoked", appID)
-
+	redirectURL := fmt.Sprintf("/admin/apps/%s/access", appID)
 	// No-JS fallback: full redirect re-renders both sections.
 	if r.Header.Get("HX-Request") != "true" {
 		http.Redirect(w, r, redirectURL, http.StatusFound)

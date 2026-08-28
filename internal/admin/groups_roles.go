@@ -12,10 +12,12 @@ import (
 
 // namedItemRow is the template-facing row for the app groups and roles
 // pages. Both entities have identical shape: a name and a description.
+// Roles additionally carry the names of their granted groups.
 type namedItemRow struct {
 	ID          string
 	Name        string
 	Description string
+	Groups      []string
 }
 
 // appNamedItemsData backs the shared groups/roles admin page.
@@ -84,7 +86,15 @@ func (h *Handler) loadNamedItems(r *http.Request, a *app.App, kind string) ([]na
 		return nil, err
 	}
 	for _, ro := range roles {
-		items = append(items, namedItemRow{ID: ro.ID, Name: ro.Name, Description: ro.Description})
+		roleGroups, err := h.apps.ListGroupsForRole(r.Context(), ro.ID)
+		if err != nil {
+			return nil, err
+		}
+		names := make([]string, len(roleGroups))
+		for i, g := range roleGroups {
+			names[i] = g.Name
+		}
+		items = append(items, namedItemRow{ID: ro.ID, Name: ro.Name, Description: ro.Description, Groups: names})
 	}
 	return items, nil
 }

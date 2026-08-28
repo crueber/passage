@@ -98,6 +98,13 @@ func TestRoleGroupMembershipViaEditForm(t *testing.T) {
 		t.Fatalf("role groups after save: %v (%d)", err, len(groups))
 	}
 
+	// The roles list shows the granted group as a tag.
+	listBody := adminRequest(t, fx.router, http.MethodGet,
+		"/admin/apps/"+fx.appID+"/roles", fx.token, "passage_session", nil, "").Body.String()
+	if !strings.Contains(listBody, `class="tag is-info is-light"`) ||
+		!strings.Contains(listBody, "test-group") {
+		t.Error("roles list: granted group not shown")
+	}
 	// Uncheck and save: membership removed.
 	values = url.Values{}
 	values.Set("name", "test-role")

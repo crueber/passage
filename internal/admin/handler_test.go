@@ -812,8 +812,8 @@ func TestAdminAppAccess_GrantAndRevoke(t *testing.T) {
 		t.Errorf("grant access: got %d, want 302", res.StatusCode)
 	}
 	loc := res.Header.Get("Location")
-	if !strings.Contains(loc, "flash=access-granted") {
-		t.Errorf("grant access: redirect %q does not contain flash=access-granted", loc)
+	if loc != "/admin/apps/"+appID+"/access" {
+		t.Errorf("grant access: redirect %q, want /admin/apps/%s/access with no flash", loc, appID)
 	}
 
 	// Verify the user now has access.
@@ -841,8 +841,8 @@ func TestAdminAppAccess_GrantAndRevoke(t *testing.T) {
 		t.Errorf("revoke access: got %d, want 302", res.StatusCode)
 	}
 	loc = res.Header.Get("Location")
-	if !strings.Contains(loc, "flash=access-revoked") {
-		t.Errorf("revoke access: redirect %q does not contain flash=access-revoked", loc)
+	if loc != "/admin/apps/"+appID+"/access" {
+		t.Errorf("revoke access: redirect %q, want /admin/apps/%s/access with no flash", loc, appID)
 	}
 
 	// Verify the access is gone.
