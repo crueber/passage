@@ -1234,11 +1234,7 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.apps.RevokeAccess(r.Context(), userID, appID); err != nil {
 		h.logger.Error("admin: revoke access", "user_id", userID, "app_id", appID, "error", err)
-		if r.Header.Get("HX-Request") != "true" {
-			http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access?flash=error", appID), http.StatusFound)
-			return
-		}
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access?flash=error", appID), http.StatusFound)
 		return
 	}
 
@@ -1249,14 +1245,16 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logAudit(r, AuditActionAppRevokeAccess, "app", appID, appName)
 
-	// Support htmx partial response (return empty row with "Revoked" indicator).
+	// Redirect to the access page so the revoked user moves from
+	// "Users with access" to "Users without access". htmx does not follow
+	// redirects on its own; HX-Redirect triggers a full page refresh, which
+	// re-renders both sections.
+	redirectURL := fmt.Sprintf("/admin/apps/%s/access?flash=access-revoked", appID)
 	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<tr><td colspan="3"><em>Access revoked</em></td></tr>`)
+		w.Header().Set("HX-Redirect", redirectURL)
 		return
 	}
-
-	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access?flash=access-revoked", appID), http.StatusFound)
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 // ─── Sessions ────────────────────────────────────────────────────────────────

@@ -857,8 +857,9 @@ func TestAdminAppAccess_GrantAndRevoke(t *testing.T) {
 	}
 }
 
-// TestAdminAppAccess_HTMX verifies that the HTMX revoke path returns a 200 with
-// an inline "revoked" indicator instead of a redirect.
+// TestAdminAppAccess_HTMX verifies that the HTMX revoke path responds with an
+// HX-Redirect header pointing at the access page, so a full page refresh moves
+// the revoked user to the "Users without access" section.
 func TestAdminAppAccess_HTMX(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -907,9 +908,9 @@ func TestAdminAppAccess_HTMX(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("htmx revoke access: got %d, want 200", res.StatusCode)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(strings.ToLower(body), "revoked") {
-		t.Errorf("htmx revoke access: response does not contain 'revoked'; got: %s", body)
+	want := "/admin/apps/" + appID + "/access?flash=access-revoked"
+	if got := res.Header.Get("HX-Redirect"); got != want {
+		t.Errorf("htmx revoke access: HX-Redirect %q, want %q", got, want)
 	}
 }
 
