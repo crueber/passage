@@ -368,6 +368,10 @@ func TestLoad_RateLimitDefaults(t *testing.T) {
 		{"RateLimit.OAuthTokenWindowMinutes", cfg.RateLimit.OAuthTokenWindowMinutes, 1},
 		{"RateLimit.SetupRequests", cfg.RateLimit.SetupRequests, 5},
 		{"RateLimit.SetupWindowMinutes", cfg.RateLimit.SetupWindowMinutes, 60},
+		{"RateLimit.RegisterRequests", cfg.RateLimit.RegisterRequests, 10},
+		{"RateLimit.RegisterWindowMinutes", cfg.RateLimit.RegisterWindowMinutes, 60},
+		{"RateLimit.MagicLinkRequests", cfg.RateLimit.MagicLinkRequests, 5},
+		{"RateLimit.MagicLinkWindowMinutes", cfg.RateLimit.MagicLinkWindowMinutes, 60},
 	}
 
 	for _, tt := range tests {
@@ -376,6 +380,22 @@ func TestLoad_RateLimitDefaults(t *testing.T) {
 				t.Errorf("got %v; want %v", tt.got, tt.want)
 			}
 		})
+	}
+}
+
+// TestEffectiveCookieName verifies the __Host- prefix is applied exactly when
+// secure cookies are enabled (FA-007).
+func TestEffectiveCookieName(t *testing.T) {
+	t.Parallel()
+
+	base := config.SessionConfig{CookieName: "passage_session"}
+	if got := base.EffectiveCookieName(); got != "passage_session" {
+		t.Errorf("insecure: got %q, want %q", got, "passage_session")
+	}
+
+	secure := config.SessionConfig{CookieName: "passage_session", CookieSecure: true}
+	if got := secure.EffectiveCookieName(); got != "__Host-passage_session" {
+		t.Errorf("secure: got %q, want %q", got, "__Host-passage_session")
 	}
 }
 

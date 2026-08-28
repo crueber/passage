@@ -390,7 +390,7 @@ func (h *Handler) PostResetConfirm(w http.ResponseWriter, r *http.Request) {
 
 // GetLogout revokes the current session, clears the cookie, and redirects to /login.
 func (h *Handler) GetLogout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie(h.cfg.Session.CookieName)
+	cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName())
 	if err == nil {
 		if err := h.sessions.RevokeSession(r.Context(), cookie.Value); err != nil {
 			h.logger.Warn("revoke session on logout", "error", err)
@@ -431,7 +431,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 // setSessionCookie writes the session cookie with the given token and expiry.
 func setSessionCookie(w http.ResponseWriter, token string, expiresAt time.Time, cfg *config.Config) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Session.CookieName,
+		Name:     cfg.Session.EffectiveCookieName(),
 		Value:    token,
 		Path:     "/",
 		Expires:  expiresAt,
@@ -444,7 +444,7 @@ func setSessionCookie(w http.ResponseWriter, token string, expiresAt time.Time, 
 // clearSessionCookie writes an expired cookie to clear the session.
 func clearSessionCookie(w http.ResponseWriter, cfg *config.Config) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Session.CookieName,
+		Name:     cfg.Session.EffectiveCookieName(),
 		Value:    "",
 		Path:     "/",
 		Expires:  time.Unix(0, 0),

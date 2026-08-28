@@ -483,3 +483,57 @@ func TestProtectAuthenticated_Integration(t *testing.T) {
 		}
 	})
 }
+
+// TestProtectAnonymous_HostPrefixCookieName verifies that secure mode sets the
+// CSRF cookie under the __Host- prefix (FA-007) and insecure mode keeps the
+// plain name.
+func TestProtectAnonymous_HostPrefixCookieName(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("secure uses __Host- prefix", func(t *testing.T) {
+		handler := ProtectAnonymous("", true)
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		w := httptest.NewRecorder()
+
+		handler(next).ServeHTTP(w, req)
+
+		var found bool
+		for _, c := range w.Result().Cookies() {
+			if c.Name == "__Host-"+CookieName {
+				found = true
+				if c.Path != "/" {
+					t.Errorf("__Host- cookie Path = %q, want \"/\"", c.Path)
+				}
+				if !c.Secure {
+					t.Error("__Host- cookie must have Secure set")
+				}
+			}
+			if c.Name == CookieName {
+				t.Error("secure mode must not set the un-prefixed cookie name")
+			}
+		}
+		if !found {
+			t.Error("expected __Host-prefixed CSRF cookie to be set")
+		}
+	})
+
+	t.Run("insecure keeps plain name", func(t *testing.T) {
+		handler := ProtectAnonymous("", false)
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		w := httptest.NewRecorder()
+
+		handler(next).ServeHTTP(w, req)
+
+		var found bool
+		for _, c := range w.Result().Cookies() {
+			if c.Name == CookieName {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("expected plain-named CSRF cookie to be set")
+		}
+	})
+}

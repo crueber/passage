@@ -98,7 +98,7 @@ func (h *Handler) checkAuth(w http.ResponseWriter, r *http.Request, host string)
 	ctx := r.Context()
 
 	// Read session cookie.
-	cookie, err := r.Cookie(h.cfg.Session.CookieName)
+	cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName())
 	if err != nil {
 		// No cookie present — not authenticated.
 		w.WriteHeader(http.StatusUnauthorized)
@@ -175,7 +175,7 @@ func (h *Handler) AuthStart(w http.ResponseWriter, r *http.Request) {
 
 // SignOut revokes the current session cookie and returns 200.
 func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie(h.cfg.Session.CookieName)
+	cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName())
 	if err == nil {
 		// Ignore "not found" errors — session may already be expired/deleted.
 		if err := h.sessions.RevokeSession(r.Context(), cookie.Value); err != nil {

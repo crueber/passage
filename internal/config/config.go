@@ -26,8 +26,9 @@ type CSRFConfig struct {
 	// Key is the server-side secret for CSRF token signing.
 	// Env: PASSAGE_CSRF_KEY. Should be 32+ random bytes (64+ hex characters),
 	// e.g. generated with: openssl rand -hex 32
-	// If empty, the ProtectAnonymous middleware uses only the per-session
-	// CSRF cookie value as the signing key (still secure, but not server-bound).
+	// If empty, run() generates an ephemeral key at startup, so anonymous CSRF
+	// tokens are always server-bound. Set an explicit key for multi-instance
+	// deployments (and to keep anonymous CSRF cookies valid across restarts).
 	Key string `yaml:"key"`
 }
 
@@ -84,6 +85,19 @@ type SessionConfig struct {
 	DurationHours int    `yaml:"duration_hours"`
 	CookieName    string `yaml:"cookie_name"`
 	CookieSecure  bool   `yaml:"cookie_secure"`
+}
+
+// EffectiveCookieName returns the session cookie name, applying the __Host-
+// prefix when secure cookies are enabled. The prefix (a browser-enforced
+// invariant: Secure attribute, no Domain attribute, Path=/) blocks
+// sibling-subdomain cookie tossing that could shadow the session or CSRF
+// cookies. Clearing and setting code MUST go through this method so readers
+// and writers always agree on the name.
+func (s SessionConfig) EffectiveCookieName() string {
+	if s.CookieSecure {
+		return "__Host-" + s.CookieName
+	}
+	return s.CookieName
 }
 
 // SMTPConfig holds email/SMTP settings.

@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/rsa"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -70,6 +72,20 @@ func run() error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
+	// Bind anonymous CSRF tokens to a server-side secret even when the
+	// operator has not configured one (FA-007). Without this, the HMAC
+	// signing key is derived solely from the client-held CSRF cookie, so a
+	// sibling-subdomain cookie toss yields valid tokens. Ephemeral per
+	// process: restarts invalidate outstanding anonymous CSRF cookies, which
+	// ProtectAnonymous transparently re-issues.
+	if cfg.CSRF.Key == "" {
+		kb := make([]byte, 32)
+		if _, err := rand.Read(kb); err != nil {
+			return fmt.Errorf("generate csrf key: %w", err)
+		}
+		cfg.CSRF.Key = hex.EncodeToString(kb)
+	}
+
 	// Set up logger.
 	logger := buildLogger(cfg)
 
@@ -132,7 +148,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("init oauth service: %w", err)
 	}
-	oauthHandler := oauth.NewHandler(oauthSvc, sessionSvc, oauthSvc.PrivateKey().Public().(*rsa.PublicKey), oauthSvc.KeyID(), cfg.Server.BaseURL, cfg.Session.CookieName, logger)
+	oauthHandler := oauth.NewHandler(oauthSvc, sessionSvc, oauthSvc.PrivateKey().Public().(*rsa.PublicKey), oauthSvc.KeyID(), cfg.Server.BaseURL, cfg.Session.EffectiveCookieName(), logger)
 
 	// Build WebAuthn credential store and challenge store.
 	credStore := webauthn.NewSQLiteCredentialStore(database)
@@ -266,7 +282,7 @@ func run() error {
 		challenges,
 		userStore,
 		sessionSvc,
-		cfg.Session.CookieName,
+		cfg.Session.EffectiveCookieName(),
 		cfg.Session.CookieSecure,
 		tmpl,
 		logger,
@@ -346,7 +362,7 @@ func run() error {
 	// CSRF protection is session-bound for authenticated routes.
 	r.Group(func(r chi.Router) {
 		r.Use(session.RequireSession(sessionSvc, cfg))
-		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.CookieName))
+		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.EffectiveCookieName()))
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			u, _ := session.UserFromContext(r.Context())
 
@@ -387,7 +403,7 @@ func run() error {
 	// Admin routes — protected by RequireAdmin middleware.
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(admin.RequireAdmin(sessionSvc, cfg))
-		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.CookieName))
+		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.EffectiveCookieName()))
 		adminHandler.Routes(r)
 	})
 

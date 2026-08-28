@@ -214,7 +214,7 @@ func (s *Service) ListByUser(ctx context.Context, userID string) ([]*Session, er
 // SetCookie writes the session cookie to the response.
 func SetCookie(w http.ResponseWriter, token string, expiresAt time.Time, cfg *config.Config) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Session.CookieName,
+		Name:     cfg.Session.EffectiveCookieName(),
 		Value:    token,
 		Path:     "/",
 		Expires:  expiresAt,
@@ -227,7 +227,7 @@ func SetCookie(w http.ResponseWriter, token string, expiresAt time.Time, cfg *co
 // ClearCookie writes an expired cookie to clear the session cookie.
 func ClearCookie(w http.ResponseWriter, cfg *config.Config) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Session.CookieName,
+		Name:     cfg.Session.EffectiveCookieName(),
 		Value:    "",
 		Path:     "/",
 		Expires:  time.Unix(0, 0),

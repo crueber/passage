@@ -8,8 +8,9 @@
 //
 //   - ProtectAnonymous: for unauthenticated routes (login, register, reset,
 //     setup). Uses the double-submit cookie pattern: a random value stored in
-//     a non-HttpOnly cookie is the signing key, optionally mixed with a
-//     server-side secret (cfg.CSRF.Key) for defence-in-depth.
+//     a non-HttpOnly cookie is mixed with a server-side secret (cfg.CSRF.Key,
+//     generated at startup when not configured) as the signing key, so tokens
+//     are always bound to a secret the client cannot choose.
 //
 // Both variants use the same token format and validation logic.
 package csrf
@@ -34,8 +35,10 @@ const (
 )
 
 const (
-	// CookieName is the CSRF cookie name used by ProtectAnonymous.
+	// CookieName is the base CSRF cookie name used by ProtectAnonymous.
 	// It is deliberately NOT HttpOnly so that htmx can read it if needed.
+	// When secure cookies are enabled the name is prefixed with __Host-
+	// (see cookieName) to block sibling-subdomain cookie tossing.
 	CookieName = "passage_csrf"
 
 	// FieldName is the hidden form field name that carries the CSRF token.
@@ -188,10 +191,9 @@ func ProtectAuthenticated(sessionCookieName string) func(http.Handler) http.Hand
 // register, reset, setup) where no session token exists yet.
 //
 // It uses the double-submit cookie pattern: a random value is stored in a
-// non-HttpOnly cookie (passage_csrf). If cfgKey is non-empty, it is appended
-// server-side to the cookie value to derive the HMAC signing key, binding the
-// token to a server-side secret for additional protection against subdomain
-// attacks. The cfgKey is never transmitted to the client.
+// non-HttpOnly cookie mixed with the server-side cfgKey (generated at startup
+// when the operator has not configured one). The cfgKey is never transmitted
+// to the client.
 //
 // cookieSecure controls whether the CSRF cookie carries the Secure attribute.
 // Set to true in production when Passage is served over HTTPS (typically via
@@ -207,7 +209,7 @@ func ProtectAuthenticated(sessionCookieName string) func(http.Handler) http.Hand
 func ProtectAnonymous(cfgKey string, cookieSecure bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			signingKey := csrfCookieKey(r, cfgKey)
+			signingKey := csrfCookieKey(r, cookieName(cookieSecure), cfgKey)
 			if signingKey == "" {
 				// No CSRF cookie yet — generate a new random value and set the cookie.
 				raw := make([]byte, 32)
@@ -224,7 +226,7 @@ func ProtectAnonymous(cfgKey string, cookieSecure bool) func(http.Handler) http.
 				// Set the CSRF cookie with only the random value — the cfgKey is
 				// a server-side secret and must never be transmitted to the client.
 				http.SetCookie(w, &http.Cookie{
-					Name:     CookieName,
+					Name:     cookieName(cookieSecure),
 					Value:    cookieVal,
 					Path:     "/",
 					HttpOnly: false,
@@ -265,11 +267,21 @@ func ProtectAnonymous(cfgKey string, cookieSecure bool) func(http.Handler) http.
 	}
 }
 
+// cookieName returns the CSRF cookie name, applying the __Host- prefix when
+// secure cookies are enabled. The prefix requires Secure, no Domain, and
+// Path=/ — all of which ProtectAnonymous sets.
+func cookieName(secure bool) string {
+	if secure {
+		return "__Host-" + CookieName
+	}
+	return CookieName
+}
+
 // csrfCookieKey returns the effective signing key from the CSRF cookie.
 // The cookie stores only the random value; cfgKey is appended server-side
 // if non-empty. Returns empty string if the CSRF cookie is absent or empty.
-func csrfCookieKey(r *http.Request, cfgKey string) string {
-	c, err := r.Cookie(CookieName)
+func csrfCookieKey(r *http.Request, name, cfgKey string) string {
+	c, err := r.Cookie(name)
 	if err != nil || c.Value == "" {
 		return ""
 	}
