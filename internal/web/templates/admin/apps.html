@@ -41,7 +41,7 @@
               {{range .Apps}}
               <tr>
                 <td>{{.Slug}}</td>
-                <td>{{.Name}}</td>
+                <td><a href="/admin/apps/{{.ID}}">{{.Name}}</a></td>
                 <td><code>{{.HostPattern}}</code></td>
                 <td>
                   {{if .DefaultURL}}
@@ -54,7 +54,6 @@
                 <td>{{if .IsActive}}<span class="tag is-info is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
                 <td>
                   <div class="buttons are-small">
-                    <a class="button is-light" href="/admin/apps/{{.ID}}">Edit</a>
                     <a class="button is-light" href="/admin/apps/{{.ID}}/access">Access</a>
                     <form method="POST" action="/admin/apps/{{.ID}}/delete">
                       {{csrfField $.CSRFToken}}
