@@ -1,0 +1,106 @@
+{{define "admin-app-oauth"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OAuth Client — {{.EditApp.Name}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/bulma.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+<div class="passage-admin-body">
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">{{.EditApp.Name}}</h1>
+        {{template "admin-app-tabs" .}}
+
+        <h2 class="title is-5">OAuth Client</h2>
+
+        {{if .NewClientSecret}}
+        <div class="notification is-success is-light" role="alert">
+          <p><strong>New client secret — copy now, it will not be shown again:</strong></p>
+          <p>
+            <code style="font-size:1.05em; word-break:break-all;">{{.NewClientSecret}}</code>
+            <button type="button" class="button is-small is-light ml-2"
+                    onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
+          </p>
+        </div>
+        {{end}}
+
+        {{if .EditApp.OAuthEnabled}}
+        <div class="content">
+          <p><strong>Client ID:</strong> <code>{{.EditApp.ClientID}}</code></p>
+          <p><strong>Client Secret:</strong> •••••••••• (set)</p>
+        </div>
+
+        <h3 class="title is-6 mt-4">OIDC / OAuth Endpoints</h3>
+        {{if .BaseURL}}
+        <p class="mb-3">Configure your app's OAuth / OIDC provider with these endpoints. Most apps
+          that support OIDC discovery only need the <strong>Discovery URL</strong>; others require
+          each endpoint to be entered individually.</p>
+        <table class="table is-bordered is-narrow is-fullwidth" aria-label="OIDC endpoint reference">
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>URL</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Discovery (OIDC)</td>
+              <td><code>{{.BaseURL}}/.well-known/openid-configuration</code></td>
+            </tr>
+            <tr>
+              <td>JWKS (public key)</td>
+              <td><code>{{.BaseURL}}/.well-known/jwks.json</code></td>
+            </tr>
+            <tr>
+              <td>Authorization</td>
+              <td><code>{{.BaseURL}}/oauth/authorize</code></td>
+            </tr>
+            <tr>
+              <td>Token</td>
+              <td><code>{{.BaseURL}}/oauth/token</code></td>
+            </tr>
+            <tr>
+              <td>Userinfo</td>
+              <td><code>{{.BaseURL}}/oauth/userinfo</code></td>
+            </tr>
+          </tbody>
+        </table>
+        {{else}}
+        <div class="notification is-warning is-light" role="alert">
+          <strong>Base URL not configured.</strong>
+          Set <code>server.base_url</code> (or <code>PASSAGE_SERVER_BASE_URL</code>) in your
+          Passage configuration to display the full OAuth / OIDC endpoint URLs here.
+        </div>
+        {{end}}
+
+        <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
+          {{csrfField .CSRFToken}}
+          <button type="submit" class="button is-warning is-light"
+                  onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">
+            Rotate Secret
+          </button>
+        </form>
+        {{else}}
+        <p class="mb-3">OAuth is not enabled for this app.</p>
+        <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/generate">
+          {{csrfField .CSRFToken}}
+          <button type="submit" class="button is-info is-light">Enable OAuth &amp; Generate Credentials</button>
+        </form>
+        {{end}}
+      </main>
+    </div>
+    {{template "admin-footer" .}}
+  </div>
+</div>
+</body>
+</html>
+{{end}}

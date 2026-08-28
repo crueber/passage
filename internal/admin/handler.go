@@ -150,6 +150,7 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/apps", h.PostCreateApp)
 	r.Get("/apps/{id}", h.GetEditApp)
 	r.Post("/apps/{id}", h.PostUpdateApp)
+	r.Get("/apps/{id}/oauth", h.GetAppOAuth)
 	r.Post("/apps/{id}/delete", h.PostDeleteApp)
 	r.Get("/apps/{id}/access", h.GetAppAccess)
 	r.Post("/apps/{id}/access", h.PostGrantAccess)
@@ -722,8 +723,15 @@ func (h *Handler) GetApps(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// appTabs carries tab-navigation state for app sub-pages (details, OAuth, access).
+type appTabs struct {
+	App       *app.App
+	ActiveTab string // "details", "oauth", or "access"
+}
+
 type appFormData struct {
 	basePage
+	appTabs
 	EditApp         *app.App
 	IsNew           bool
 	NewClientSecret string // non-empty only when just generated or rotated; shown once
@@ -826,7 +834,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/apps?flash=created", http.StatusFound)
 }
 
-// GetEditApp renders the edit app form.
+// GetEditApp renders the app details tab.
 func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	a, err := h.apps.GetByID(r.Context(), id)
@@ -842,6 +850,30 @@ func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 
 	h.render(w, r, "admin-app-form", appFormData{
 		basePage: h.base(r, "apps"),
+		appTabs:  appTabs{App: a, ActiveTab: "details"},
+		EditApp:  a,
+		IsNew:    false,
+		BaseURL:  h.baseURL(),
+	})
+}
+
+// GetAppOAuth renders the app OAuth Client tab.
+func (h *Handler) GetAppOAuth(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	a, err := h.apps.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			http.Redirect(w, r, "/admin/apps", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get app for oauth tab", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	h.render(w, r, "admin-app-oauth", appFormData{
+		basePage: h.base(r, "apps"),
+		appTabs:  appTabs{App: a, ActiveTab: "oauth"},
 		EditApp:  a,
 		IsNew:    false,
 		BaseURL:  h.baseURL(),
@@ -883,8 +915,9 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			h.render(w, r, "admin-app-form", appFormData{
 				basePage: h.baseFlash(r, "apps", &Flash{Type: "error",
 					Message: "Session duration must be a non-negative integer (0 = use global default)."}),
-				EditApp: a,
-				IsNew:   false,
+				appTabs:  appTabs{App: a, ActiveTab: "details"},
+				EditApp:  a,
+				IsNew:    false,
 				BaseURL: h.baseURL(),
 			})
 			return
@@ -907,6 +940,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
+			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
@@ -917,6 +951,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	if a.DefaultURL != "" && !strings.HasPrefix(a.DefaultURL, "http://") && !strings.HasPrefix(a.DefaultURL, "https://") {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Default URL must start with http:// or https://."}),
+			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
@@ -928,9 +963,9 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 		// path.Match only returns an error for syntactically malformed patterns.
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
+			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -942,6 +977,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 		}
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
+			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
 			BaseURL:  h.baseURL(),
@@ -950,7 +986,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logAudit(r, AuditActionAppUpdate, "app", a.ID, a.Name)
-	http.Redirect(w, r, "/admin/apps?flash=updated", http.StatusFound)
+	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s?flash=updated", id), http.StatusFound)
 }
 
 // PostDeleteApp deletes an app by ID.
@@ -995,8 +1031,9 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 	secret, err := h.apps.GenerateClientCredentials(ctx, id)
 	if err != nil {
 		msg := "Failed to generate OAuth credentials."
-		h.render(w, r, "admin-app-form", appFormData{
+		h.render(w, r, "admin-app-oauth", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
+			appTabs:  appTabs{App: a, ActiveTab: "oauth"},
 			EditApp:  a,
 			BaseURL:  h.baseURL(),
 		})
@@ -1013,8 +1050,9 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 	}
 
 	h.logAudit(r, AuditActionOAuthGenerate, "app", a.ID, a.Name)
-	h.render(w, r, "admin-app-form", appFormData{
+	h.render(w, r, "admin-app-oauth", appFormData{
 		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth credentials generated. Copy the secret — it will not be shown again."}),
+		appTabs:         appTabs{App: a, ActiveTab: "oauth"},
 		EditApp:         a,
 		NewClientSecret: secret,
 		BaseURL:         h.cfg.Server.BaseURL,
@@ -1041,8 +1079,9 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 	secret, err := h.apps.RotateClientSecret(ctx, id)
 	if err != nil {
 		msg := "Failed to rotate OAuth client secret."
-		h.render(w, r, "admin-app-form", appFormData{
+		h.render(w, r, "admin-app-oauth", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
+			appTabs:  appTabs{App: a, ActiveTab: "oauth"},
 			EditApp:  a,
 			BaseURL:  h.baseURL(),
 		})
@@ -1059,8 +1098,9 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.logAudit(r, AuditActionOAuthRotate, "app", a.ID, a.Name)
-	h.render(w, r, "admin-app-form", appFormData{
+	h.render(w, r, "admin-app-oauth", appFormData{
 		basePage:        h.baseFlash(r, "apps", &Flash{Type: "success", Message: "OAuth client secret rotated. Copy the new secret — it will not be shown again."}),
+		appTabs:         appTabs{App: a, ActiveTab: "oauth"},
 		EditApp:         a,
 		NewClientSecret: secret,
 		BaseURL:         h.cfg.Server.BaseURL,
@@ -1077,7 +1117,7 @@ type userWithAccess struct {
 
 type appAccessData struct {
 	basePage
-	App                *app.App
+	appTabs
 	UsersWithAccess    []userWithAccess
 	UsersWithoutAccess []*user.User
 }
@@ -1158,7 +1198,7 @@ func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
 
 	h.render(w, r, "admin-app-access", appAccessData{
 		basePage:           h.baseFlash(r, "apps", flash),
-		App:                a,
+		appTabs:            appTabs{App: a, ActiveTab: "access"},
 		UsersWithAccess:    withAccess,
 		UsersWithoutAccess: withoutAccess,
 	})

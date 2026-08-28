@@ -17,8 +17,8 @@
       {{template "admin-nav" .}}
       <main class="passage-admin-content">
         {{template "admin-flash" .}}
-        <h1 class="title is-4">Access: {{.App.Name}}</h1>
-        <p class="mb-4"><a href="/admin/apps/{{.App.ID}}">← Back to app</a></p>
+        <h1 class="title is-4">{{.App.Name}}</h1>
+        {{template "admin-app-tabs" .}}
 
         <h2 class="title is-5">Users with access</h2>
         <div class="table-container mb-6">

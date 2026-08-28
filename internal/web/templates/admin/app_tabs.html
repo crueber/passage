@@ -1,0 +1,15 @@
+{{define "admin-app-tabs"}}
+<div class="tabs mb-4">
+  <ul>
+    <li {{if eq .ActiveTab "details"}}class="is-active"{{end}}>
+      <a href="/admin/apps/{{.App.ID}}">Details</a>
+    </li>
+    <li {{if eq .ActiveTab "oauth"}}class="is-active"{{end}}>
+      <a href="/admin/apps/{{.App.ID}}/oauth">OAuth Client</a>
+    </li>
+    <li {{if eq .ActiveTab "access"}}class="is-active"{{end}}>
+      <a href="/admin/apps/{{.App.ID}}/access">Access</a>
+    </li>
+  </ul>
+</div>
+{{end}}
