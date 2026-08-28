@@ -115,13 +115,15 @@ func (h *Handler) getAppNamedItems(w http.ResponseWriter, r *http.Request, kind 
 		return
 	}
 
-	h.render(w, r, "admin-app-named-items", appNamedItemsData{
+	data := appNamedItemsData{
 		basePage: h.baseFlash(r, "apps", flashFromQuery(r.URL.Query().Get("flash"))),
 		appTabs:  appTabs{App: a, ActiveTab: kind},
 		Kind:     kind,
 		Plural:   namedItemPlural(kind),
 		Items:    items,
-	})
+	}
+	h.fillRoleGroupOptions(r, a, kind, &data)
+	h.render(w, r, "admin-app-named-items", data)
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
@@ -172,6 +174,14 @@ func (h *Handler) postCreateNamedItem(w http.ResponseWriter, r *http.Request, ki
 		h.render(w, r, "admin-app-named-items", h.namedItemsDataWithError(r, a, kind, msg, name, description))
 		return
 	}
+	// Roles carry group membership: apply the checkbox diff to the new role.
+	if kind == "roles" {
+		if err := h.applyRoleGroupDiff(r, a, itemID); err != nil {
+			h.logger.Error("admin: apply role group diff on create", "app_id", a.ID, "role_id", itemID, "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	h.logAuditNamedItem(r, kind, "create", itemID, name)
 	http.Redirect(w, r, listURL+"?flash=created", http.StatusFound)
@@ -185,7 +195,7 @@ func (h *Handler) namedItemsDataWithError(r *http.Request, a *app.App, kind, msg
 	if err != nil {
 		h.logger.Error("admin: list app "+kind+" for error page", "app_id", a.ID, "error", err)
 	}
-	return appNamedItemsData{
+	data := appNamedItemsData{
 		basePage:       h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 		appTabs:        appTabs{App: a, ActiveTab: kind},
 		Kind:           kind,
@@ -193,6 +203,33 @@ func (h *Handler) namedItemsDataWithError(r *http.Request, a *app.App, kind, msg
 		Items:          items,
 		AddName:        name,
 		AddDescription: description,
+	}
+	h.fillRoleGroupOptions(r, a, kind, &data)
+	return data
+}
+
+// fillRoleGroupOptions populates the role create/edit form's group checkbox
+// options. On the create page nothing is checked; on a failed create the
+// submitted checkbox state is preserved. No-op for groups.
+func (h *Handler) fillRoleGroupOptions(r *http.Request, a *app.App, kind string, data *appNamedItemsData) {
+	if kind != "roles" {
+		return
+	}
+	allGroups, err := h.apps.ListGroupsByApp(r.Context(), a.ID)
+	if err != nil {
+		h.logger.Error("admin: list groups for role form", "app_id", a.ID, "error", err)
+		return
+	}
+	data.AllGroups = make([]namedItemRow, len(allGroups))
+	for i, g := range allGroups {
+		data.AllGroups[i] = namedItemRow{ID: g.ID, Name: g.Name, Description: g.Description}
+	}
+	// Preserve the submitted checkbox state on failed creates.
+	if submitted := r.Form["group_ids"]; len(submitted) > 0 {
+		data.CheckedGroups = make(map[string]bool, len(submitted))
+		for _, gid := range submitted {
+			data.CheckedGroups[gid] = true
+		}
 	}
 }
 

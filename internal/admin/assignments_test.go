@@ -219,3 +219,61 @@ func TestUserAssignmentsInheritedGroupsReadOnly(t *testing.T) {
 		t.Errorf("effective groups after role uncheck: %v, want empty", effective)
 	}
 }
+
+func TestRoleCreateWithGroups(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	fx := createAssignmentFixtures(t, f, "rolecreate-app")
+	ctx := context.Background()
+
+	// Create page renders the group checkbox options.
+	body := adminRequest(t, fx.router, http.MethodGet,
+		"/admin/apps/"+fx.appID+"/roles", fx.token, "passage_session", nil, "").Body.String()
+	if !strings.Contains(body, `name="group_ids" value="`+fx.groupID+`"`) {
+		t.Error("role create page: group checkbox missing")
+	}
+
+	// Create with the group checked: membership applied immediately.
+	values := url.Values{}
+	values.Set("name", "created-role")
+	values.Add("group_ids", fx.groupID)
+	res := postForm(t, fx.router, "/admin/apps/"+fx.appID+"/roles", fx.token, values)
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("create role with groups: got %d, want 302", res.StatusCode)
+	}
+	roles, err := f.appSvc.ListRolesByApp(ctx, fx.appID)
+	if err != nil || len(roles) != 2 {
+		t.Fatalf("roles after create: %v (%d)", err, len(roles))
+	}
+	created := roles[1]
+	for _, ro := range roles {
+		if ro.Name == "created-role" {
+			created = ro
+		}
+	}
+	if created == nil {
+		t.Fatal("created role not found")
+	}
+	groups, err := f.appSvc.ListGroupsForRole(ctx, created.ID)
+	if err != nil || len(groups) != 1 || groups[0].ID != fx.groupID {
+		t.Errorf("created role groups: %v (%d), want the checked group", err, len(groups))
+	}
+
+	// Duplicate-name failure preserves the checked group in the form.
+	values = url.Values{}
+	values.Set("name", "created-role")
+	values.Add("group_ids", fx.groupID)
+	res = postForm(t, fx.router, "/admin/apps/"+fx.appID+"/roles", fx.token, values)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("duplicate create: got %d, want 200", res.StatusCode)
+	}
+	body = adminRequest(t, fx.router, http.MethodGet,
+		"/admin/apps/"+fx.appID+"/roles", fx.token, "passage_session", nil, "").Body.String()
+	_ = body
+	// Re-render the error page directly to check the checkbox is pre-checked.
+	rec := adminRequest(t, fx.router, http.MethodPost, "/admin/apps/"+fx.appID+"/roles", fx.token, "passage_session",
+		strings.NewReader(values.Encode()), "application/x-www-form-urlencoded")
+	if !strings.Contains(rec.Body.String(), `value="`+fx.groupID+`" checked`) {
+		t.Error("duplicate create: submitted group checkbox not preserved")
+	}
+}
