@@ -294,3 +294,55 @@ func generateSecretAndHash() (plaintext, hash string, err error) {
 	}
 	return plaintext, string(hashBytes), nil
 }
+
+// ─── App groups and roles ────────────────────────────────────────────────────
+
+// CreateGroup generates a UUID and persists a new group for the app.
+func (s *Service) CreateGroup(ctx context.Context, g *Group) error {
+	return s.store.CreateGroup(ctx, g)
+}
+
+// GetGroup returns the group with the given UUID.
+func (s *Service) GetGroup(ctx context.Context, id string) (*Group, error) {
+	return s.store.GetGroup(ctx, id)
+}
+
+// ListGroupsByApp returns all groups for the given app ordered by name.
+func (s *Service) ListGroupsByApp(ctx context.Context, appID string) ([]*Group, error) {
+	return s.store.ListGroupsByApp(ctx, appID)
+}
+
+// UpdateGroup saves changes to an existing group.
+func (s *Service) UpdateGroup(ctx context.Context, g *Group) error {
+	return s.store.UpdateGroup(ctx, g)
+}
+
+// DeleteGroup removes a group by ID.
+func (s *Service) DeleteGroup(ctx context.Context, id string) error {
+	return s.store.DeleteGroup(ctx, id)
+}
+
+// CreateRole generates a UUID and persists a new role for the app.
+func (s *Service) CreateRole(ctx context.Context, ro *Role) error {
+	return s.store.CreateRole(ctx, ro)
+}
+
+// GetRole returns the role with the given UUID.
+func (s *Service) GetRole(ctx context.Context, id string) (*Role, error) {
+	return s.store.GetRole(ctx, id)
+}
+
+// ListRolesByApp returns all roles for the given app ordered by name.
+func (s *Service) ListRolesByApp(ctx context.Context, appID string) ([]*Role, error) {
+	return s.store.ListRolesByApp(ctx, appID)
+}
+
+// UpdateRole saves changes to an existing role.
+func (s *Service) UpdateRole(ctx context.Context, ro *Role) error {
+	return s.store.UpdateRole(ctx, ro)
+}
+
+// DeleteRole removes a role by ID.
+func (s *Service) DeleteRole(ctx context.Context, id string) error {
+	return s.store.DeleteRole(ctx, id)
+}

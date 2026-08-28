@@ -59,6 +59,18 @@ type appServiceOps interface {
 	RevokeAccess(ctx context.Context, userID, appID string) error
 	GenerateClientCredentials(ctx context.Context, appID string) (clientSecret string, err error)
 	RotateClientSecret(ctx context.Context, appID string) (clientSecret string, err error)
+
+	// App groups and roles.
+	CreateGroup(ctx context.Context, g *app.Group) error
+	GetGroup(ctx context.Context, id string) (*app.Group, error)
+	ListGroupsByApp(ctx context.Context, appID string) ([]*app.Group, error)
+	UpdateGroup(ctx context.Context, g *app.Group) error
+	DeleteGroup(ctx context.Context, id string) error
+	CreateRole(ctx context.Context, ro *app.Role) error
+	GetRole(ctx context.Context, id string) (*app.Role, error)
+	ListRolesByApp(ctx context.Context, appID string) ([]*app.Role, error)
+	UpdateRole(ctx context.Context, ro *app.Role) error
+	DeleteRole(ctx context.Context, id string) error
 }
 
 // sessionServiceOps is the minimal interface for session management.
@@ -153,6 +165,16 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/apps/{id}", h.PostUpdateApp)
 	r.Get("/apps/{id}/oauth", h.GetAppOAuth)
 	r.Post("/apps/{id}/delete", h.PostDeleteApp)
+	r.Get("/apps/{id}/groups", h.GetAppGroups)
+	r.Post("/apps/{id}/groups", h.PostCreateAppGroup)
+	r.Get("/apps/{id}/groups/{gid}/edit", h.GetEditAppGroup)
+	r.Post("/apps/{id}/groups/{gid}", h.PostUpdateAppGroup)
+	r.Post("/apps/{id}/groups/{gid}/delete", h.PostDeleteAppGroup)
+	r.Get("/apps/{id}/roles", h.GetAppRoles)
+	r.Post("/apps/{id}/roles", h.PostCreateAppRole)
+	r.Get("/apps/{id}/roles/{gid}/edit", h.GetEditAppRole)
+	r.Post("/apps/{id}/roles/{gid}", h.PostUpdateAppRole)
+	r.Post("/apps/{id}/roles/{gid}/delete", h.PostDeleteAppRole)
 	r.Get("/apps/{id}/access", h.GetAppAccess)
 	r.Post("/apps/{id}/access", h.PostGrantAccess)
 	r.Post("/apps/{id}/access/{userId}/revoke", h.PostRevokeAccess)

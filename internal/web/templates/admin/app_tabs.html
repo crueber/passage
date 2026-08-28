@@ -7,6 +7,12 @@
     <li {{if eq .ActiveTab "oauth"}}class="is-active"{{end}}>
       <a href="/admin/apps/{{.App.ID}}/oauth" {{if eq .ActiveTab "oauth"}}aria-current="page"{{end}}>OAuth Client</a>
     </li>
+    <li {{if eq .ActiveTab "groups"}}class="is-active"{{end}}>
+      <a href="/admin/apps/{{.App.ID}}/groups" {{if eq .ActiveTab "groups"}}aria-current="page"{{end}}>Groups</a>
+    </li>
+    <li {{if eq .ActiveTab "roles"}}class="is-active"{{end}}>
+      <a href="/admin/apps/{{.App.ID}}/roles" {{if eq .ActiveTab "roles"}}aria-current="page"{{end}}>Roles</a>
+    </li>
     <li {{if eq .ActiveTab "access"}}class="is-active"{{end}}>
       <a href="/admin/apps/{{.App.ID}}/access" {{if eq .ActiveTab "access"}}aria-current="page"{{end}}>Access</a>
     </li>

@@ -1,0 +1,118 @@
+{{define "admin-app-named-items"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Plural}} — {{.App.Name}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/bulma.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+{{template "admin-header" .}}
+<div class="passage-admin-body">
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">{{.App.Name}}</h1>
+        {{template "admin-app-tabs" .}}
+
+        {{if .IsEdit}}
+        <h2 class="title is-5">Edit {{if eq .Kind "groups"}}group{{else}}role{{end}}</h2>
+        <div class="columns">
+          <div class="column is-half-tablet is-one-third-desktop">
+            <form method="POST" action="/admin/apps/{{.App.ID}}/{{.Kind}}/{{.EditItem.ID}}">
+              {{csrfField .CSRFToken}}
+              <div class="field">
+                <label class="label" for="item-name">Name</label>
+                <div class="control">
+                  <input class="input" type="text" id="item-name" name="name" value="{{.EditItem.Name}}" required>
+                </div>
+              </div>
+              <div class="field">
+                <label class="label" for="item-description">Description</label>
+                <div class="control">
+                  <input class="input" type="text" id="item-description" name="description" value="{{.EditItem.Description}}">
+                </div>
+              </div>
+              <div class="field is-grouped">
+                <div class="control">
+                  <button type="submit" class="button is-primary">Save</button>
+                </div>
+                <div class="control">
+                  <a class="button is-light" href="/admin/apps/{{.App.ID}}/{{.Kind}}">Cancel</a>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+        {{else}}
+        <h2 class="title is-5">Add {{if eq .Kind "groups"}}group{{else}}role{{end}}</h2>
+        <div class="columns">
+          <div class="column is-half-tablet is-one-third-desktop">
+            <form method="POST" action="/admin/apps/{{.App.ID}}/{{.Kind}}">
+              {{csrfField .CSRFToken}}
+              <div class="field">
+                <label class="label" for="item-name">Name</label>
+                <div class="control">
+                  <input class="input" type="text" id="item-name" name="name" value="{{.AddName}}" required>
+                </div>
+              </div>
+              <div class="field">
+                <label class="label" for="item-description">Description</label>
+                <div class="control">
+                  <input class="input" type="text" id="item-description" name="description" value="{{.AddDescription}}">
+                </div>
+              </div>
+              <div class="field">
+                <div class="control">
+                  <button type="submit" class="button is-primary">Add</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+        {{end}}
+
+        <div class="table-container">
+          <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Description</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+            {{range .Items}}
+              <tr>
+                <td>{{.Name}}</td>
+                <td>{{.Description}}</td>
+                <td>
+                  <div class="buttons are-small">
+                    <a class="button is-light" href="/admin/apps/{{$.App.ID}}/{{$.Kind}}/{{.ID}}/edit">Edit</a>
+                    <form method="POST" action="/admin/apps/{{$.App.ID}}/{{$.Kind}}/{{.ID}}/delete">
+                      {{csrfField $.CSRFToken}}
+                      <button type="submit" class="button is-danger is-light">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {{else}}
+              <tr>
+                <td colspan="3" class="has-text-grey-light"><em>No {{.Kind}} defined yet.</em></td>
+              </tr>
+            {{end}}
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
+  </div>
+</div>
+</body>
+</html>
+{{end}}
