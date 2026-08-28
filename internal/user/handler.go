@@ -179,7 +179,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	// Check for passage_rd cookie first (set by /auth/start), then fall back
 	// to the rd form field, then default to / (or /admin for admin users).
 	dest := "/"
-	if rdCookie, err := r.Cookie("passage_rd"); err == nil && strings.HasPrefix(rdCookie.Value, "/") && !strings.HasPrefix(rdCookie.Value, "//") {
+	if rdCookie, err := r.Cookie("passage_rd"); err == nil && strings.HasPrefix(rdCookie.Value, "/") && !strings.HasPrefix(rdCookie.Value, "//") && !strings.Contains(rdCookie.Value, "\\") {
 		dest = rdCookie.Value
 		// Clear the passage_rd cookie now that we've consumed it.
 		http.SetCookie(w, &http.Cookie{
@@ -192,7 +192,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			Secure:   h.cfg.Session.CookieSecure,
 			SameSite: http.SameSiteLaxMode,
 		})
-	} else if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") {
+	} else if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\") {
 		dest = rd
 	} else if u.IsAdmin {
 		// No explicit redirect destination: send admins directly to the admin

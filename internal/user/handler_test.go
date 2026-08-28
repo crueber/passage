@@ -762,6 +762,78 @@ func TestHandler_PostLogin_PassageRdCookie(t *testing.T) {
 	}
 }
 
+// TestHandler_PostLogin_RdBackslashRejected verifies that backslash variants
+// of protocol-relative URLs in the passage_rd cookie or rd form field are
+// rejected (browsers treat "/\evil.com" as "//evil.com").
+func TestHandler_PostLogin_RdBackslashRejected(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+
+	if _, err := f.userSvc.Register(context.Background(), "rdslashuser", "rdslash@example.com", "password123"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		rdArg string
+		useCk bool
+	}{
+		{"rd form field backslash", "/\\evil.example.com", false},
+		{"passage_rd cookie backslash", "/\\evil.example.com", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			form := url.Values{}
+			form.Set("username", "rdslashuser")
+			form.Set("password", "password123")
+			if !tc.useCk {
+				form.Set("rd", tc.rdArg)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if tc.useCk {
+				req.AddCookie(&http.Cookie{Name: "passage_rd", Value: tc.rdArg})
+			}
+			rec := httptest.NewRecorder()
+			f.handler.PostLogin(rec, req)
+
+			res := rec.Result()
+			if res.StatusCode != http.StatusFound {
+				t.Fatalf("PostLogin: got status %d, want %d", res.StatusCode, http.StatusFound)
+			}
+			// The sanitized value must be a same-site relative path. (net/http
+			// strips raw backslashes from Cookie.Value before the handler runs,
+			// so the cookie case arrives pre-sanitized.)
+			if loc := res.Header.Get("Location"); !strings.HasPrefix(loc, "/") ||
+				strings.HasPrefix(loc, "//") || strings.Contains(loc, "\\") {
+				t.Errorf("PostLogin: redirect %q is not a safe relative path", loc)
+			}
+		})
+	}
+
+	// A well-formed path must still be honored.
+	t.Run("valid path still honored", func(t *testing.T) {
+		form := url.Values{}
+		form.Set("username", "rdslashuser")
+		form.Set("password", "password123")
+		form.Set("rd", "/valid/path")
+
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		f.handler.PostLogin(rec, req)
+
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Fatalf("PostLogin: got status %d, want %d", res.StatusCode, http.StatusFound)
+		}
+		if loc := res.Header.Get("Location"); loc != "/valid/path" {
+			t.Errorf("PostLogin: got redirect to %q, want %q", loc, "/valid/path")
+		}
+	})
+}
+
 // ─── Group D: Admin auto-redirect ─────────────────────────────────────────────
 
 // TestHandler_PostLogin_AdminRedirect verifies that an admin user with no

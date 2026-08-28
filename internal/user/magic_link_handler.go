@@ -47,8 +47,10 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	email := strings.TrimSpace(r.FormValue("email"))
 	rd := r.FormValue("rd")
-	// Open-redirect guard: only accept relative paths starting with "/" but not "//".
-	if rd != "" && !(strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//")) {
+	// Open-redirect guard: only accept relative paths starting with "/" but not
+	// "//" and containing no "\" (browsers normalize "\" to "/", so "/\evil.com"
+	// is equivalent to "//evil.com").
+	if rd != "" && !(strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\")) {
 		rd = ""
 	}
 
@@ -155,14 +157,15 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, sessionToken, expiresAt, h.cfg)
 
 	// Redirect: passage_rd cookie → rd query param → /admin for admins → /.
-	// Open-redirect guard: only redirect to paths that start with "/" but not "//".
+	// Open-redirect guard: only redirect to paths that start with "/" but not
+	// "//" and contain no "\" (see PostMagicLinkRequest).
 	rd := r.URL.Query().Get("rd")
 	if rdCookie, err := r.Cookie("passage_rd"); err == nil && rdCookie.Value != "" && rd == "" {
 		rd = rdCookie.Value
 		// Clear the cookie.
 		http.SetCookie(w, &http.Cookie{Name: "passage_rd", Value: "", MaxAge: -1, Path: "/"})
 	}
-	if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") {
+	if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\") {
 		http.Redirect(w, r, rd, http.StatusFound)
 		return
 	}
