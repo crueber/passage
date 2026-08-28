@@ -46,7 +46,7 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 	}
 
 	userStore := user.NewStore(db)
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	sessionStore := session.NewStore(db)
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, logger)

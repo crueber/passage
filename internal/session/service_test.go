@@ -38,7 +38,7 @@ func setup(t *testing.T) (userSvc *user.Service, userStore *user.SQLiteStore, se
 	db := testutil.NewTestDB(t)
 	userStore = user.NewStore(db)
 	cfg := testConfig()
-	userSvc = user.NewService(userStore, userStore, cfg)
+	userSvc = user.NewService(userStore, userStore, nil, cfg)
 
 	sessionStore := session.NewStore(db)
 	// nil settings, nil apps: fall back to cfg.Session.DurationHours (24h).
@@ -140,7 +140,7 @@ func TestValidateSession_Expired(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig()
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	sessionStore := session.NewStore(db)
 
 	// Use a 0-hour duration so sessions expire immediately.
@@ -221,7 +221,7 @@ func TestListByUser(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig()
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	ctx := context.Background()
@@ -307,7 +307,7 @@ func TestNewSession_UsesDurationFromDB(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig() // DurationHours = 24
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	// DB setting overrides config: 48 hours.
 	settings := &stubSettings{data: map[string]string{"session_duration_hours": "48"}}
@@ -340,7 +340,7 @@ func TestNewSession_FallsBackToConfig(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig() // DurationHours = 24
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	// Settings store has no "session_duration_hours" key.
 	settings := &stubSettings{data: map[string]string{}}
@@ -373,7 +373,7 @@ func TestDeleteByUser(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig()
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	ctx := context.Background()
@@ -429,7 +429,7 @@ func TestRevokeAllByUser(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig()
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	ctx := context.Background()
@@ -502,7 +502,7 @@ func TestNewSession_UsesAppDuration(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig() // DurationHours = 24
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	// Insert a real app row so the sessions FK constraint is satisfied.
 	ctx := context.Background()
@@ -658,7 +658,7 @@ func TestNewSession_AppDurationZeroFallsToGlobal(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
 	cfg := testConfig() // DurationHours = 24
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	// Insert a real app row so the sessions FK constraint is satisfied.
 	ctx := context.Background()
