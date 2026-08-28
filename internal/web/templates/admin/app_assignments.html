@@ -48,9 +48,9 @@
                 <fieldset>
                   <legend class="label">Groups</legend>
                   {{range .Groups}}
-                  <label class="checkbox">
-                    <input type="checkbox" name="group_ids" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
-                    {{.Name}}{{if .Description}} <span class="has-text-grey-light">— {{.Description}}</span>{{end}}
+                  <label class="checkbox{{if .Inherited}} has-text-grey-light{{end}}" {{if .Inherited}}title="Granted via a role — remove the role to revoke this group"{{end}}>
+                    <input type="checkbox" name="group_ids" value="{{.ID}}" {{if or .Assigned .Inherited}}checked{{end}}{{if .Inherited}} disabled{{end}}>
+                    {{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}{{if .Description}} <span class="has-text-grey-light">— {{.Description}}</span>{{end}}
                   </label>
                   {{else}}
                   <p class="has-text-grey-light"><em>No groups defined for this app yet.</em></p>

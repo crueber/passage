@@ -277,3 +277,56 @@ func TestRoleCreateWithGroups(t *testing.T) {
 		t.Error("duplicate create: submitted group checkbox not preserved")
 	}
 }
+
+func TestUserAssignmentsInheritedGroupCheckboxDisabled(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	fx := createAssignmentFixtures(t, f, "disabled-inherit-app")
+	ctx := context.Background()
+
+	// Role carries the group; user holds the role AND the group directly.
+	if err := f.appSvc.AssignGroupToRole(ctx, fx.roleID, fx.groupID); err != nil {
+		t.Fatalf("assign group to role: %v", err)
+	}
+	if err := f.appSvc.AssignUserRole(ctx, fx.userID, fx.appID, fx.roleID); err != nil {
+		t.Fatalf("assign user role: %v", err)
+	}
+	if err := f.appSvc.AssignUserGroup(ctx, fx.userID, fx.appID, fx.groupID); err != nil {
+		t.Fatalf("assign user group directly: %v", err)
+	}
+
+	base := "/admin/apps/" + fx.appID + "/access/" + fx.userID + "/assignments"
+	body := adminRequest(t, fx.router, http.MethodGet, base, fx.token, "passage_session", nil, "").Body.String()
+
+	// The inherited group's checkbox is checked and disabled.
+	if !strings.Contains(body, `value="`+fx.groupID+`" checked disabled`) {
+		t.Error("inherited group checkbox not rendered checked+disabled")
+	}
+
+	// Saving with no group_ids submitted (disabled inputs don't submit) must
+	// keep the direct assignment, because the group is inherited too.
+	res := postForm(t, fx.router, base, fx.token, url.Values{"role_ids": {fx.roleID}})
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("save assignments: got %d, want 302", res.StatusCode)
+	}
+	direct, err := f.appSvc.ListUserDirectGroups(ctx, fx.userID, fx.appID)
+	if err != nil || len(direct) != 1 || direct[0].ID != fx.groupID {
+		t.Errorf("direct groups after save: %v (%d), want the group preserved", direct, err)
+	}
+
+	// Unchecking the role clears the inherited grant; a subsequent save with
+	// no group_ids now removes the direct assignment too (it is no longer
+	// inherited, so the guard no longer protects it).
+	res = postForm(t, fx.router, base, fx.token, url.Values{})
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("save assignments clearing roles: got %d, want 302", res.StatusCode)
+	}
+	direct, err = f.appSvc.ListUserDirectGroups(ctx, fx.userID, fx.appID)
+	if err != nil || len(direct) != 0 {
+		t.Errorf("direct groups after role uncheck + save: %v (%d), want empty", direct, err)
+	}
+	_, effective, err := f.appSvc.TokenAssignments(ctx, fx.userID, fx.appID)
+	if err != nil || len(effective) != 0 {
+		t.Errorf("effective groups after role uncheck + save: %v (%v), want empty", effective, err)
+	}
+}

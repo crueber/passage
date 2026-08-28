@@ -17,6 +17,9 @@ type assignmentOption struct {
 	Name        string
 	Description string
 	Assigned    bool
+	// Inherited marks groups granted via a held role. Their checkboxes are
+	// disabled: membership comes from the role and cannot be toggled here.
+	Inherited bool
 }
 
 // appAssignmentsData backs the per-user group/role assignment page.
@@ -102,6 +105,10 @@ func (h *Handler) buildAssignmentsData(r *http.Request, a *app.App, u *user.User
 	for _, g := range directGroups {
 		directSet[g.ID] = true
 	}
+	inheritedSet := make(map[string]bool, len(inheritedGroups))
+	for _, g := range inheritedGroups {
+		inheritedSet[g.ID] = true
+	}
 	roleSet := make(map[string]bool, len(userRoles))
 	for _, ro := range userRoles {
 		roleSet[ro.ID] = true
@@ -109,7 +116,13 @@ func (h *Handler) buildAssignmentsData(r *http.Request, a *app.App, u *user.User
 
 	groups := make([]assignmentOption, len(allGroups))
 	for i, g := range allGroups {
-		groups[i] = assignmentOption{ID: g.ID, Name: g.Name, Description: g.Description, Assigned: directSet[g.ID]}
+		groups[i] = assignmentOption{
+			ID:          g.ID,
+			Name:        g.Name,
+			Description: g.Description,
+			Assigned:    directSet[g.ID],
+			Inherited:   inheritedSet[g.ID],
+		}
 	}
 	roles := make([]assignmentOption, len(allRoles))
 	for i, ro := range allRoles {
@@ -148,29 +161,8 @@ func (h *Handler) PostAppUserAssignments(w http.ResponseWriter, r *http.Request)
 	desiredGroups := toIDSet(r.Form["group_ids"])
 	desiredRoles := toIDSet(r.Form["role_ids"])
 
-	// Diff direct groups.
-	currentGroups, err := h.apps.ListUserDirectGroups(ctx, u.ID, a.ID)
-	if err != nil {
-		h.logger.Error("admin: list user groups for save", "user_id", u.ID, "app_id", a.ID, "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	for _, g := range currentGroups {
-		if !desiredGroups[g.ID] {
-			if err := h.apps.UnassignUserGroup(ctx, u.ID, a.ID, g.ID); err != nil {
-				h.assignmentSaveFailed(w, r, a, u, err)
-				return
-			}
-		}
-	}
-	for gid := range desiredGroups {
-		if err := h.apps.AssignUserGroup(ctx, u.ID, a.ID, gid); err != nil {
-			h.assignmentSaveFailed(w, r, a, u, err)
-			return
-		}
-	}
-
-	// Diff roles.
+	// Diff roles first: unchecking a role changes which groups are
+	// inherited, and the group diff below must see the post-role state.
 	currentRoles, err := h.apps.ListUserRoles(ctx, u.ID, a.ID)
 	if err != nil {
 		h.logger.Error("admin: list user roles for save", "user_id", u.ID, "app_id", a.ID, "error", err)
@@ -187,6 +179,41 @@ func (h *Handler) PostAppUserAssignments(w http.ResponseWriter, r *http.Request)
 	}
 	for rid := range desiredRoles {
 		if err := h.apps.AssignUserRole(ctx, u.ID, a.ID, rid); err != nil {
+			h.assignmentSaveFailed(w, r, a, u, err)
+			return
+		}
+	}
+
+	// Diff direct groups. Role-inherited groups are excluded from the
+	// unassign side: their checkboxes render disabled and are not submitted,
+	// so without this guard a save would strip the direct assignment of a
+	// group that is also granted via a role.
+	inheritedGroups, err := h.apps.ListUserInheritedGroups(ctx, u.ID, a.ID)
+	if err != nil {
+		h.logger.Error("admin: list inherited groups for save", "user_id", u.ID, "app_id", a.ID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	inheritedSet := make(map[string]bool, len(inheritedGroups))
+	for _, g := range inheritedGroups {
+		inheritedSet[g.ID] = true
+	}
+	currentGroups, err := h.apps.ListUserDirectGroups(ctx, u.ID, a.ID)
+	if err != nil {
+		h.logger.Error("admin: list user groups for save", "user_id", u.ID, "app_id", a.ID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	for _, g := range currentGroups {
+		if !desiredGroups[g.ID] && !inheritedSet[g.ID] {
+			if err := h.apps.UnassignUserGroup(ctx, u.ID, a.ID, g.ID); err != nil {
+				h.assignmentSaveFailed(w, r, a, u, err)
+				return
+			}
+		}
+	}
+	for gid := range desiredGroups {
+		if err := h.apps.AssignUserGroup(ctx, u.ID, a.ID, gid); err != nil {
 			h.assignmentSaveFailed(w, r, a, u, err)
 			return
 		}
