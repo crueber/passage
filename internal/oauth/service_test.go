@@ -76,6 +76,10 @@ func newTestServiceWithDB(t *testing.T, db *sql.DB, testApp *app.App, testUser *
 	// Update the fake structs so they reflect the real DB IDs.
 	testApp.ID = appID
 	testUser.ID = userID
+	// The DB row is seeded with is_active = 1; keep the fake consistent so
+	// IsActive enforcement in ValidateAccessToken/RefreshTokens passes. Tests
+	// that exercise deactivation flip this field explicitly.
+	testUser.IsActive = true
 
 	apps := &fakeAppClient{app: testApp, access: true}
 	users := &fakeUserReader{u: testUser}
@@ -562,8 +566,72 @@ func TestService_RefreshTokens(t *testing.T) {
 		}
 
 		_, err = sc.svc.RefreshTokens(ctx, tokenResp.RefreshToken, clientID, "bad-secret")
+
 		if !errors.Is(err, app.ErrInvalidClientSecret) {
 			t.Errorf("RefreshTokens wrong secret: got %v, want ErrInvalidClientSecret", err)
+		}
+	})
+	t.Run("inactive_user_rejected_and_token_burned", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
+		sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		if err != nil {
+			t.Fatalf("Authorize: %v", err)
+		}
+		tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
+		if err != nil {
+			t.Fatalf("ExchangeCode: %v", err)
+		}
+
+		// Deactivate the user (mirrors admin deactivation).
+		testUser.IsActive = false
+
+		_, err = sc.svc.RefreshTokens(ctx, tokenResp.RefreshToken, clientID, plainSecret)
+		if !errors.Is(err, oauth.ErrUserInactive) {
+			t.Errorf("RefreshTokens inactive user: got %v, want ErrUserInactive", err)
+		}
+
+		// The rejected refresh must have consumed the refresh token so the
+		// rotation chain is dead.
+		_, err = sc.svc.RefreshTokens(ctx, tokenResp.RefreshToken, clientID, plainSecret)
+		if !errors.Is(err, oauth.ErrRefreshUsed) {
+			t.Errorf("RefreshTokens after rejection: got %v, want ErrRefreshUsed", err)
+		}
+	})
+
+	t.Run("revoked_access_rejected", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
+		sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		if err != nil {
+			t.Fatalf("Authorize: %v", err)
+		}
+		tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
+		if err != nil {
+			t.Fatalf("ExchangeCode: %v", err)
+		}
+
+		// Revoke the user's app access (mirrors admin revocation).
+		store := oauth.NewStore(db)
+		pemBytes, kid, _ := store.GetOrCreateRSAKey(ctx)
+		svc2, err := oauth.NewService(store,
+			&fakeAppClient{app: testApp, access: false},
+			&fakeUserReader{u: testUser},
+			pemBytes, kid, "https://auth.example.com", slog.Default(),
+		)
+		if err != nil {
+			t.Fatalf("NewService: %v", err)
+		}
+
+		_, err = svc2.RefreshTokens(ctx, tokenResp.RefreshToken, clientID, plainSecret)
+		if !errors.Is(err, oauth.ErrAccessRevoked) {
+			t.Errorf("RefreshTokens revoked access: got %v, want ErrAccessRevoked", err)
 		}
 	})
 }
@@ -635,6 +703,30 @@ func TestService_ValidateAccessToken(t *testing.T) {
 		_, _, err := sc.svc.ValidateAccessToken(ctx, expiredToken.Token)
 		if !errors.Is(err, oauth.ErrTokenExpired) {
 			t.Errorf("ValidateAccessToken expired: got %v, want ErrTokenExpired", err)
+		}
+	})
+
+	t.Run("inactive_user_rejected", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
+		sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		if err != nil {
+			t.Fatalf("Authorize: %v", err)
+		}
+		tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
+		if err != nil {
+			t.Fatalf("ExchangeCode: %v", err)
+		}
+
+		// Deactivate the user (mirrors admin deactivation).
+		testUser.IsActive = false
+
+		_, _, err = sc.svc.ValidateAccessToken(ctx, tokenResp.AccessToken)
+		if !errors.Is(err, oauth.ErrUserInactive) {
+			t.Errorf("ValidateAccessToken inactive user: got %v, want ErrUserInactive", err)
 		}
 	})
 }

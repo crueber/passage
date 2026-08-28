@@ -59,6 +59,7 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 	appID, userID := seedAppAndUserWithCredentials(t, db, testApp, testUser)
 	testApp.ID = appID
 	testUser.ID = userID
+	testUser.IsActive = true // matches the seeded is_active = 1 row
 
 	apps := &fakeAppClient{app: testApp, access: true}
 	users := &fakeUserReader{u: testUser}

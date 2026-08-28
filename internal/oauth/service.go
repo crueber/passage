@@ -237,6 +237,20 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		return nil, fmt.Errorf("oauth exchange code: get user: %w", err)
 	}
 
+	// Re-check account state and app access at exchange time. The code was
+	// minted at authorize time (up to 10 minutes earlier) and the code has
+	// already been consumed, so a rejected exchange burns the code.
+	if !u.IsActive {
+		return nil, ErrUserInactive
+	}
+	hasAccess, err := s.apps.HasAccess(ctx, u.ID, a.ID)
+	if err != nil {
+		return nil, fmt.Errorf("oauth exchange code: check access: %w", err)
+	}
+	if !hasAccess {
+		return nil, ErrAccessRevoked
+	}
+
 	// Create access token.
 	accessToken := &Token{
 		AppID:     a.ID,
@@ -319,6 +333,23 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		return nil, fmt.Errorf("oauth refresh tokens: get user: %w", err)
 	}
 
+	// Deactivated users must not be able to mint new tokens. This check runs
+	// AFTER MarkRefreshTokenUsed so a rejected refresh burns the refresh token
+	// and terminates the rotation chain.
+	if !u.IsActive {
+		return nil, ErrUserInactive
+	}
+
+	// Revoked app access must terminate the token chain as well; access was
+	// only checked at authorize time, which can be up to 30 days in the past.
+	hasAccess, err := s.apps.HasAccess(ctx, u.ID, a.ID)
+	if err != nil {
+		return nil, fmt.Errorf("oauth refresh tokens: check access: %w", err)
+	}
+	if !hasAccess {
+		return nil, ErrAccessRevoked
+	}
+
 	// Create new access token.
 	accessToken := &Token{
 		AppID:     a.ID,
@@ -376,6 +407,12 @@ func (s *Service) ValidateAccessToken(ctx context.Context, token string) (*user.
 	u, err := s.users.GetByID(ctx, t.UserID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("oauth validate access token: get user: %w", err)
+	}
+
+	// A deactivated account's outstanding tokens must stop working immediately,
+	// matching session.ValidateSession semantics.
+	if !u.IsActive {
+		return nil, nil, ErrUserInactive
 	}
 
 	return u, t, nil

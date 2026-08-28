@@ -291,6 +291,8 @@ func (h *Handler) writeTokenError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrRefreshUsed),
 		errors.Is(err, ErrRefreshExpired),
 		errors.Is(err, ErrPKCEVerificationFailed),
+		errors.Is(err, ErrUserInactive),
+		errors.Is(err, ErrAccessRevoked),
 		errors.Is(err, app.ErrRedirectURIMismatch):
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_grant",
 			"The provided authorization grant is invalid, expired, revoked, or does not match.")

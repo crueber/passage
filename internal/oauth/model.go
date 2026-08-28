@@ -16,6 +16,8 @@ var (
 	ErrRefreshNotFound = errors.New("oauth: refresh token not found")
 	ErrRefreshExpired  = errors.New("oauth: refresh token has expired")
 	ErrRefreshUsed     = errors.New("oauth: refresh token has already been used")
+	ErrUserInactive    = errors.New("oauth: user account is not active")
+	ErrAccessRevoked   = errors.New("oauth: user does not have access to this application")
 
 	// ErrPKCEVerificationFailed is returned when the code_verifier does not match
 	// the code_challenge that was stored at authorization time.
