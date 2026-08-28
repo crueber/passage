@@ -238,8 +238,8 @@ func TestNginxAuth_ExpiredSession(t *testing.T) {
 	// app_id is NULL because forward-auth sessions are not app-scoped at the session level;
 	// app resolution happens at request time based on the X-Original-URL host.
 	pastExpiry := time.Now().UTC().Add(-1 * time.Hour)
-	const insertSQL = `INSERT INTO sessions (id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
-		VALUES ('expired-token', ?, NULL, '', '', ?, ?)`
+	const insertSQL = `INSERT INTO sessions (id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
+		VALUES ('expired-token', 'expired-public-id-1', ?, NULL, '', '', ?, ?)`
 	if _, err := db2.ExecContext(ctx, insertSQL, u2.ID, pastExpiry, time.Now().UTC()); err != nil {
 		t.Fatalf("insert expired session: %v", err)
 	}
@@ -286,8 +286,8 @@ func TestTraefikAuth_ExpiredSession(t *testing.T) {
 	// app_id is NULL because forward-auth sessions are not app-scoped at the session level;
 	// app resolution happens at request time based on the X-Forwarded-Host header.
 	pastExpiry := time.Now().UTC().Add(-1 * time.Hour)
-	const insertSQL = `INSERT INTO sessions (id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
-		VALUES ('traefik-expired-token', ?, NULL, '', '', ?, ?)`
+	const insertSQL = `INSERT INTO sessions (id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
+		VALUES ('traefik-expired-token', 'expired-public-id-2', ?, NULL, '', '', ?, ?)`
 	if _, err := db3.ExecContext(ctx, insertSQL, u3.ID, pastExpiry, time.Now().UTC()); err != nil {
 		t.Fatalf("insert expired session: %v", err)
 	}

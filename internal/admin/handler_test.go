@@ -936,6 +936,21 @@ func TestAdminSessions_List(t *testing.T) {
 	if !strings.Contains(body, "admin") {
 		t.Errorf("sessions list: response does not contain admin username")
 	}
+	// The bearer token must never appear in the page (FA-004): revoke URLs use
+	// the non-secret PublicID instead.
+	if strings.Contains(body, token) {
+		t.Error("sessions list: raw session token leaked into page HTML")
+	}
+	sess, err := f.sessionStore.GetByID(context.Background(), token)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sess.PublicID == "" {
+		t.Fatal("sessions list: session has empty PublicID")
+	}
+	if !strings.Contains(body, sess.PublicID) {
+		t.Error("sessions list: revoke URL does not contain the session PublicID")
+	}
 }
 
 func TestAdminSessions_Revoke(t *testing.T) {
@@ -953,10 +968,14 @@ func TestAdminSessions_Revoke(t *testing.T) {
 		t.Fatalf("get user: %v", err)
 	}
 	revokeToken := createSession(t, f, revokeUser.ID)
+	revokeSess, err := f.sessionStore.GetByID(context.Background(), revokeToken)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
 
 	router := buildAdminRouter(f)
 	rec := adminRequest(t, router, http.MethodPost,
-		"/admin/sessions/"+revokeToken+"/revoke", adminToken, f.cfg.Session.CookieName, nil, "")
+		"/admin/sessions/"+revokeSess.PublicID+"/revoke", adminToken, f.cfg.Session.CookieName, nil, "")
 	res := rec.Result()
 
 	if res.StatusCode != http.StatusFound {
@@ -984,10 +1003,14 @@ func TestAdminSessions_Revoke_HTMX(t *testing.T) {
 		t.Fatalf("get user: %v", err)
 	}
 	htmxToken := createSession(t, f, htmxUser.ID)
+	htmxSess, err := f.sessionStore.GetByID(context.Background(), htmxToken)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
 
 	router := buildAdminRouter(f)
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/sessions/"+htmxToken+"/revoke", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/sessions/"+htmxSess.PublicID+"/revoke", nil)
 	req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: adminToken})
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()

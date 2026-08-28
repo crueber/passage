@@ -156,8 +156,8 @@ func TestValidateSession_Expired(t *testing.T) {
 
 	// Create a session that expires in the past by inserting it directly.
 	pastExpiry := time.Now().UTC().Add(-1 * time.Hour)
-	const insertSQL = `INSERT INTO sessions (id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
-		VALUES ('expired-token', ?, NULL, '', '', ?, ?)`
+	const insertSQL = `INSERT INTO sessions (id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
+		VALUES ('expired-token', 'expired-public-id', ?, NULL, '', '', ?, ?)`
 	if _, err := db.ExecContext(ctx, insertSQL, u.ID, pastExpiry, time.Now().UTC()); err != nil {
 		t.Fatalf("insert expired session: %v", err)
 	}

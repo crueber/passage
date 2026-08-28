@@ -117,8 +117,8 @@ func TestRequireSession_RedirectsWithExpiredSession(t *testing.T) {
 
 	// Insert a session that already expired.
 	pastExpiry := time.Now().UTC().Add(-1 * time.Hour)
-	const insertSQL = `INSERT INTO sessions (id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
-		VALUES ('mw-expired-token', ?, NULL, '', '', ?, ?)`
+	const insertSQL = `INSERT INTO sessions (id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
+		VALUES ('mw-expired-token', 'mw-expired-public-id', ?, NULL, '', '', ?, ?)`
 	if _, err := db.ExecContext(ctx, insertSQL, u.ID, pastExpiry, time.Now().UTC()); err != nil {
 		t.Fatalf("insert expired session: %v", err)
 	}

@@ -40,8 +40,8 @@
                 <td>{{.Session.CreatedAt.Format "2006-01-02 15:04"}}</td>
                 <td>
                   <form method="POST"
-                        action="/admin/sessions/{{.Session.ID}}/revoke"
-                        hx-post="/admin/sessions/{{.Session.ID}}/revoke"
+                        action="/admin/sessions/{{.Session.PublicID}}/revoke"
+                        hx-post="/admin/sessions/{{.Session.PublicID}}/revoke"
                         hx-target="closest tr"
                         hx-swap="outerHTML">
                     {{csrfField $.CSRFToken}}

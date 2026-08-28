@@ -2,7 +2,9 @@ package session
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"time"
 )
@@ -17,14 +19,22 @@ func NewStore(db *sql.DB) *SQLiteStore {
 	return &SQLiteStore{db: db}
 }
 
-// Create inserts a new session into the database.
+// Create inserts a new session into the database. If PublicID is empty, a
+// random one is generated and written back to the struct.
 func (s *SQLiteStore) Create(ctx context.Context, sess *Session) error {
+	if sess.PublicID == "" {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return fmt.Errorf("session store create: generate public id: %w", err)
+		}
+		sess.PublicID = hex.EncodeToString(b)
+	}
 	const query = `
-		INSERT INTO sessions (id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO sessions (id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := s.db.ExecContext(ctx, query,
-		sess.ID, sess.UserID, sess.AppID,
+		sess.ID, sess.PublicID, sess.UserID, sess.AppID,
 		sess.IPAddress, sess.UserAgent,
 		sess.ExpiresAt, sess.CreatedAt,
 	)
@@ -37,7 +47,7 @@ func (s *SQLiteStore) Create(ctx context.Context, sess *Session) error {
 // GetByID looks up a session by its token ID.
 func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*Session, error) {
 	const query = `
-		SELECT id, user_id, app_id, ip_address, user_agent, expires_at, created_at
+		SELECT id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at
 		FROM sessions WHERE id = ?`
 
 	row := s.db.QueryRowContext(ctx, query, id)
@@ -51,7 +61,7 @@ func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*Session, error) 
 // ListByUser returns all sessions for a given user, ordered by creation time descending.
 func (s *SQLiteStore) ListByUser(ctx context.Context, userID string) ([]*Session, error) {
 	const query = `
-		SELECT id, user_id, app_id, ip_address, user_agent, expires_at, created_at
+		SELECT id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at
 		FROM sessions WHERE user_id = ? ORDER BY created_at DESC`
 
 	rows, err := s.db.QueryContext(ctx, query, userID)
@@ -77,7 +87,7 @@ func (s *SQLiteStore) ListByUser(ctx context.Context, userID string) ([]*Session
 // ListAll returns all non-expired sessions ordered by creation time descending.
 func (s *SQLiteStore) ListAll(ctx context.Context) ([]*Session, error) {
 	const query = `
-		SELECT id, user_id, app_id, ip_address, user_agent, expires_at, created_at
+		SELECT id, public_id, user_id, app_id, ip_address, user_agent, expires_at, created_at
 		FROM sessions WHERE expires_at > CURRENT_TIMESTAMP ORDER BY created_at DESC`
 
 	rows, err := s.db.QueryContext(ctx, query)
@@ -117,6 +127,24 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteByPublicID removes a session by its public (non-secret) identifier.
+// Used by the admin revoke endpoint so bearer tokens never appear in URLs.
+func (s *SQLiteStore) DeleteByPublicID(ctx context.Context, publicID string) error {
+	const query = `DELETE FROM sessions WHERE public_id = ?`
+	res, err := s.db.ExecContext(ctx, query, publicID)
+	if err != nil {
+		return fmt.Errorf("session store delete by public id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("session store delete by public id rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session store delete by public id: %w", ErrSessionNotFound)
+	}
+	return nil
+}
+
 // DeleteByUser removes all sessions for the given user ID.
 func (s *SQLiteStore) DeleteByUser(ctx context.Context, userID string) error {
 	const query = `DELETE FROM sessions WHERE user_id = ?`
@@ -145,7 +173,7 @@ func scanSession(s sessionScanner) (*Session, error) {
 	var sess Session
 	var appID sql.NullString
 	err := s.Scan(
-		&sess.ID, &sess.UserID, &appID,
+		&sess.ID, &sess.PublicID, &sess.UserID, &appID,
 		&sess.IPAddress, &sess.UserAgent,
 		&sess.ExpiresAt, &sess.CreatedAt,
 	)

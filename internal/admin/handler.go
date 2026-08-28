@@ -66,6 +66,7 @@ type appServiceOps interface {
 type sessionServiceOps interface {
 	ListAll(ctx context.Context) ([]*session.Session, error)
 	RevokeSession(ctx context.Context, token string) error
+	RevokeSessionByPublicID(ctx context.Context, publicID string) error
 	RevokeAllByUser(ctx context.Context, userID string) error
 }
 
@@ -1313,11 +1314,12 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// PostRevokeSession revokes a session by its token ID.
+// PostRevokeSession revokes a session by its public (non-secret) identifier.
+// The raw session ID is the bearer token and must never appear in URLs.
 func (h *Handler) PostRevokeSession(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := h.sessions.RevokeSession(r.Context(), id); err != nil {
-		h.logger.Error("admin: revoke session", "id", id, "error", err)
+	publicID := chi.URLParam(r, "id")
+	if err := h.sessions.RevokeSessionByPublicID(r.Context(), publicID); err != nil {
+		h.logger.Error("admin: revoke session", "public_id", publicID, "error", err)
 		if r.Header.Get("HX-Request") != "true" {
 			http.Redirect(w, r, "/admin/sessions?flash=error", http.StatusFound)
 			return
@@ -1326,7 +1328,7 @@ func (h *Handler) PostRevokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logAudit(r, AuditActionSessionRevoke, "session", id, "")
+	h.logAudit(r, AuditActionSessionRevoke, "session", publicID, "")
 
 	// Support htmx partial response.
 	if r.Header.Get("HX-Request") == "true" {

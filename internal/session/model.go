@@ -14,7 +14,11 @@ var (
 
 // Session represents an authenticated user session.
 type Session struct {
-	ID        string
+	ID string
+	// PublicID is a random, non-secret identifier used in admin URLs (e.g.
+	// revoke links). It must never be used for authentication — the session
+	// ID itself is the bearer token and must not appear in URLs or logs.
+	PublicID  string
 	UserID    string
 	AppID     *string // nil = admin/global session
 	IPAddress string
@@ -33,4 +37,5 @@ type Store interface {
 	Delete(ctx context.Context, id string) error
 	DeleteByUser(ctx context.Context, userID string) error
 	DeleteExpired(ctx context.Context) error
+	DeleteByPublicID(ctx context.Context, publicID string) error
 }

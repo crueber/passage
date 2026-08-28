@@ -100,8 +100,9 @@ func (s *Service) CreateSession(ctx context.Context, userID string, appID *strin
 }
 
 // NewSession creates a new session for the given user. The session token is a
-// 32-byte random value encoded as hex. Expiry is derived first from the
-// "session_duration_hours" DB setting (if available), then from
+// 32-byte random value encoded as hex, as is the public (non-secret) URL
+// identifier used by the admin revoke endpoint. Expiry is derived first from
+// the "session_duration_hours" DB setting (if available), then from
 // cfg.Session.DurationHours.
 func (s *Service) NewSession(ctx context.Context, userID string, appID *string, ip, ua string) (*Session, error) {
 	b := make([]byte, 32)
@@ -110,10 +111,17 @@ func (s *Service) NewSession(ctx context.Context, userID string, appID *string, 
 	}
 	token := hex.EncodeToString(b)
 
+	pub := make([]byte, 32)
+	if _, err := rand.Read(pub); err != nil {
+		return nil, fmt.Errorf("generate session public id: %w", err)
+	}
+	publicID := hex.EncodeToString(pub)
+
 	hours := s.sessionDurationHours(ctx, appID)
 	now := time.Now().UTC()
 	sess := &Session{
 		ID:        token,
+		PublicID:  publicID,
 		UserID:    userID,
 		AppID:     appID,
 		IPAddress: ip,
@@ -161,6 +169,16 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 func (s *Service) RevokeSession(ctx context.Context, token string) error {
 	if err := s.store.Delete(ctx, token); err != nil {
 		return fmt.Errorf("revoke session: %w", err)
+	}
+	return nil
+}
+
+// RevokeSessionByPublicID deletes a session by its public (non-secret)
+// identifier. Used by the admin revoke endpoint so the bearer token never
+// appears in URLs or access logs.
+func (s *Service) RevokeSessionByPublicID(ctx context.Context, publicID string) error {
+	if err := s.store.DeleteByPublicID(ctx, publicID); err != nil {
+		return fmt.Errorf("revoke session by public id: %w", err)
 	}
 	return nil
 }
