@@ -1994,8 +1994,8 @@ func TestAdminUserApps_PostUserApps(t *testing.T) {
 			t.Errorf("grant new app: got status %d, want 302", res.StatusCode)
 		}
 		loc := res.Header.Get("Location")
-		if !strings.Contains(loc, "flash=updated") {
-			t.Errorf("grant new app: redirect %q does not contain flash=updated", loc)
+		if loc != "/admin/users/"+u.ID+"/apps" {
+			t.Errorf("grant new app: redirect %q, want /admin/users/%s/apps with no flash", loc, u.ID)
 		}
 
 		// Verify access was granted.
@@ -2051,8 +2051,8 @@ func TestAdminUserApps_PostUserApps(t *testing.T) {
 			t.Errorf("revoke existing app: got status %d, want 302", res.StatusCode)
 		}
 		loc := res.Header.Get("Location")
-		if !strings.Contains(loc, "flash=updated") {
-			t.Errorf("revoke existing app: redirect %q does not contain flash=updated", loc)
+		if loc != "/admin/users/"+u.ID+"/apps" {
+			t.Errorf("revoke existing app: redirect %q, want /admin/users/%s/apps with no flash", loc, u.ID)
 		}
 
 		// Verify access was revoked.
@@ -2118,8 +2118,8 @@ func TestAdminUserApps_PostUserApps(t *testing.T) {
 			t.Errorf("mixed grant/revoke: got status %d, want 302", res.StatusCode)
 		}
 		loc := res.Header.Get("Location")
-		if !strings.Contains(loc, "flash=updated") {
-			t.Errorf("mixed grant/revoke: redirect %q does not contain flash=updated", loc)
+		if loc != "/admin/users/"+u.ID+"/apps" {
+			t.Errorf("mixed grant/revoke: redirect %q, want /admin/users/%s/apps with no flash", loc, u.ID)
 		}
 
 		// Verify final state.
@@ -2564,4 +2564,118 @@ func TestPostAuthMethodSettings_HappyPath(t *testing.T) {
 	if pwEnabled != "false" {
 		t.Errorf("auth_password_enabled: got %q, want %q", pwEnabled, "false")
 	}
+}
+
+func TestAdminUserApps_AccessWithAssignments(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+	ctx := context.Background()
+
+	a := &app.App{Slug: "bulk-assign-app", Name: "Bulk App", HostPattern: "bulk.example.com", IsActive: true}
+	if err := f.appSvc.Create(ctx, a); err != nil {
+		t.Fatalf("create app: %v", err)
+	}
+	g := &app.Group{AppID: a.ID, Name: "bulk-group"}
+	if err := f.appSvc.CreateGroup(ctx, g); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	ro := &app.Role{AppID: a.ID, Name: "bulk-role"}
+	if err := f.appSvc.CreateRole(ctx, ro); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	u := &user.User{Username: "bulkuser", Email: "bulk@example.com", IsActive: true}
+	if err := f.userStore.Create(ctx, u); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	t.Run("grant access, group, and role in one save", func(t *testing.T) {
+		form := url.Values{}
+		form.Set("app_id", a.ID)
+		form.Set("groups."+a.ID, g.ID)
+		form.Set("roles."+a.ID, ro.ID)
+		res := adminRequest(t, router, http.MethodPost, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded").Result()
+		if res.StatusCode != http.StatusFound {
+			t.Fatalf("save: got %d, want 302", res.StatusCode)
+		}
+		if loc := res.Header.Get("Location"); loc != "/admin/users/"+u.ID+"/apps" {
+			t.Errorf("save: redirect %q, want no flash", loc)
+		}
+
+		granted, err := f.appStore.ListAppsForUser(ctx, u.ID)
+		if err != nil || len(granted) != 1 || granted[0].ID != a.ID {
+			t.Fatalf("access after save: %v (%d)", err, len(granted))
+		}
+		groups, err := f.appSvc.ListUserDirectGroups(ctx, u.ID, a.ID)
+		if err != nil || len(groups) != 1 || groups[0].ID != g.ID {
+			t.Fatalf("groups after save: %v (%d)", err, len(groups))
+		}
+		roles, err := f.appSvc.ListUserRoles(ctx, u.ID, a.ID)
+		if err != nil || len(roles) != 1 || roles[0].ID != ro.ID {
+			t.Fatalf("roles after save: %v (%d)", err, len(roles))
+		}
+	})
+
+	t.Run("page renders checked state and inherited group", func(t *testing.T) {
+		// The role grants the group: put the group on the role.
+		if err := f.appSvc.AssignGroupToRole(ctx, ro.ID, g.ID); err != nil {
+			t.Fatalf("assign group to role: %v", err)
+		}
+
+		body := adminRequest(t, router, http.MethodGet, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName, nil, "").Body.String()
+		if !strings.Contains(body, `name="groups.`+a.ID+`" value="`+g.ID+`"`) {
+			t.Error("apps page: group checkbox missing")
+		}
+		if !strings.Contains(body, "disabled") {
+			t.Error("apps page: inherited group checkbox not disabled")
+		}
+		if !strings.Contains(body, `name="roles.`+a.ID+`" value="`+ro.ID+`"`) {
+			t.Error("apps page: role checkbox missing")
+		}
+	})
+
+	t.Run("role uncheck releases inherited group", func(t *testing.T) {
+		// Revoke access first, then re-grant with only the group checked:
+		// the role is gone, so the group loses its inherited protection and
+		// the direct assignment should be applied cleanly.
+		form := url.Values{"app_id": []string{a.ID}}
+		res := adminRequest(t, router, http.MethodPost, "/admin/users/"+u.ID+"/apps",
+			token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded").Result()
+		if res.StatusCode != http.StatusFound {
+			t.Fatalf("resave: got %d, want 302", res.StatusCode)
+		}
+		roles, err := f.appSvc.ListUserRoles(ctx, u.ID, a.ID)
+		if err != nil || len(roles) != 0 {
+			t.Fatalf("roles after uncheck: %v (%d)", err, len(roles))
+		}
+		// Group checkbox was submitted unchecked this time, but the group
+		// was inherited during the same request before the role diff ran —
+		// a second save (post-role state) should clear the direct group.
+		groups, err := f.appSvc.ListUserDirectGroups(ctx, u.ID, a.ID)
+		if err != nil {
+			t.Fatalf("groups after uncheck: %v", err)
+		}
+		if len(groups) > 0 {
+			// Second save with role already gone must remove the direct group.
+			form := url.Values{"app_id": []string{a.ID}}
+			if res := adminRequest(t, router, http.MethodPost, "/admin/users/"+u.ID+"/apps",
+				token, f.cfg.Session.CookieName,
+				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded").Result(); res.StatusCode != http.StatusFound {
+				t.Fatalf("second save: got %d, want 302", res.StatusCode)
+			}
+			groups, err = f.appSvc.ListUserDirectGroups(ctx, u.ID, a.ID)
+			if err != nil {
+				t.Fatalf("groups after second save: %v", err)
+			}
+			if len(groups) != 0 {
+				t.Errorf("groups after second save: %d, want 0", len(groups))
+			}
+		}
+	})
 }

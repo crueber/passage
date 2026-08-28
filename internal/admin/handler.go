@@ -650,10 +650,13 @@ func (h *Handler) GetUserApps(w http.ResponseWriter, r *http.Request) {
 
 	appsWithAccess := make([]appWithAccess, len(allApps))
 	for i, a := range allApps {
-		appsWithAccess[i] = appWithAccess{
-			App:       a,
-			HasAccess: accessMap[a.ID],
+		groups, roles, err := h.userAppAssignmentOptions(ctx, id, a.ID)
+		if err != nil {
+			h.logger.Error("admin: build assignment options for user apps page", "user_id", id, "app_id", a.ID, "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
 		}
+		appsWithAccess[i] = appWithAccess{App: a, HasAccess: accessMap[a.ID], Groups: groups, Roles: roles}
 	}
 
 	var flash *Flash
@@ -668,7 +671,8 @@ func (h *Handler) GetUserApps(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// PostUserApps handles bulk grant/revoke of app access for a user.
+// PostUserApps handles bulk grant/revoke of app access plus group and
+// role assignments for a user, in one save.
 func (h *Handler) PostUserApps(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	ctx := r.Context()
@@ -728,9 +732,124 @@ func (h *Handler) PostUserApps(w http.ResponseWriter, r *http.Request) {
 				h.logger.Error("admin: revoke access (bulk)", "user_id", id, "app_id", a.ID, "error", err)
 			}
 		}
+
+		// Role and group diffs apply to every app row: the submitted
+		// checkboxes reflect what the admin sees, so a save clears
+		// assignments even when access is being revoked.
+		desiredRoles := toIDSet(r.Form["roles."+a.ID])
+
+		currentRoles, err := h.apps.ListUserRoles(ctx, id, a.ID)
+		if err != nil {
+			h.logger.Error("admin: list user roles (bulk)", "user_id", id, "app_id", a.ID, "error", err)
+			continue
+		}
+		for _, ro := range currentRoles {
+			if !desiredRoles[ro.ID] {
+				if err := h.apps.UnassignUserRole(ctx, id, a.ID, ro.ID); err != nil {
+					h.logger.Error("admin: unassign user role (bulk)", "user_id", id, "app_id", a.ID, "role_id", ro.ID, "error", err)
+				}
+			}
+		}
+		for rid := range desiredRoles {
+			if err := h.apps.AssignUserRole(ctx, id, a.ID, rid); err != nil {
+				h.logger.Error("admin: assign user role (bulk)", "user_id", id, "app_id", a.ID, "role_id", rid, "error", err)
+			}
+		}
+
+		// Diff direct groups. Role-inherited groups are excluded from the
+		// unassign side: their checkboxes render disabled and are not
+		// submitted, so the guard protects their direct assignment.
+		inheritedGroups, err := h.apps.ListUserInheritedGroups(ctx, id, a.ID)
+		if err != nil {
+			h.logger.Error("admin: list inherited groups (bulk)", "user_id", id, "app_id", a.ID, "error", err)
+			continue
+		}
+		inheritedSet := make(map[string]bool, len(inheritedGroups))
+		for _, g := range inheritedGroups {
+			inheritedSet[g.ID] = true
+		}
+		desiredGroups := toIDSet(r.Form["groups."+a.ID])
+		currentGroups, err := h.apps.ListUserDirectGroups(ctx, id, a.ID)
+		if err != nil {
+			h.logger.Error("admin: list user groups (bulk)", "user_id", id, "app_id", a.ID, "error", err)
+			continue
+		}
+		for _, g := range currentGroups {
+			if !desiredGroups[g.ID] && !inheritedSet[g.ID] {
+				if err := h.apps.UnassignUserGroup(ctx, id, a.ID, g.ID); err != nil {
+					h.logger.Error("admin: unassign user group (bulk)", "user_id", id, "app_id", a.ID, "group_id", g.ID, "error", err)
+				}
+			}
+		}
+		for gid := range desiredGroups {
+			if err := h.apps.AssignUserGroup(ctx, id, a.ID, gid); err != nil {
+				h.logger.Error("admin: assign user group (bulk)", "user_id", id, "app_id", a.ID, "group_id", gid, "error", err)
+			}
+		}
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/admin/users/%s/apps?flash=updated", id), http.StatusFound)
+	// No success flash: the updated checkbox state is the feedback.
+	http.Redirect(w, r, fmt.Sprintf("/admin/users/%s/apps", id), http.StatusFound)
+}
+
+// userAppAssignmentOptions builds the checkbox state for one app row on
+// the user apps page: the app's groups and roles with the user's current
+// membership marked. Groups granted via a held role are marked Inherited.
+func (h *Handler) userAppAssignmentOptions(ctx context.Context, userID, appID string) ([]assignmentOption, []assignmentOption, error) {
+	allGroups, err := h.apps.ListGroupsByApp(ctx, appID)
+	if err != nil {
+		return nil, nil, err
+	}
+	allRoles, err := h.apps.ListRolesByApp(ctx, appID)
+	if err != nil {
+		return nil, nil, err
+	}
+	directGroups, err := h.apps.ListUserDirectGroups(ctx, userID, appID)
+	if err != nil {
+		return nil, nil, err
+	}
+	inheritedGroups, err := h.apps.ListUserInheritedGroups(ctx, userID, appID)
+	if err != nil {
+		return nil, nil, err
+	}
+	userRoles, err := h.apps.ListUserRoles(ctx, userID, appID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	directSet := make(map[string]bool, len(directGroups))
+	for _, g := range directGroups {
+		directSet[g.ID] = true
+	}
+	inheritedSet := make(map[string]bool, len(inheritedGroups))
+	for _, g := range inheritedGroups {
+		inheritedSet[g.ID] = true
+	}
+	roleSet := make(map[string]bool, len(userRoles))
+	for _, ro := range userRoles {
+		roleSet[ro.ID] = true
+	}
+
+	groups := make([]assignmentOption, len(allGroups))
+	for i, g := range allGroups {
+		groups[i] = assignmentOption{
+			ID:          g.ID,
+			Name:        g.Name,
+			Description: g.Description,
+			Assigned:    directSet[g.ID],
+			Inherited:   inheritedSet[g.ID],
+		}
+	}
+	roles := make([]assignmentOption, len(allRoles))
+	for i, ro := range allRoles {
+		roles[i] = assignmentOption{
+			ID:          ro.ID,
+			Name:        ro.Name,
+			Description: ro.Description,
+			Assigned:    roleSet[ro.ID],
+		}
+	}
+	return groups, roles, nil
 }
 
 // ─── Apps ────────────────────────────────────────────────────────────────────
@@ -1152,10 +1271,14 @@ type appAccessData struct {
 	UsersWithoutAccess []*user.User
 }
 
-// appWithAccess bundles an app with whether the given user has access.
+// appWithAccess bundles an app with whether the given user has access,
+// plus the checkbox state for the app's groups and roles so access and
+// assignments can be managed in one save.
 type appWithAccess struct {
 	App       *app.App
 	HasAccess bool
+	Groups    []assignmentOption
+	Roles     []assignmentOption
 }
 
 // userAppsData is the template data for the user app access page.

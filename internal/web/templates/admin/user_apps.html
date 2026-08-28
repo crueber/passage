@@ -27,13 +27,13 @@
               <thead>
                 <tr>
                   <th scope="col">App</th>
-                  <th scope="col">Description</th>
-                  <th scope="col">Host Pattern</th>
                   <th scope="col">Access</th>
+                  <th scope="col">Groups</th>
+                  <th scope="col">Roles</th>
                 </tr>
               </thead>
               <tbody>
-                {{range .AppsWithAccess}}
+                {{range $row := .AppsWithAccess}}
                 <tr>
                   <td>
                     {{.App.Name}}
@@ -42,13 +42,31 @@
                     <span class="tag is-warning is-light ml-1">inactive</span>
                     {{end}}
                   </td>
-                  <td>{{.App.Description}}</td>
-                  <td><code>{{.App.HostPattern}}</code></td>
                   <td>
                     <label class="checkbox" for="app_{{.App.ID}}">
                       <input type="checkbox" id="app_{{.App.ID}}" name="app_id" value="{{.App.ID}}" {{if .HasAccess}}checked{{end}}>
                       Grant access
                     </label>
+                  </td>
+                  <td>
+                    {{range .Groups}}
+                    <label class="checkbox{{if .Inherited}} has-text-grey-light{{end}}" {{if .Inherited}}title="Granted via a role — remove the role to revoke this group"{{end}}>
+                      <input type="checkbox" name="groups.{{$row.App.ID}}" value="{{.ID}}" {{if or .Assigned .Inherited}}checked{{end}}{{if .Inherited}} disabled{{end}}>
+                      {{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}
+                    </label>
+                    {{else}}
+                    <span class="has-text-grey-light">—</span>
+                    {{end}}
+                  </td>
+                  <td>
+                    {{range .Roles}}
+                    <label class="checkbox">
+                      <input type="checkbox" name="roles.{{$row.App.ID}}" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
+                      {{.Name}}
+                    </label>
+                    {{else}}
+                    <span class="has-text-grey-light">—</span>
+                    {{end}}
                   </td>
                 </tr>
                 {{else}}
@@ -66,7 +84,7 @@
 
           <div class="field is-grouped">
             <div class="control">
-              <button type="submit" class="button is-primary">Save Access</button>
+              <button type="submit" class="button is-primary">Save</button>
             </div>
             <div class="control">
               <a class="button is-light" href="/admin/users/{{.EditUser.ID}}">Cancel</a>
