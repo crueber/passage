@@ -220,7 +220,9 @@ func (h *Handler) PostAppUserAssignments(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.logAudit(r, AuditActionAppAssignmentsUpdate, "user", u.ID, u.Username)
-	http.Redirect(w, r, assignmentsURL(a.ID, u.ID)+"?flash=updated", http.StatusFound)
+	// No success flash: the updated checkbox state is the feedback. Error
+	// flashes are still shown on partial-save failures.
+	http.Redirect(w, r, assignmentsURL(a.ID, u.ID), http.StatusFound)
 }
 
 // assignmentSaveFailed redirects back to the form with an error flash on
