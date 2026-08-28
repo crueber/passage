@@ -2,6 +2,7 @@ package user
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"sync"
@@ -53,7 +54,9 @@ func (m *SetupTokenManager) Consume(token string) bool {
 		m.token = ""
 		return false
 	}
-	if token != m.token {
+	// Constant-time comparison — the token guards creation of the first
+	// admin account and is compared against attacker-supplied input.
+	if subtle.ConstantTimeCompare([]byte(token), []byte(m.token)) != 1 {
 		return false
 	}
 	// Consume — invalidate after single use.
