@@ -28,8 +28,7 @@ var (
 type PKCEMethod string
 
 const (
-	PKCEMethodS256  PKCEMethod = "S256"
-	PKCEMethodPlain PKCEMethod = "plain"
+	PKCEMethodS256 PKCEMethod = "S256"
 )
 
 // Code is a short-lived authorization code (10-minute TTL).
@@ -45,8 +44,7 @@ type Code struct {
 	// CodeChallenge is the PKCE code challenge sent by the client at authorization time.
 	// Empty when the client did not use PKCE.
 	CodeChallenge string
-
-	// CodeChallengeMethod is "S256" or "plain". Empty when CodeChallenge is empty.
+	// CodeChallengeMethod is "S256". Empty when CodeChallenge is empty.
 	CodeChallengeMethod PKCEMethod
 
 	ExpiresAt time.Time

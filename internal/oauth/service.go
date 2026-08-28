@@ -131,26 +131,19 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 		switch codeChallengeMethod {
 		case string(PKCEMethodS256):
 			pkceMethod = PKCEMethodS256
-		case string(PKCEMethodPlain):
-			pkceMethod = PKCEMethodPlain
 		case "":
 			// method omitted; default to S256 per RFC 7636 §4.3 ABNF default.
 			pkceMethod = PKCEMethodS256
 		default:
+			// "plain" and anything else are rejected (OAuth 2.1 drops "plain":
+			// the challenge is verifier-equivalent when observed in the
+			// authorize request URL).
 			return nil, fmt.Errorf("oauth authorize: unsupported code_challenge_method: %w", ErrPKCEVerificationFailed)
 		}
-		// Validate challenge length per RFC 7636 §4.2.
-		switch pkceMethod {
-		case PKCEMethodS256:
-			// S256 challenge is always BASE64URL(SHA256(verifier)): 32 bytes → exactly 43 chars.
-			if len(codeChallenge) != 43 {
-				return nil, fmt.Errorf("oauth authorize: S256 code_challenge must be 43 characters: %w", ErrPKCEVerificationFailed)
-			}
-		case PKCEMethodPlain:
-			// Plain challenge == verifier; RFC 7636 §4.1 range: 43-128 chars.
-			if l := len(codeChallenge); l < 43 || l > 128 {
-				return nil, fmt.Errorf("oauth authorize: plain code_challenge length must be 43-128 characters: %w", ErrPKCEVerificationFailed)
-			}
+		// Validate challenge length per RFC 7636 §4.2: S256 challenges are
+		// always BASE64URL(SHA256(verifier)) = 43 chars.
+		if len(codeChallenge) != 43 {
+			return nil, fmt.Errorf("oauth authorize: S256 code_challenge must be 43 characters: %w", ErrPKCEVerificationFailed)
 		}
 	}
 
@@ -485,10 +478,6 @@ func verifyPKCE(challenge string, method PKCEMethod, verifier string) error {
 		h := sha256.Sum256([]byte(verifier))
 		computed := base64.RawURLEncoding.EncodeToString(h[:])
 		if subtle.ConstantTimeCompare([]byte(computed), []byte(challenge)) != 1 {
-			return ErrPKCEVerificationFailed
-		}
-	case PKCEMethodPlain:
-		if subtle.ConstantTimeCompare([]byte(verifier), []byte(challenge)) != 1 {
 			return ErrPKCEVerificationFailed
 		}
 	default:

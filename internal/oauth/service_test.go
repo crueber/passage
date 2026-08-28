@@ -1118,17 +1118,10 @@ func TestService_PKCE(t *testing.T) {
 			wantExchangeErr: oauth.ErrPKCEVerificationFailed,
 		},
 		{
-			name:            "plain_success",
-			codeChallenge:   verifier,
-			challengeMethod: "plain",
-			codeVerifier:    verifier,
-		},
-		{
-			name:            "plain_wrong_verifier",
-			codeChallenge:   verifier,
-			challengeMethod: "plain",
-			codeVerifier:    "wrong-verifier-that-is-definitely-43-chars-long",
-			wantExchangeErr: oauth.ErrPKCEVerificationFailed,
+			name:             "plain_method_rejected_at_authorize",
+			codeChallenge:    verifier,
+			challengeMethod:  "plain",
+			wantAuthorizeErr: true,
 		},
 		{
 			name:          "no_pkce_no_verifier",

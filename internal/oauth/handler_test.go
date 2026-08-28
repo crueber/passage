@@ -129,7 +129,8 @@ func TestHandler_Discovery(t *testing.T) {
 		t.Errorf("Discovery issuer: got %v", doc["issuer"])
 	}
 
-	// Verify code_challenge_methods_supported contains "S256" and "plain".
+	// Verify code_challenge_methods_supported contains exactly "S256" —
+	// "plain" was dropped per OAuth 2.1 (FA-008).
 	methodsRaw, ok := doc["code_challenge_methods_supported"]
 	if !ok {
 		t.Fatal("Discovery: missing code_challenge_methods_supported")
@@ -138,17 +139,11 @@ func TestHandler_Discovery(t *testing.T) {
 	if !ok {
 		t.Fatalf("Discovery: code_challenge_methods_supported is not an array, got %T", methodsRaw)
 	}
-	wantMethods := map[string]bool{"S256": false, "plain": false}
-	for _, m := range methods {
-		s, _ := m.(string)
-		if _, known := wantMethods[s]; known {
-			wantMethods[s] = true
-		}
+	if len(methods) != 1 {
+		t.Fatalf("Discovery: want exactly 1 code challenge method, got %d: %v", len(methods), methods)
 	}
-	for method, found := range wantMethods {
-		if !found {
-			t.Errorf("Discovery: code_challenge_methods_supported missing %q", method)
-		}
+	if methods[0] != "S256" {
+		t.Errorf("Discovery: code_challenge_methods_supported = %v, want [S256]", methods)
 	}
 }
 

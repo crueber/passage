@@ -84,7 +84,7 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "email_verified", "preferred_username"},
 		"nonce_supported":                       true,
-		"code_challenge_methods_supported":      []string{"S256", "plain"},
+		"code_challenge_methods_supported":      []string{"S256"},
 	}
 
 	h.writeJSON(w, http.StatusOK, doc)
