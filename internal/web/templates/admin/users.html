@@ -40,14 +40,13 @@
             <tbody>
               {{range .Users}}
               <tr>
-                <td>{{.Username}}</td>
+                <td><a href="/admin/users/{{.ID}}">{{.Username}}</a></td>
                 <td>{{.Email}}</td>
                 <td>{{.Name}}</td>
                 <td>{{if .IsAdmin}}<span class="tag is-success is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
                 <td>{{if .IsActive}}<span class="tag is-info is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
                 <td>
                   <div class="buttons are-small">
-                    <a class="button is-light" href="/admin/users/{{.ID}}">Edit</a>
                     <form method="POST" action="/admin/users/{{.ID}}/reset-password">
                       {{csrfField $.CSRFToken}}
                       <button type="submit" class="button is-light">Send Reset</button>
