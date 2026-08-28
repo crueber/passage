@@ -346,3 +346,95 @@ func (s *Service) UpdateRole(ctx context.Context, ro *Role) error {
 func (s *Service) DeleteRole(ctx context.Context, id string) error {
 	return s.store.DeleteRole(ctx, id)
 }
+
+// ─── Assignments ─────────────────────────────────────────────────────────────
+
+// AssignGroupToRole adds a group to a role. Both must belong to the same app.
+// Idempotent.
+func (s *Service) AssignGroupToRole(ctx context.Context, roleID, groupID string) error {
+	ro, err := s.store.GetRole(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	g, err := s.store.GetGroup(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if ro.AppID != g.AppID {
+		return ErrCrossAppAssignment
+	}
+	return s.store.AssignGroupToRole(ctx, roleID, groupID)
+}
+
+// UnassignGroupFromRole removes a group from a role.
+func (s *Service) UnassignGroupFromRole(ctx context.Context, roleID, groupID string) error {
+	return s.store.UnassignGroupFromRole(ctx, roleID, groupID)
+}
+
+// ListGroupsForRole returns the groups assigned to a role.
+func (s *Service) ListGroupsForRole(ctx context.Context, roleID string) ([]*Group, error) {
+	return s.store.ListGroupsForRole(ctx, roleID)
+}
+
+// AssignUserGroup grants a user a direct group within an app. Idempotent.
+func (s *Service) AssignUserGroup(ctx context.Context, userID, appID, groupID string) error {
+	return s.store.AssignUserGroup(ctx, userID, appID, groupID)
+}
+
+// UnassignUserGroup removes a user's direct group within an app.
+func (s *Service) UnassignUserGroup(ctx context.Context, userID, appID, groupID string) error {
+	return s.store.UnassignUserGroup(ctx, userID, appID, groupID)
+}
+
+// ListUserDirectGroups returns a user's directly assigned groups for an app.
+func (s *Service) ListUserDirectGroups(ctx context.Context, userID, appID string) ([]*Group, error) {
+	return s.store.ListUserDirectGroups(ctx, userID, appID)
+}
+
+// ListUserInheritedGroups returns the groups a user inherits through held
+// roles for an app. These are never stored per user and cannot be revoked
+// individually.
+func (s *Service) ListUserInheritedGroups(ctx context.Context, userID, appID string) ([]*Group, error) {
+	return s.store.ListUserInheritedGroups(ctx, userID, appID)
+}
+
+// AssignUserRole grants a user a role within an app. Idempotent.
+func (s *Service) AssignUserRole(ctx context.Context, userID, appID, roleID string) error {
+	return s.store.AssignUserRole(ctx, userID, appID, roleID)
+}
+
+// UnassignUserRole removes a user's role within an app.
+func (s *Service) UnassignUserRole(ctx context.Context, userID, appID, roleID string) error {
+	return s.store.UnassignUserRole(ctx, userID, appID, roleID)
+}
+
+// ListUserRoles returns the roles a user holds for an app.
+func (s *Service) ListUserRoles(ctx context.Context, userID, appID string) ([]*Role, error) {
+	return s.store.ListUserRoles(ctx, userID, appID)
+}
+
+// TokenAssignments returns the names of a user's roles and their effective
+// groups (direct plus role-inherited) within an app, for embedding in OIDC
+// token claims. Both lists are deduplicated and ordered by name.
+func (s *Service) TokenAssignments(ctx context.Context, userID, appID string) (roles, groups []string, err error) {
+	if roles, err = s.store.UserRoleNames(ctx, userID, appID); err != nil {
+		return nil, nil, fmt.Errorf("app service token assignments roles: %w", err)
+	}
+	if groups, err = s.store.EffectiveGroupNames(ctx, userID, appID); err != nil {
+		return nil, nil, fmt.Errorf("app service token assignments groups: %w", err)
+	}
+	// Normalize to empty slices so the JSON claims are [] rather than null
+	// when the user has no assignments.
+	if roles == nil {
+		roles = []string{}
+	}
+	if groups == nil {
+		groups = []string{}
+	}
+	return roles, groups, nil
+}
+
+// GetByClientID returns the app with the given OAuth client_id.
+func (s *Service) GetByClientID(ctx context.Context, clientID string) (*App, error) {
+	return s.store.GetByClientID(ctx, clientID)
+}

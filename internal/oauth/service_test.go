@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,10 @@ type fakeAppClient struct {
 	getErr error
 	access bool
 	accErr error
+	// tokenRoles/tokenGroups are returned by TokenAssignments; empty by default.
+	tokenRoles  []string
+	tokenGroups []string
+	assignErr   error
 }
 
 func (f *fakeAppClient) GetByClientID(_ context.Context, _ string) (*app.App, error) {
@@ -36,6 +41,20 @@ func (f *fakeAppClient) GetByClientID(_ context.Context, _ string) (*app.App, er
 
 func (f *fakeAppClient) HasAccess(_ context.Context, _, _ string) (bool, error) {
 	return f.access, f.accErr
+}
+func (f *fakeAppClient) TokenAssignments(_ context.Context, _, _ string) (roles, groups []string, err error) {
+	// Mirror the real contract: empty slices, never nil.
+	if f.tokenRoles == nil {
+		roles = []string{}
+	} else {
+		roles = f.tokenRoles
+	}
+	if f.tokenGroups == nil {
+		groups = []string{}
+	} else {
+		groups = f.tokenGroups
+	}
+	return roles, groups, f.assignErr
 }
 
 // fakeUserReader implements oauth's userReader interface for testing.
@@ -52,6 +71,7 @@ func (f *fakeUserReader) GetByID(_ context.Context, _ string) (*user.User, error
 type testServiceContext struct {
 	svc    *oauth.Service
 	store  *oauth.SQLiteStore
+	apps   *fakeAppClient
 	appID  string
 	userID string
 }
@@ -92,6 +112,7 @@ func newTestServiceWithDB(t *testing.T, db *sql.DB, testApp *app.App, testUser *
 	return &testServiceContext{
 		svc:    svc,
 		store:  store,
+		apps:   apps,
 		appID:  appID,
 		userID: userID,
 	}
@@ -1305,4 +1326,121 @@ func TestService_ExchangeCode_PKCEPublicClient(t *testing.T) {
 			t.Errorf("ExchangeCode no PKCE empty secret: got %v, want ErrInvalidClientSecret", err)
 		}
 	})
+}
+
+// TestService_ExchangeCode_AssignmentClaims verifies that the id_token
+// carries app-scoped "roles" and "groups" claims from TokenAssignments,
+// including effective (role-inherited) groups.
+func TestService_ExchangeCode_AssignmentClaims(t *testing.T) {
+	const (
+		clientID    = "test-client-assign"
+		plainSecret = "test-secret-assign"
+		redirectURI = "https://example.com/callback"
+	)
+
+	db := testutil.NewTestDB(t)
+	testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+	testUser := &user.User{
+		Username: "assignclaims",
+		Email:    "assignclaims@example.com",
+		Name:     "Assign Claims User",
+	}
+	sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+	// Supply assignments through the fake app client.
+	sc.apps.tokenRoles = []string{"viewer", "editor"}
+	sc.apps.tokenGroups = []string{"direct-group", "role-group"}
+
+	ctx := context.Background()
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
+	if err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+
+	parts := strings.Split(tokenResp.IDToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("id_token: expected 3 parts, got %d", len(parts))
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("id_token: base64 decode payload: %v", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		t.Fatalf("id_token: unmarshal payload: %v", err)
+	}
+
+	assertStringSlice := func(name string, want []string) {
+		t.Helper()
+		raw, ok := claims[name].([]any)
+		if !ok {
+			t.Errorf("id_token %s: expected array, got %T (%v)", name, claims[name], claims[name])
+			return
+		}
+		var got []string
+		for _, v := range raw {
+			s, _ := v.(string)
+			got = append(got, s)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("id_token %s: got %v, want %v", name, got, want)
+		}
+	}
+	assertStringSlice("roles", []string{"viewer", "editor"})
+	assertStringSlice("groups", []string{"direct-group", "role-group"})
+}
+
+// TestService_ExchangeCode_EmptyAssignmentClaims verifies that a user with
+// no assignments gets empty arrays (not null) for roles and groups.
+func TestService_ExchangeCode_EmptyAssignmentClaims(t *testing.T) {
+	const (
+		clientID    = "test-client-noassign"
+		plainSecret = "test-secret-noassign"
+		redirectURI = "https://example.com/callback"
+	)
+
+	db := testutil.NewTestDB(t)
+	testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+	testUser := &user.User{
+		Username: "noassign",
+		Email:    "noassign@example.com",
+		Name:     "No Assign User",
+	}
+	sc := newTestServiceWithDB(t, db, testApp, testUser)
+
+	ctx := context.Background()
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	tokenResp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
+	if err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+
+	parts := strings.Split(tokenResp.IDToken, ".")
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("id_token: base64 decode payload: %v", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		t.Fatalf("id_token: unmarshal payload: %v", err)
+	}
+
+	// Both claims must be present and serialize as empty JSON arrays.
+	for _, name := range []string{"roles", "groups"} {
+		raw, ok := claims[name].([]any)
+		if !ok {
+			t.Errorf("id_token %s: expected array, got %T (%v)", name, claims[name], claims[name])
+			continue
+		}
+		if len(raw) != 0 {
+			t.Errorf("id_token %s: expected empty, got %v", name, raw)
+		}
+	}
 }

@@ -66,6 +66,8 @@
                 <td>{{.User.Username}}</td>
                 <td>{{.User.Email}}</td>
                 <td>
+                  <div class="buttons are-small">
+                    <a class="button is-light" href="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/assignments">Assignments</a>
                   <form method="POST"
                         action="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
                         hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
@@ -74,6 +76,7 @@
                     {{csrfField $.CSRFToken}}
                     <button type="submit" class="button is-danger is-small is-light">Revoke</button>
                   </form>
+                  </div>
                 </td>
               </tr>
 {{else}}

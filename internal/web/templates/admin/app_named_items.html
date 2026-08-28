@@ -37,6 +37,21 @@
                   <input class="input" type="text" id="item-description" name="description" value="{{.EditItem.Description}}">
                 </div>
               </div>
+              {{if eq .Kind "roles"}}
+              <div class="field">
+                <fieldset>
+                  <legend class="label">Groups granted by this role</legend>
+                  {{range .AllGroups}}
+                  <label class="checkbox">
+                    <input type="checkbox" name="group_ids" value="{{.ID}}" {{if index $.CheckedGroups .ID}}checked{{end}}>
+                    {{.Name}}{{if .Description}} <span class="has-text-grey-light">— {{.Description}}</span>{{end}}
+                  </label>
+                  {{else}}
+                  <p class="has-text-grey-light"><em>No groups defined for this app yet.</em></p>
+                  {{end}}
+                </fieldset>
+              </div>
+              {{end}}
               <div class="field is-grouped">
                 <div class="control">
                   <button type="submit" class="button is-primary">Save</button>

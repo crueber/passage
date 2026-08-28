@@ -29,6 +29,10 @@ type appNamedItemsData struct {
 	EditItem       *namedItemRow
 	AddName        string // preserved input on create failure
 	AddDescription string
+	// Role edit only: the app's groups as checkbox options, with the ones
+	// currently assigned to the role marked.
+	AllGroups     []namedItemRow
+	CheckedGroups map[string]bool
 }
 
 // getAppForAdmin loads the app named by the {id} URL param, writing the
@@ -226,15 +230,41 @@ func (h *Handler) getEditNamedItem(w http.ResponseWriter, r *http.Request, kind 
 		}
 		item = &namedItemRow{ID: ro.ID, Name: ro.Name, Description: ro.Description}
 	}
-
-	h.render(w, r, "admin-app-named-items", appNamedItemsData{
+	data := appNamedItemsData{
 		basePage: h.baseFlash(r, "apps", flashFromQuery(r.URL.Query().Get("flash"))),
 		appTabs:  appTabs{App: a, ActiveTab: kind},
 		Kind:     kind,
 		Plural:   namedItemPlural(kind),
 		IsEdit:   true,
 		EditItem: item,
-	})
+	}
+
+	// Role edit renders the app's groups as checkbox options so admins can
+	// manage which groups the role grants.
+	if kind == "roles" {
+		allGroups, err := h.apps.ListGroupsByApp(r.Context(), a.ID)
+		if err != nil {
+			h.logger.Error("admin: list groups for role edit", "app_id", a.ID, "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		roleGroups, err := h.apps.ListGroupsForRole(r.Context(), item.ID)
+		if err != nil {
+			h.logger.Error("admin: list groups for role", "role_id", item.ID, "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		data.AllGroups = make([]namedItemRow, len(allGroups))
+		for i, g := range allGroups {
+			data.AllGroups[i] = namedItemRow{ID: g.ID, Name: g.Name, Description: g.Description}
+		}
+		data.CheckedGroups = make(map[string]bool, len(roleGroups))
+		for _, g := range roleGroups {
+			data.CheckedGroups[g.ID] = true
+		}
+	}
+
+	h.render(w, r, "admin-app-named-items", data)
 }
 
 // getNamedItemFailed handles a lookup failure on the edit page: unknown IDs
@@ -295,8 +325,53 @@ func (h *Handler) postUpdateNamedItem(w http.ResponseWriter, r *http.Request, ki
 		return
 	}
 
+	// Roles carry group membership: apply the checkbox diff after the save.
+	if kind == "roles" {
+		if err := h.applyRoleGroupDiff(r, a, gid); err != nil {
+			h.logger.Error("admin: apply role group diff", "app_id", a.ID, "role_id", gid, "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	h.logAuditNamedItem(r, kind, "update", gid, name)
 	http.Redirect(w, r, listURL+"?flash=updated", http.StatusFound)
+}
+
+// applyRoleGroupDiff syncs a role's group memberships to the submitted
+// group_ids checkbox values: newly checked groups are assigned, unchecked
+// ones are unassigned.
+func (h *Handler) applyRoleGroupDiff(r *http.Request, a *app.App, roleID string) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("parse form: %w", err)
+	}
+	desired := map[string]bool{}
+	for _, gid := range r.Form["group_ids"] {
+		desired[gid] = true
+	}
+	current, err := h.apps.ListGroupsForRole(r.Context(), roleID)
+	if err != nil {
+		return err
+	}
+	currentIDs := make(map[string]bool, len(current))
+	for _, g := range current {
+		currentIDs[g.ID] = true
+	}
+	for gid := range desired {
+		if !currentIDs[gid] {
+			if err := h.apps.AssignGroupToRole(r.Context(), roleID, gid); err != nil {
+				return err
+			}
+		}
+	}
+	for _, g := range current {
+		if !desired[g.ID] {
+			if err := h.apps.UnassignGroupFromRole(r.Context(), roleID, g.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // namedItemsEditDataWithError rebuilds the edit page data with an error

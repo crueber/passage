@@ -27,6 +27,9 @@ type oauthService interface {
 	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier string) (*TokenResponse, error)
 	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret string) (*TokenResponse, error)
 	ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error)
+	// TokenAssignments resolves a user's app-scoped role names and effective
+	// (direct plus role-inherited) group names for the userinfo response.
+	TokenAssignments(ctx context.Context, userID, appID string) (roles, groups []string, err error)
 }
 
 // sessionValidator is the interface the Handler uses to validate sessions.
@@ -82,7 +85,7 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 		"scopes_supported":                      []string{"openid", "profile", "email"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "email_verified", "preferred_username"},
+		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "email_verified", "preferred_username", "roles", "groups"},
 		"nonce_supported":                       true,
 		"code_challenge_methods_supported":      []string{"S256"},
 	}
@@ -329,10 +332,20 @@ func (h *Handler) UserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, _, err := h.svc.ValidateAccessToken(ctx, token)
+	u, tok, err := h.svc.ValidateAccessToken(ctx, token)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="passage", error="invalid_token", error_description="token is expired or invalid"`)
 		h.writeJSONError(w, http.StatusUnauthorized, "invalid_token", "token is expired or invalid")
+		return
+	}
+
+	// Resolve app-scoped roles and effective groups. Assignments come from
+	// the same database as the token lookup, so a failure here is a real
+	// error condition: fail closed rather than issue claims-stripped output.
+	roles, groups, err := h.svc.TokenAssignments(ctx, u.ID, tok.AppID)
+	if err != nil {
+		h.logger.Error("oauth: userinfo resolve assignments", "user_id", u.ID, "app_id", tok.AppID, "error", err)
+		h.writeJSONError(w, http.StatusInternalServerError, "server_error", "failed to resolve user assignments")
 		return
 	}
 
@@ -346,6 +359,8 @@ func (h *Handler) UserInfo(w http.ResponseWriter, r *http.Request) {
 		// admin creates and controls all accounts, so all stored addresses
 		// are considered administratively verified.
 		"email_verified": true,
+		"roles":          roles,
+		"groups":         groups,
 	})
 }
 

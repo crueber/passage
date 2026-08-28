@@ -71,6 +71,18 @@ type appServiceOps interface {
 	ListRolesByApp(ctx context.Context, appID string) ([]*app.Role, error)
 	UpdateRole(ctx context.Context, ro *app.Role) error
 	DeleteRole(ctx context.Context, id string) error
+
+	// Assignments: role→group, user→group, user→role.
+	AssignGroupToRole(ctx context.Context, roleID, groupID string) error
+	UnassignGroupFromRole(ctx context.Context, roleID, groupID string) error
+	ListGroupsForRole(ctx context.Context, roleID string) ([]*app.Group, error)
+	AssignUserGroup(ctx context.Context, userID, appID, groupID string) error
+	UnassignUserGroup(ctx context.Context, userID, appID, groupID string) error
+	ListUserDirectGroups(ctx context.Context, userID, appID string) ([]*app.Group, error)
+	ListUserInheritedGroups(ctx context.Context, userID, appID string) ([]*app.Group, error)
+	AssignUserRole(ctx context.Context, userID, appID, roleID string) error
+	UnassignUserRole(ctx context.Context, userID, appID, roleID string) error
+	ListUserRoles(ctx context.Context, userID, appID string) ([]*app.Role, error)
 }
 
 // sessionServiceOps is the minimal interface for session management.
@@ -165,6 +177,9 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/apps/{id}", h.PostUpdateApp)
 	r.Get("/apps/{id}/oauth", h.GetAppOAuth)
 	r.Post("/apps/{id}/delete", h.PostDeleteApp)
+	r.Post("/apps/{id}/access/{userId}/revoke", h.PostRevokeAccess)
+	r.Get("/apps/{id}/access/{userId}/assignments", h.GetAppUserAssignments)
+	r.Post("/apps/{id}/access/{userId}/assignments", h.PostAppUserAssignments)
 	r.Get("/apps/{id}/groups", h.GetAppGroups)
 	r.Post("/apps/{id}/groups", h.PostCreateAppGroup)
 	r.Get("/apps/{id}/groups/{gid}/edit", h.GetEditAppGroup)
@@ -177,7 +192,6 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/apps/{id}/roles/{gid}/delete", h.PostDeleteAppRole)
 	r.Get("/apps/{id}/access", h.GetAppAccess)
 	r.Post("/apps/{id}/access", h.PostGrantAccess)
-	r.Post("/apps/{id}/access/{userId}/revoke", h.PostRevokeAccess)
 	r.Post("/apps/{id}/oauth/generate", h.PostGenerateOAuthCredentials)
 	r.Post("/apps/{id}/oauth/rotate", h.PostRotateOAuthSecret)
 

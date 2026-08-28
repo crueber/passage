@@ -1,0 +1,90 @@
+{{define "admin-app-assignments"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.User.Username}} — Assignments — {{.App.Name}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/bulma.min.css">
+  <link rel="stylesheet" href="/static/passage.css">
+</head>
+<body>
+{{template "admin-header" .}}
+<div class="passage-admin-body">
+  <div class="passage-admin-container">
+    <div class="passage-admin-shell">
+      {{template "admin-nav" .}}
+      <main class="passage-admin-content">
+        {{template "admin-flash" .}}
+        <h1 class="title is-4">{{.App.Name}}</h1>
+        {{template "admin-app-tabs" .}}
+
+        <h2 class="title is-5">Assignments for {{.User.Username}}</h2>
+        <p class="mb-4">
+          <a href="/admin/apps/{{.App.ID}}/access">&larr; Back to access</a>
+        </p>
+
+        <form method="POST" action="/admin/apps/{{.App.ID}}/access/{{.User.ID}}/assignments">
+          {{csrfField .CSRFToken}}
+
+          <div class="columns">
+            <div class="column">
+              <div class="field">
+                <fieldset>
+                  <legend class="label">Roles</legend>
+                  {{range .Roles}}
+                  <label class="checkbox">
+                    <input type="checkbox" name="role_ids" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
+                    {{.Name}}{{if .Description}} <span class="has-text-grey-light">— {{.Description}}</span>{{end}}
+                  </label>
+                  {{else}}
+                  <p class="has-text-grey-light"><em>No roles defined for this app yet.</em></p>
+                  {{end}}
+                </fieldset>
+              </div>
+            </div>
+            <div class="column">
+              <div class="field">
+                <fieldset>
+                  <legend class="label">Groups</legend>
+                  {{range .Groups}}
+                  <label class="checkbox">
+                    <input type="checkbox" name="group_ids" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
+                    {{.Name}}{{if .Description}} <span class="has-text-grey-light">— {{.Description}}</span>{{end}}
+                  </label>
+                  {{else}}
+                  <p class="has-text-grey-light"><em>No groups defined for this app yet.</em></p>
+                  {{end}}
+                </fieldset>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <fieldset>
+              <legend class="label">Inherited groups <span class="has-text-grey-light">(via roles — cannot be removed here)</span></legend>
+              {{range .Inherited}}
+              <span class="tag is-info is-light">{{.Name}}</span>
+              {{else}}
+              <p class="has-text-grey-light"><em>None. Assign roles above to grant groups transitively.</em></p>
+              {{end}}
+            </fieldset>
+          </div>
+
+          <div class="field is-grouped">
+            <div class="control">
+              <button type="submit" class="button is-primary">Save Assignments</button>
+            </div>
+            <div class="control">
+              <a class="button is-light" href="/admin/apps/{{.App.ID}}/access">Cancel</a>
+            </div>
+          </div>
+        </form>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
+  </div>
+</div>
+</body>
+</html>
+{{end}}

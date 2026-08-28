@@ -144,7 +144,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("init oauth signing key: %w", err)
 	}
-	oauthSvc, err := oauth.NewService(oauthStore, appStore, userStore, oauthKeyPEM, oauthKID, cfg.Server.BaseURL, logger)
+	oauthSvc, err := oauth.NewService(oauthStore, appSvc, userStore, oauthKeyPEM, oauthKID, cfg.Server.BaseURL, logger)
 	if err != nil {
 		return fmt.Errorf("init oauth service: %w", err)
 	}

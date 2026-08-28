@@ -25,6 +25,9 @@ import (
 type appClient interface {
 	GetByClientID(ctx context.Context, clientID string) (*app.App, error)
 	HasAccess(ctx context.Context, userID, appID string) (bool, error)
+	// TokenAssignments resolves a user's app-scoped role names and effective
+	// (direct plus role-inherited) group names for token claims.
+	TokenAssignments(ctx context.Context, userID, appID string) (roles, groups []string, err error)
 }
 
 // userReader is the minimal interface needed from the user package.
@@ -267,7 +270,7 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 	}
 
 	// Build and sign the id_token JWT.
-	idToken, err := s.buildIDToken(u, clientID, codeRecord.AuthTime, codeRecord.Nonce)
+	idToken, err := s.buildIDToken(ctx, u, a.ID, clientID, codeRecord.AuthTime, codeRecord.Nonce)
 	if err != nil {
 		return nil, fmt.Errorf("oauth exchange code: build id token: %w", err)
 	}
@@ -370,7 +373,7 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 	// auth_time is omitted: the original authentication time is not persisted on refresh
 	// tokens, and using rt.CreatedAt would be misleading (it reflects token issuance, not
 	// the user's actual authentication event). Omitting auth_time is safer per OIDC Core §2.
-	idToken, err := s.buildIDToken(u, clientID, time.Time{}, "")
+	idToken, err := s.buildIDToken(ctx, u, a.ID, clientID, time.Time{}, "")
 	if err != nil {
 		return nil, fmt.Errorf("oauth refresh tokens: build id token: %w", err)
 	}
@@ -418,7 +421,10 @@ func (s *Service) ValidateAccessToken(ctx context.Context, token string) (*user.
 // available (OIDC Core §2, auth_time is OPTIONAL).
 // nonce is the OIDC nonce from the authorization request; it is included in the
 // claims only when non-empty (OIDC Core §3.1.3.6).
-func (s *Service) buildIDToken(u *user.User, clientID string, authTime time.Time, nonce string) (string, error) {
+// The app-scoped "roles" and "groups" claims are always present as arrays:
+// groups are the user's effective memberships (direct plus role-inherited)
+// resolved at issuance time, scoped to the app the token is issued for.
+func (s *Service) buildIDToken(ctx context.Context, u *user.User, appID, clientID string, authTime time.Time, nonce string) (string, error) {
 	now := time.Now().UTC()
 	claims := jwtlib.MapClaims{
 		"iss":                s.baseURL,
@@ -443,6 +449,17 @@ func (s *Service) buildIDToken(u *user.User, clientID string, authTime time.Time
 	if nonce != "" {
 		claims["nonce"] = nonce
 	}
+
+	// App-scoped role and group claims. Groups are effective (direct plus
+	// role-inherited) memberships resolved at issuance time. Both claims are
+	// always present as arrays so clients can rely on their shape; they are
+	// empty when the user has no assignments for this app.
+	roles, groups, err := s.apps.TokenAssignments(ctx, u.ID, appID)
+	if err != nil {
+		return "", fmt.Errorf("oauth build id token: resolve assignments: %w", err)
+	}
+	claims["roles"] = roles
+	claims["groups"] = groups
 
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodRS256, claims)
 	token.Header["kid"] = s.keyID
@@ -485,4 +502,11 @@ func verifyPKCE(challenge string, method PKCEMethod, verifier string) error {
 		return ErrPKCEVerificationFailed
 	}
 	return nil
+}
+
+// TokenAssignments resolves a user's app-scoped role names and effective
+// group names (direct plus role-inherited) for token claims and the
+// userinfo response. Delegates to the app service.
+func (s *Service) TokenAssignments(ctx context.Context, userID, appID string) (roles, groups []string, err error) {
+	return s.apps.TokenAssignments(ctx, userID, appID)
 }

@@ -8,10 +8,11 @@ import (
 
 // Sentinel errors for app-related operations.
 var (
-	ErrNotFound     = errors.New("app: not found")
-	ErrSlugTaken    = errors.New("app: slug already taken")
-	ErrNoAppForHost = errors.New("app: no registered app matches this host")
-	ErrNameTaken    = errors.New("app: a group or role with that name already exists for this app")
+	ErrNotFound           = errors.New("app: not found")
+	ErrSlugTaken          = errors.New("app: slug already taken")
+	ErrNoAppForHost       = errors.New("app: no registered app matches this host")
+	ErrNameTaken          = errors.New("app: a group or role with that name already exists for this app")
+	ErrCrossAppAssignment = errors.New("app: role and group belong to different apps")
 
 	ErrOAuthNotEnabled     = errors.New("app: oauth is not enabled for this app")
 	ErrInvalidClientSecret = errors.New("app: invalid client secret")
@@ -99,6 +100,21 @@ type Store interface {
 	ListRolesByApp(ctx context.Context, appID string) ([]*Role, error)
 	UpdateRole(ctx context.Context, ro *Role) error
 	DeleteRole(ctx context.Context, id string) error
+
+	// Assignments: role→group, user→group, user→role. Effective groups are
+	// resolved at read time (direct groups plus groups of held roles).
+	AssignGroupToRole(ctx context.Context, roleID, groupID string) error
+	UnassignGroupFromRole(ctx context.Context, roleID, groupID string) error
+	ListGroupsForRole(ctx context.Context, roleID string) ([]*Group, error)
+	AssignUserGroup(ctx context.Context, userID, appID, groupID string) error
+	UnassignUserGroup(ctx context.Context, userID, appID, groupID string) error
+	ListUserDirectGroups(ctx context.Context, userID, appID string) ([]*Group, error)
+	ListUserInheritedGroups(ctx context.Context, userID, appID string) ([]*Group, error)
+	AssignUserRole(ctx context.Context, userID, appID, roleID string) error
+	UnassignUserRole(ctx context.Context, userID, appID, roleID string) error
+	ListUserRoles(ctx context.Context, userID, appID string) ([]*Role, error)
+	UserRoleNames(ctx context.Context, userID, appID string) ([]string, error)
+	EffectiveGroupNames(ctx context.Context, userID, appID string) ([]string, error)
 }
 
 // AccessStore is the persistence interface for user-app access grants. It is
