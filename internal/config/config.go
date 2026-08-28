@@ -54,6 +54,17 @@ type RateLimitConfig struct {
 	// Env: PASSAGE_RATELIMIT_SETUP_REQUESTS / PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES
 	SetupRequests      int `yaml:"setup_requests"`
 	SetupWindowMinutes int `yaml:"setup_window_minutes"`
+
+	// Register controls the self-service registration endpoint rate limit.
+	// Env: PASSAGE_RATELIMIT_REGISTER_REQUESTS / PASSAGE_RATELIMIT_REGISTER_WINDOW_MINUTES
+	RegisterRequests      int `yaml:"register_requests"`
+	RegisterWindowMinutes int `yaml:"register_window_minutes"`
+
+	// MagicLink controls the magic-link request endpoint rate limit (each
+	// request triggers an outbound email).
+	// Env: PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS / PASSAGE_RATELIMIT_MAGIC_LINK_WINDOW_MINUTES
+	MagicLinkRequests      int `yaml:"magic_link_requests"`
+	MagicLinkWindowMinutes int `yaml:"magic_link_window_minutes"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -133,6 +144,10 @@ func defaults() *Config {
 			OAuthTokenWindowMinutes: 1,
 			SetupRequests:           5,
 			SetupWindowMinutes:      60,
+			RegisterRequests:        10,
+			RegisterWindowMinutes:   60,
+			MagicLinkRequests:       5,
+			MagicLinkWindowMinutes:  60,
 		},
 	}
 }
@@ -214,6 +229,18 @@ func (c *Config) Validate() error {
 	}
 	if rl.OAuthTokenWindowMinutes <= 0 {
 		errs = append(errs, fmt.Errorf("ratelimit.oauth_token_window_minutes must be positive, got %d", rl.OAuthTokenWindowMinutes))
+	}
+	if rl.RegisterRequests <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.register_requests must be positive, got %d", rl.RegisterRequests))
+	}
+	if rl.RegisterWindowMinutes <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.register_window_minutes must be positive, got %d", rl.RegisterWindowMinutes))
+	}
+	if rl.MagicLinkRequests <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.magic_link_requests must be positive, got %d", rl.MagicLinkRequests))
+	}
+	if rl.MagicLinkWindowMinutes <= 0 {
+		errs = append(errs, fmt.Errorf("ratelimit.magic_link_window_minutes must be positive, got %d", rl.MagicLinkWindowMinutes))
 	}
 	if rl.SetupRequests <= 0 {
 		errs = append(errs, fmt.Errorf("ratelimit.setup_requests must be positive, got %d", rl.SetupRequests))
@@ -374,6 +401,34 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.RateLimit.SetupWindowMinutes = n
 		} else {
 			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_REGISTER_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.RegisterRequests = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_REGISTER_REQUESTS", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_REGISTER_WINDOW_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.RegisterWindowMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_REGISTER_WINDOW_MINUTES", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.MagicLinkRequests = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_RATELIMIT_MAGIC_LINK_WINDOW_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimit.MagicLinkWindowMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_MAGIC_LINK_WINDOW_MINUTES", v, err)
 		}
 	}
 }

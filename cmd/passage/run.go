@@ -200,10 +200,11 @@ func run() error {
 	resetLimiter := ratelimit.New(rl.ResetRequests, time.Duration(rl.ResetWindowMinutes)*time.Minute)
 	oauthTokenLimiter := ratelimit.New(rl.OAuthTokenRequests, time.Duration(rl.OAuthTokenWindowMinutes)*time.Minute)
 	setupLimiter := ratelimit.New(rl.SetupRequests, time.Duration(rl.SetupWindowMinutes)*time.Minute)
+	registerLimiter := ratelimit.New(rl.RegisterRequests, time.Duration(rl.RegisterWindowMinutes)*time.Minute)
+	magicLinkLimiter := ratelimit.New(rl.MagicLinkRequests, time.Duration(rl.MagicLinkWindowMinutes)*time.Minute)
 
 	// Start rate limiter cleanup goroutines (every 5 minutes each).
-	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter} {
-		rl := rl // capture loop variable
+	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter, registerLimiter, magicLinkLimiter} {
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
@@ -317,14 +318,14 @@ func run() error {
 		r.Get("/login", userHandler.GetLogin)
 		r.With(ratelimit.Middleware(loginLimiter)).Post("/login", userHandler.PostLogin)
 		r.Get("/register", userHandler.GetRegister)
-		r.Post("/register", userHandler.PostRegister)
+		r.With(ratelimit.Middleware(registerLimiter)).Post("/register", userHandler.PostRegister)
 		r.Get("/reset", userHandler.GetResetRequest)
 		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset", userHandler.PostResetRequest)
 		r.Get("/reset/{token}", userHandler.GetResetConfirm)
 		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset/{token}", userHandler.PostResetConfirm)
 		r.Get("/login/magic", userHandler.GetMagicLinkRequest)
-		r.Post("/login/magic", userHandler.PostMagicLinkRequest)
 		r.Get("/login/magic/verify", userHandler.GetMagicLinkVerify)
+		r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/login/magic", userHandler.PostMagicLinkRequest)
 		// Setup endpoint — only active when no admin user exists.
 		// The setupManager is nil once an admin account has been created; the
 		// handlers check IsActive() on every request so the endpoint self-disables.
