@@ -84,9 +84,9 @@ func run() error {
 	}
 	defer database.Close()
 
-	// Build stores and services.
+	// Build stores and services. The session service is built before the user
+	// service so password changes can revoke the user's sessions.
 	userStore := user.NewStore(database)
-	userSvc := user.NewService(userStore, userStore, cfg)
 
 	// Build the settings store early so sessionSvc can consult it for
 	// the session_duration_hours setting on every new session.
@@ -97,6 +97,8 @@ func run() error {
 
 	sessionStore := session.NewStore(database)
 	sessionSvc := session.NewService(sessionStore, userStore, settingsStore, &appDurationAdapter{store: appStore}, cfg, logger)
+
+	userSvc := user.NewService(userStore, userStore, sessionSvc, cfg)
 
 	// Build email sender.
 	mailer, err := email.NewSMTPSender(cfg, logger)

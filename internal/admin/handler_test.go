@@ -84,7 +84,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 
 	userStore := user.NewStore(database)
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	sessionStore := session.NewStore(database)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))

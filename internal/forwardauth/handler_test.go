@@ -51,7 +51,7 @@ func setupDeps(t *testing.T) *testDeps {
 	cfg := testCfg()
 
 	userStore := user.NewStore(db)
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
@@ -210,7 +210,7 @@ func TestNginxAuth_ExpiredSession(t *testing.T) {
 		Session: config.SessionConfig{DurationHours: 0, CookieName: "passage_session"},
 	}
 	userStore2 := user.NewStore(db2)
-	userSvc2 := user.NewService(userStore2, userStore2, expiredCfg)
+	userSvc2 := user.NewService(userStore2, userStore2, nil, expiredCfg)
 	sessionStore2 := session.NewStore(db2)
 	sessionSvc2 := session.NewService(sessionStore2, userStore2, nil, nil, expiredCfg, slog.Default())
 	appStore2 := app.NewStore(db2)
@@ -270,7 +270,7 @@ func TestTraefikAuth_ExpiredSession(t *testing.T) {
 		Session: config.SessionConfig{DurationHours: 0, CookieName: "passage_session"},
 	}
 	userStore3 := user.NewStore(db3)
-	userSvc3 := user.NewService(userStore3, userStore3, expiredCfg3)
+	userSvc3 := user.NewService(userStore3, userStore3, nil, expiredCfg3)
 	sessionStore3 := session.NewStore(db3)
 	sessionSvc3 := session.NewService(sessionStore3, userStore3, nil, nil, expiredCfg3, slog.Default())
 	appStore3 := app.NewStore(db3)

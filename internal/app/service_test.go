@@ -45,7 +45,7 @@ func newServices(t *testing.T) *testServices {
 			CookieName:    "passage_session",
 		},
 	}
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	return &testServices{appSvc: appSvc, userSvc: userSvc}
 }
 

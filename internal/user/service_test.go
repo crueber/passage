@@ -31,7 +31,7 @@ func newUserService(t *testing.T, allowRegistration bool) *user.Service {
 	t.Helper()
 	db := testutil.NewTestDB(t)
 	store := user.NewStore(db)
-	return user.NewService(store, store, testConfig(allowRegistration))
+	return user.NewService(store, store, nil, testConfig(allowRegistration))
 }
 
 // TestRegister verifies that a new user can be created with valid inputs and
@@ -167,7 +167,7 @@ func TestAuthenticate_InactiveUser(t *testing.T) {
 	t.Parallel()
 	db := testutil.NewTestDB(t)
 	store := user.NewStore(db)
-	svc := user.NewService(store, store, testConfig(true))
+	svc := user.NewService(store, store, nil, testConfig(true))
 	ctx := context.Background()
 
 	u, err := svc.Register(ctx, "grace", "grace@example.com", "password123")
@@ -238,6 +238,79 @@ func TestPasswordReset_HappyPath(t *testing.T) {
 	}
 }
 
+// recordingRevoker captures RevokeAllByUser calls.
+type recordingRevoker struct {
+	userIDs []string
+}
+
+func (r *recordingRevoker) RevokeAllByUser(_ context.Context, userID string) error {
+	r.userIDs = append(r.userIDs, userID)
+	return nil
+}
+
+// TestChangePassword_RevokesSessions verifies that a password change (direct
+// or via reset token) revokes all of the user's sessions (FA-006).
+func TestChangePassword_RevokesSessions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("direct change", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		store := user.NewStore(db)
+		revoker := &recordingRevoker{}
+		svc := user.NewService(store, store, revoker, testConfig(true))
+
+		u, err := svc.Register(ctx, "revoker1", "revoker1@example.com", "oldpassword")
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+
+		if err := svc.ChangePassword(ctx, u.ID, "newpassword!"); err != nil {
+			t.Fatalf("ChangePassword: %v", err)
+		}
+		if len(revoker.userIDs) != 1 || revoker.userIDs[0] != u.ID {
+			t.Errorf("ChangePassword: revocations %+v, want exactly one for %q", revoker.userIDs, u.ID)
+		}
+	})
+
+	t.Run("via reset token", func(t *testing.T) {
+		db := testutil.NewTestDB(t)
+		store := user.NewStore(db)
+		revoker := &recordingRevoker{}
+		svc := user.NewService(store, store, revoker, testConfig(true))
+
+		if _, err := svc.Register(ctx, "revoker2", "revoker2@example.com", "oldpassword"); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		token, err := svc.GeneratePasswordReset(ctx, "revoker2@example.com")
+		if err != nil {
+			t.Fatalf("GeneratePasswordReset: %v", err)
+		}
+		if err := svc.ResetPassword(ctx, token, "newpassword!"); err != nil {
+			t.Fatalf("ResetPassword: %v", err)
+		}
+
+		u, err := store.GetByEmail(ctx, "revoker2@example.com")
+		if err != nil {
+			t.Fatalf("GetByEmail: %v", err)
+		}
+		if len(revoker.userIDs) != 1 || revoker.userIDs[0] != u.ID {
+			t.Errorf("ResetPassword: revocations %+v, want exactly one for %q", revoker.userIDs, u.ID)
+		}
+	})
+
+	t.Run("nil revoker is tolerated", func(t *testing.T) {
+		svc := newUserService(t, true)
+		u, err := svc.Register(ctx, "revoker3", "revoker3@example.com", "oldpassword")
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		if err := svc.ChangePassword(ctx, u.ID, "newpassword!"); err != nil {
+			t.Fatalf("ChangePassword with nil revoker: %v", err)
+		}
+	})
+}
+
 // TestPasswordReset_TokenUsed verifies that using the same reset token twice
 // returns ErrTokenUsed on the second attempt.
 func TestPasswordReset_TokenUsed(t *testing.T) {
@@ -270,7 +343,7 @@ func TestPasswordReset_TokenExpired(t *testing.T) {
 	t.Parallel()
 	db := testutil.NewTestDB(t)
 	store := user.NewStore(db)
-	svc := user.NewService(store, store, testConfig(true))
+	svc := user.NewService(store, store, nil, testConfig(true))
 	ctx := context.Background()
 
 	if _, err := svc.Register(ctx, "judy", "judy@example.com", "password123"); err != nil {

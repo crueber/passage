@@ -73,7 +73,7 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 		},
 	}
 
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
@@ -158,7 +158,7 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 		Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
 		Session: config.SessionConfig{DurationHours: 24, CookieName: "passage_session"},
 	}
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	// Register a user first.
 	if _, err := userSvc.Register(context.Background(), "loginuser", "login@example.com", "password123"); err != nil {
@@ -213,7 +213,7 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 		Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
 		Session: config.SessionConfig{DurationHours: 24, CookieName: "passage_session"},
 	}
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	if _, err := userSvc.Register(context.Background(), "rduser", "rd@example.com", "password123"); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -1123,7 +1123,7 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 		Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
 		Session: config.SessionConfig{DurationHours: 24, CookieName: "passage_session"},
 	}
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 	if _, err := userSvc.Register(context.Background(), "pwuser", "pwuser@example.com", "password123"); err != nil {
 		t.Fatalf("Register: %v", err)
 	}

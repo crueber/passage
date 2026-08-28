@@ -15,18 +15,29 @@ import (
 	"github.com/crueber/passage/internal/config"
 )
 
+// SessionRevoker invalidates all sessions for a user. Implemented by the
+// session service; defined here at the consumer boundary because the session
+// package imports this one (a user-side import would cycle).
+type SessionRevoker interface {
+	RevokeAllByUser(ctx context.Context, userID string) error
+}
+
 // Service implements business logic for user management.
 type Service struct {
 	store      Store
 	tokenStore TokenStore
+	sessions   SessionRevoker
 	cfg        *config.Config
 }
 
-// NewService creates a new Service with the given dependencies.
-func NewService(store Store, tokenStore TokenStore, cfg *config.Config) *Service {
+// NewService creates a new Service with the given dependencies. sessions may
+// be nil (used by tests); when set, password changes revoke all of the user's
+// sessions per OWASP session-management guidance.
+func NewService(store Store, tokenStore TokenStore, sessions SessionRevoker, cfg *config.Config) *Service {
 	return &Service{
 		store:      store,
 		tokenStore: tokenStore,
+		sessions:   sessions,
 		cfg:        cfg,
 	}
 }
@@ -192,6 +203,16 @@ func (s *Service) ChangePassword(ctx context.Context, userID, newPassword string
 	u.PasswordHash = string(hash)
 	if err := s.store.Update(ctx, u); err != nil {
 		return fmt.Errorf("change password update user: %w", err)
+	}
+
+	// Invalidate all of the user's sessions: a stolen session must not survive
+	// a password rotation (OWASP session management — invalidate on password
+	// change). Runs after the hash is persisted so a failed revocation is
+	// visible to the caller rather than silently skipped.
+	if s.sessions != nil {
+		if err := s.sessions.RevokeAllByUser(ctx, userID); err != nil {
+			return fmt.Errorf("change password revoke sessions: %w", err)
+		}
 	}
 	return nil
 }

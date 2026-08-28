@@ -129,7 +129,7 @@ func TestConsumeMagicLinkToken_ExpiredToken(t *testing.T) {
 	t.Parallel()
 	db := testutil.NewTestDB(t)
 	store := user.NewStore(db)
-	svc := user.NewService(store, store, testConfig(true))
+	svc := user.NewService(store, store, nil, testConfig(true))
 	ctx := context.Background()
 
 	u, err := svc.Register(ctx, "magic_expired", "magic_expired@example.com", "password123")
@@ -229,7 +229,7 @@ func newMagicLinkHandlerFixture(t *testing.T) (*user.Handler, *handlerFixture) {
 		},
 	}
 
-	userSvc := user.NewService(userStore, userStore, cfg)
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
 
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
@@ -425,7 +425,7 @@ func TestHandler_GetMagicLinkVerify(t *testing.T) {
 			Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
 			Session: config.SessionConfig{DurationHours: 24, CookieName: "passage_session"},
 		}
-		userSvc := user.NewService(userStore, userStore, cfg)
+		userSvc := user.NewService(userStore, userStore, nil, cfg)
 		sessionStore := session.NewStore(db)
 		sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 		tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
