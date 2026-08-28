@@ -743,7 +743,6 @@ func (h *Handler) GetNewApp(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-app-form", appFormData{
 		basePage: h.base(r, "apps"),
 		IsNew:    true,
-		BaseURL:  h.baseURL(),
 	})
 }
 
@@ -753,7 +752,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Invalid form submission."}),
 			IsNew:    true,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -777,7 +775,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 					Message: "Session duration must be a non-negative integer (0 = use global default)."}),
 				EditApp: a,
 				IsNew:   true,
-				BaseURL: h.baseURL(),
 			})
 			return
 		}
@@ -790,7 +787,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Slug and name are required."}),
 			EditApp:  a,
 			IsNew:    true,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -800,7 +796,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Default URL must start with http:// or https://."}),
 			EditApp:  a,
 			IsNew:    true,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -811,7 +806,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
 			EditApp:  a,
 			IsNew:    true,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -825,7 +819,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 			EditApp:  a,
 			IsNew:    true,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -858,7 +851,6 @@ func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 		appTabs:  appTabs{App: a, ActiveTab: "details"},
 		EditApp:  a,
 		IsNew:    false,
-		BaseURL:  h.baseURL(),
 	})
 }
 
@@ -923,7 +915,6 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 				appTabs: appTabs{App: a, ActiveTab: "details"},
 				EditApp: a,
 				IsNew:   false,
-				BaseURL: h.baseURL(),
 			})
 			return
 		}
@@ -948,7 +939,6 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -959,7 +949,6 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -985,7 +974,6 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
-			BaseURL:  h.baseURL(),
 		})
 		return
 	}
@@ -1060,7 +1048,7 @@ func (h *Handler) PostGenerateOAuthCredentials(w http.ResponseWriter, r *http.Re
 		appTabs:         appTabs{App: a, ActiveTab: "oauth"},
 		EditApp:         a,
 		NewClientSecret: secret,
-		BaseURL:         h.cfg.Server.BaseURL,
+		BaseURL:         h.baseURL(),
 	})
 }
 
@@ -1108,7 +1096,7 @@ func (h *Handler) PostRotateOAuthSecret(w http.ResponseWriter, r *http.Request) 
 		appTabs:         appTabs{App: a, ActiveTab: "oauth"},
 		EditApp:         a,
 		NewClientSecret: secret,
-		BaseURL:         h.cfg.Server.BaseURL,
+		BaseURL:         h.baseURL(),
 	})
 }
 
