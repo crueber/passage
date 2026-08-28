@@ -105,6 +105,7 @@
         </div>
         {{end}}
 
+        {{if not .IsEdit}}
         <div class="table-container">
           <table class="table is-fullwidth is-striped is-hoverable">
             <thead>
@@ -137,6 +138,7 @@
             </tbody>
           </table>
         </div>
+        {{end}}
       </main>
     </div>
     {{template "admin-footer" .}}
