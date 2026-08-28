@@ -34,12 +34,17 @@ type noopCredentialCounter struct{}
 
 func (noopCredentialCounter) CountByUser(_ context.Context, _ string) (int, error) { return 0, nil }
 
-// noopAuditLogger satisfies the auditLogger interface with a no-op implementation.
-type noopAuditLogger struct{}
+// recordingAuditLogger captures audit events so tests can assert on them.
+type recordingAuditLogger struct {
+	events []*admin.AuditEvent
+}
 
-func (noopAuditLogger) Log(_ context.Context, _ *admin.AuditEvent) {}
-func (noopAuditLogger) List(_ context.Context, _ admin.AuditFilter) ([]*admin.AuditEvent, error) {
-	return nil, nil
+func (l *recordingAuditLogger) Log(_ context.Context, e *admin.AuditEvent) {
+	l.events = append(l.events, e)
+}
+
+func (l *recordingAuditLogger) List(_ context.Context, _ admin.AuditFilter) ([]*admin.AuditEvent, error) {
+	return l.events, nil
 }
 
 // fixture holds the full dependency graph for admin handler tests.
@@ -54,6 +59,7 @@ type fixture struct {
 	settings     admin.SettingsStore
 	handler      *admin.Handler
 	cfg          *config.Config
+	audit        *recordingAuditLogger
 }
 
 // newFixture builds all dependencies wired to an in-memory SQLite database.
@@ -96,7 +102,8 @@ func newFixture(t *testing.T) *fixture {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, noopAuditLogger{})
+	auditLog := &recordingAuditLogger{}
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, auditLog)
 
 	return &fixture{
 		db:           database,
@@ -109,6 +116,7 @@ func newFixture(t *testing.T) *fixture {
 		settings:     settings,
 		handler:      h,
 		cfg:          cfg,
+		audit:        auditLog,
 	}
 }
 
@@ -540,6 +548,219 @@ func TestAdminApps_CRUD(t *testing.T) {
 		_, err = f.appStore.GetBySlug(context.Background(), "test-app")
 		if err == nil {
 			t.Error("delete app: app still exists after delete")
+		}
+	})
+}
+
+// TestAdminApps_Create_RedirectsToEditWithFlash verifies that creating an app
+// redirects to the app's details tab and the flash message is rendered there.
+func TestAdminApps_Create_RedirectsToEditWithFlash(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("slug", "redirect-app")
+	form.Set("name", "Redirect App")
+	form.Set("host_pattern", "redirect.example.com")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("create app: got %d, want 302", res.StatusCode)
+	}
+
+	a, err := f.appStore.GetBySlug(context.Background(), "redirect-app")
+	if err != nil {
+		t.Fatalf("get created app: %v", err)
+	}
+	wantLoc := "/admin/apps/" + a.ID + "?flash=created"
+	if loc := res.Header.Get("Location"); loc != wantLoc {
+		t.Errorf("create app: redirect %q, want %q", loc, wantLoc)
+	}
+
+	rec = adminRequest(t, router, http.MethodGet, wantLoc, token, f.cfg.Session.CookieName, nil, "")
+	if rec.Result().StatusCode != http.StatusOK {
+		t.Errorf("details tab: got %d, want 200", rec.Result().StatusCode)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "Created successfully.") {
+		t.Error("details tab: flash=created message not rendered")
+	}
+}
+
+// TestAdminApps_Create_Audited verifies app creation writes an audit event.
+func TestAdminApps_Create_Audited(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("slug", "audit-app")
+	form.Set("name", "Audit App")
+	form.Set("host_pattern", "audit.example.com")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	if rec.Result().StatusCode != http.StatusFound {
+		t.Fatalf("create app: got %d, want 302", rec.Result().StatusCode)
+	}
+
+	a, err := f.appStore.GetBySlug(context.Background(), "audit-app")
+	if err != nil {
+		t.Fatalf("get created app: %v", err)
+	}
+
+	var found bool
+	for _, e := range f.audit.events {
+		if e.Action == admin.AuditActionAppCreate && e.TargetID == a.ID && e.TargetName == a.Name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("create app: no %s audit event for app %s; events: %+v", admin.AuditActionAppCreate, a.ID, f.audit.events)
+	}
+}
+
+// TestAdminApps_Update_FlashOnDetailsTab verifies the update redirect keeps the
+// admin on the details tab and renders the saved flash there.
+func TestAdminApps_Update_FlashOnDetailsTab(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	a := &app.App{Slug: "flash-update", Name: "Flash Update", HostPattern: "flash.example.com", IsActive: true}
+	if err := f.appSvc.Create(context.Background(), a); err != nil {
+		t.Fatalf("seed app: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("slug", "flash-update")
+	form.Set("name", "Flash Update Renamed")
+	form.Set("host_pattern", "flash.example.com")
+	form.Set("is_active", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+a.ID, token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	res := rec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("update app: got %d, want 302", res.StatusCode)
+	}
+	wantLoc := "/admin/apps/" + a.ID + "?flash=updated"
+	if loc := res.Header.Get("Location"); loc != wantLoc {
+		t.Errorf("update app: redirect %q, want %q", loc, wantLoc)
+	}
+
+	rec = adminRequest(t, router, http.MethodGet, wantLoc, token, f.cfg.Session.CookieName, nil, "")
+	if rec.Result().StatusCode != http.StatusOK {
+		t.Errorf("details tab: got %d, want 200", rec.Result().StatusCode)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "Saved successfully.") {
+		t.Error("details tab: flash=updated message not rendered")
+	}
+}
+
+// TestAdminAppOAuthTab verifies the OAuth Client tab GET for enabled,
+// not-enabled, and missing apps.
+func TestAdminAppOAuthTab(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	a := &app.App{Slug: "oauth-tab", Name: "OAuth Tab", HostPattern: "oauth.example.com", IsActive: true}
+	if err := f.appSvc.Create(context.Background(), a); err != nil {
+		t.Fatalf("seed app: %v", err)
+	}
+
+	t.Run("not enabled", func(t *testing.T) {
+		rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+a.ID+"/oauth", token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("oauth tab: got %d, want 200", rec.Result().StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "OAuth is not enabled") {
+			t.Error("oauth tab: expected not-enabled notice")
+		}
+		if !strings.Contains(body, "Enable OAuth") {
+			t.Error("oauth tab: expected enable form")
+		}
+	})
+
+	t.Run("unknown app redirects to list", func(t *testing.T) {
+		rec := adminRequest(t, router, http.MethodGet, "/admin/apps/does-not-exist/oauth", token, f.cfg.Session.CookieName, nil, "")
+		res := rec.Result()
+		if res.StatusCode != http.StatusFound {
+			t.Fatalf("oauth tab unknown app: got %d, want 302", res.StatusCode)
+		}
+		if loc := res.Header.Get("Location"); loc != "/admin/apps" {
+			t.Errorf("oauth tab unknown app: redirect %q, want /admin/apps", loc)
+		}
+	})
+
+	t.Run("enabled", func(t *testing.T) {
+		if _, err := f.appSvc.GenerateClientCredentials(context.Background(), a.ID); err != nil {
+			t.Fatalf("enable oauth: %v", err)
+		}
+		rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+a.ID+"/oauth", token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("oauth tab: got %d, want 200", rec.Result().StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "Client ID:") {
+			t.Error("oauth tab: expected client ID display")
+		}
+		if !strings.Contains(body, "Rotate Secret") {
+			t.Error("oauth tab: expected rotate form")
+		}
+	})
+}
+
+// TestAdminAppAccessTab verifies the Access tab GET renders both populated and
+// empty access lists.
+func TestAdminAppAccessTab(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	member := createAdminUser(t, f, "member", "member@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	a := &app.App{Slug: "access-tab", Name: "Access Tab", HostPattern: "access.example.com", IsActive: true}
+	if err := f.appSvc.Create(context.Background(), a); err != nil {
+		t.Fatalf("seed app: %v", err)
+	}
+
+	t.Run("empty", func(t *testing.T) {
+		rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+a.ID+"/access", token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("access tab: got %d, want 200", rec.Result().StatusCode)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "No users have access.") {
+			t.Error("access tab: expected empty-access notice")
+		}
+	})
+
+	t.Run("populated", func(t *testing.T) {
+		if err := f.appSvc.GrantAccess(context.Background(), member.ID, a.ID); err != nil {
+			t.Fatalf("grant access: %v", err)
+		}
+		rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+a.ID+"/access", token, f.cfg.Session.CookieName, nil, "")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("access tab: got %d, want 200", rec.Result().StatusCode)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, member.Username) {
+			t.Error("access tab: granted member not listed")
 		}
 	})
 }
