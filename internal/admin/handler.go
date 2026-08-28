@@ -830,8 +830,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logAudit(r, AuditActionAppCreate, "app", a.ID, a.Name)
-	http.Redirect(w, r, "/admin/apps?flash=created", http.StatusFound)
+	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s?flash=created", a.ID), http.StatusFound)
 }
 
 // GetEditApp renders the app details tab.
