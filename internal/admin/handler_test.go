@@ -857,9 +857,10 @@ func TestAdminAppAccess_GrantAndRevoke(t *testing.T) {
 	}
 }
 
-// TestAdminAppAccess_HTMX verifies that the HTMX revoke path responds with an
-// HX-Redirect header pointing at the access page, so a full page refresh moves
-// the revoked user to the "Users without access" section.
+// TestAdminAppAccess_HTMX verifies that the HTMX revoke path returns an
+// out-of-band refresh of both access tables: the revoked row is deleted from
+// "Users with access" and the user appears under "Users without access",
+// without a full page reload.
 func TestAdminAppAccess_HTMX(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -906,11 +907,28 @@ func TestAdminAppAccess_HTMX(t *testing.T) {
 
 	res := rec.Result()
 	if res.StatusCode != http.StatusOK {
-		t.Errorf("htmx revoke access: got %d, want 200", res.StatusCode)
+		t.Errorf("htmx revoke access: got %d, want 200; body: %s", res.StatusCode, rec.Body.String())
 	}
-	want := "/admin/apps/" + appID + "/access?flash=access-revoked"
-	if got := res.Header.Get("HX-Redirect"); got != want {
-		t.Errorf("htmx revoke access: HX-Redirect %q, want %q", got, want)
+	if res.Header.Get("HX-Redirect") != "" {
+		t.Errorf("htmx revoke access: unexpected HX-Redirect %q (partial swap expected)", res.Header.Get("HX-Redirect"))
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"hx-swap-oob", `id="users-with-access"`, `id="users-without-access"`, "htmxaccess@example.com"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("htmx revoke access: body missing %q; got: %s", want, body)
+		}
+	}
+	// The revoked user must be in the without-access table, not the with one.
+	withoutIdx := strings.Index(body, `id="users-without-access"`)
+	withIdx := strings.Index(body, `id="users-with-access"`)
+	if withIdx == -1 || withoutIdx == -1 {
+		t.Fatalf("htmx revoke access: OOB tables missing; got: %s", body)
+	}
+	if !strings.Contains(body[withoutIdx:], "htmxaccessuser") {
+		t.Errorf("htmx revoke access: revoked user not in users-without-access table")
+	}
+	if strings.Contains(body[withIdx:withoutIdx], "htmxaccessuser") {
+		t.Errorf("htmx revoke access: revoked user still in users-with-access table")
 	}
 }
 

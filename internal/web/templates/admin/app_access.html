@@ -30,27 +30,8 @@
                 <th scope="col"></th>
               </tr>
             </thead>
-            <tbody>
-              {{range .UsersWithAccess}}
-              <tr>
-                <td>{{.User.Username}}</td>
-                <td>{{.User.Email}}</td>
-                <td>
-                  <form method="POST"
-                        action="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
-                        hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
-                        hx-target="closest tr"
-                        hx-swap="outerHTML">
-                    {{csrfField $.CSRFToken}}
-                    <button type="submit" class="button is-danger is-small is-light">Revoke</button>
-                  </form>
-                </td>
-              </tr>
-              {{else}}
-              <tr>
-                <td colspan="3" class="has-text-grey-light"><em>No users have access.</em></td>
-              </tr>
-              {{end}}
+            <tbody id="users-with-access">
+              {{template "admin-app-access-with-rows" .}}
             </tbody>
           </table>
         </div>
@@ -65,8 +46,45 @@
                 <th scope="col"></th>
               </tr>
             </thead>
-            <tbody>
-              {{range .UsersWithoutAccess}}
+            <tbody id="users-without-access">
+              {{template "admin-app-access-without-rows" .}}
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+    {{template "admin-footer" .}}
+  </div>
+</div>
+</body>
+</html>
+{{end}}
+
+{{define "admin-app-access-with-rows"}}
+{{range $.UsersWithAccess}}
+              <tr>
+                <td>{{.User.Username}}</td>
+                <td>{{.User.Email}}</td>
+                <td>
+                  <form method="POST"
+                        action="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
+                        hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
+                        hx-target="closest tr"
+                        hx-swap="delete">
+                    {{csrfField $.CSRFToken}}
+                    <button type="submit" class="button is-danger is-small is-light">Revoke</button>
+                  </form>
+                </td>
+              </tr>
+{{else}}
+              <tr>
+                <td colspan="3" class="has-text-grey-light"><em>No users have access.</em></td>
+              </tr>
+{{end}}
+{{end}}
+
+{{define "admin-app-access-without-rows"}}
+{{range $.UsersWithoutAccess}}
               <tr>
                 <td>{{.Username}}</td>
                 <td>{{.Email}}</td>
@@ -78,19 +96,14 @@
                   </form>
                 </td>
               </tr>
-              {{else}}
+{{else}}
               <tr>
                 <td colspan="3" class="has-text-grey-light"><em>All users already have access.</em></td>
               </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </div>
-      </main>
-    </div>
-    {{template "admin-footer" .}}
-  </div>
-</div>
-</body>
-</html>
+{{end}}
+{{end}}
+
+{{define "admin-app-access-revoke-oob"}}
+<tbody id="users-with-access" hx-swap-oob="true">{{template "admin-app-access-with-rows" .}}</tbody>
+<tbody id="users-without-access" hx-swap-oob="true">{{template "admin-app-access-without-rows" .}}</tbody>
 {{end}}

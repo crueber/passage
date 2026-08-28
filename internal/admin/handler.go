@@ -1129,34 +1129,25 @@ type userAppsData struct {
 	AppsWithAccess []appWithAccess
 }
 
-// GetAppAccess renders the app access management page.
-func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+// loadAppAccessData loads the app plus its with/without-access user lists and
+// builds the appAccessData for the access page. Shared by the page render and
+// the htmx out-of-band refresh after revoke.
+func (h *Handler) loadAppAccessData(r *http.Request, appID string, flash *Flash) (*appAccessData, error) {
 	ctx := r.Context()
 
-	a, err := h.apps.GetByID(ctx, id)
+	a, err := h.apps.GetByID(ctx, appID)
 	if err != nil {
-		if errors.Is(err, app.ErrNotFound) {
-			http.Redirect(w, r, "/admin/apps", http.StatusFound)
-			return
-		}
-		h.logger.Error("admin: get app for access", "id", id, "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	accesses, err := h.apps.ListUsersWithAccess(ctx, id)
+	accesses, err := h.apps.ListUsersWithAccess(ctx, appID)
 	if err != nil {
-		h.logger.Error("admin: list users with access", "app_id", id, "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("list users with access: %w", err)
 	}
 
 	allUsers, err := h.userStore.List(ctx)
 	if err != nil {
-		h.logger.Error("admin: list users for access page", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("list users for access page: %w", err)
 	}
 
 	// Build a set of user IDs that have access.
@@ -1185,17 +1176,35 @@ func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	return &appAccessData{
+		basePage:           h.baseFlash(r, "apps", flash),
+		appTabs:            appTabs{App: a, ActiveTab: "access"},
+		UsersWithAccess:    withAccess,
+		UsersWithoutAccess: withoutAccess,
+	}, nil
+}
+
+// GetAppAccess renders the app access management page.
+func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
 	var flash *Flash
 	if code := r.URL.Query().Get("flash"); code != "" {
 		flash = flashFromQuery(code)
 	}
 
-	h.render(w, r, "admin-app-access", appAccessData{
-		basePage:           h.baseFlash(r, "apps", flash),
-		appTabs:            appTabs{App: a, ActiveTab: "access"},
-		UsersWithAccess:    withAccess,
-		UsersWithoutAccess: withoutAccess,
-	})
+	data, err := h.loadAppAccessData(r, id, flash)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			http.Redirect(w, r, "/admin/apps", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get app access page", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	h.render(w, r, "admin-app-access", data)
 }
 
 // PostGrantAccess grants a user access to an app.
@@ -1234,7 +1243,12 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.apps.RevokeAccess(r.Context(), userID, appID); err != nil {
 		h.logger.Error("admin: revoke access", "user_id", userID, "app_id", appID, "error", err)
-		http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access?flash=error", appID), http.StatusFound)
+		redirectURL := fmt.Sprintf("/admin/apps/%s/access?flash=error", appID)
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("HX-Redirect", redirectURL)
+			return
+		}
+		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
 
@@ -1245,16 +1259,31 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logAudit(r, AuditActionAppRevokeAccess, "app", appID, appName)
 
-	// Redirect to the access page so the revoked user moves from
-	// "Users with access" to "Users without access". htmx does not follow
-	// redirects on its own; HX-Redirect triggers a full page refresh, which
-	// re-renders both sections.
 	redirectURL := fmt.Sprintf("/admin/apps/%s/access?flash=access-revoked", appID)
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Redirect", redirectURL)
+
+	// No-JS fallback: full redirect re-renders both sections.
+	if r.Header.Get("HX-Request") != "true" {
+		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, redirectURL, http.StatusFound)
+
+	// htmx: out-of-band refresh of both tables so the revoked user moves
+	// from "Users with access" to "Users without access" without a full
+	// page reload. The revoke form swaps its own row away via hx-swap="delete".
+	data, err := h.loadAppAccessData(r, appID, nil)
+	if err != nil {
+		h.logger.Error("admin: revoke access oob reload", "app_id", appID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := h.tmpl.ExecuteTemplate(&buf, "admin-app-access-revoke-oob", data); err != nil {
+		h.logger.Error("admin: render revoke oob", "app_id", appID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = buf.WriteTo(w)
 }
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
