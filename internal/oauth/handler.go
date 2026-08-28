@@ -184,8 +184,11 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 			h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
 				"invalid code_challenge or code_challenge_method")
 		default:
+			// Fixed description: err may wrap internal details (DB errors,
+			// store chains) that must not reach the client. Log the real error.
 			h.logger.Warn("oauth authorize: access denied", "user_id", u.ID, "error", err)
-			h.writeJSONError(w, http.StatusForbidden, "access_denied", err.Error())
+			h.writeJSONError(w, http.StatusForbidden, "access_denied",
+				"The resource owner or authorization server denied the request.")
 		}
 		return
 	}
