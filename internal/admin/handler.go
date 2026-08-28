@@ -830,6 +830,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, AuditActionAppCreate, "app", a.ID, a.Name)
 	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s?flash=created", a.ID), http.StatusFound)
 }
 
