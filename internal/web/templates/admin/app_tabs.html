@@ -1,21 +1,9 @@
 {{define "admin-app-tabs"}}
-<div class="tabs mb-4">
-  <ul>
-    <li {{if eq .ActiveTab "details"}}class="is-active"{{end}}>
-      <a href="/admin/apps/{{.App.ID}}" {{if eq .ActiveTab "details"}}aria-current="page"{{end}}>Details</a>
-    </li>
-    <li {{if eq .ActiveTab "oauth"}}class="is-active"{{end}}>
-      <a href="/admin/apps/{{.App.ID}}/oauth" {{if eq .ActiveTab "oauth"}}aria-current="page"{{end}}>OAuth Client</a>
-    </li>
-    <li {{if eq .ActiveTab "groups"}}class="is-active"{{end}}>
-      <a href="/admin/apps/{{.App.ID}}/groups" {{if eq .ActiveTab "groups"}}aria-current="page"{{end}}>Groups</a>
-    </li>
-    <li {{if eq .ActiveTab "roles"}}class="is-active"{{end}}>
-      <a href="/admin/apps/{{.App.ID}}/roles" {{if eq .ActiveTab "roles"}}aria-current="page"{{end}}>Roles</a>
-    </li>
-    <li {{if eq .ActiveTab "access"}}class="is-active"{{end}}>
-      <a href="/admin/apps/{{.App.ID}}/access" {{if eq .ActiveTab "access"}}aria-current="page"{{end}}>Access</a>
-    </li>
-  </ul>
-</div>
+<nav class="tabs" aria-label="App sections">
+  <a href="/admin/apps/{{.App.ID}}" class="tab{{if eq .ActiveTab "details"}} is-active{{end}}"{{if eq .ActiveTab "details"}} aria-current="page"{{end}}>Details</a>
+  <a href="/admin/apps/{{.App.ID}}/oauth" class="tab{{if eq .ActiveTab "oauth"}} is-active{{end}}"{{if eq .ActiveTab "oauth"}} aria-current="page"{{end}}>OAuth Client</a>
+  <a href="/admin/apps/{{.App.ID}}/groups" class="tab{{if eq .ActiveTab "groups"}} is-active{{end}}"{{if eq .ActiveTab "groups"}} aria-current="page"{{end}}>Groups</a>
+  <a href="/admin/apps/{{.App.ID}}/roles" class="tab{{if eq .ActiveTab "roles"}} is-active{{end}}"{{if eq .ActiveTab "roles"}} aria-current="page"{{end}}>Roles</a>
+  <a href="/admin/apps/{{.App.ID}}/access" class="tab{{if eq .ActiveTab "access"}} is-active{{end}}"{{if eq .ActiveTab "access"}} aria-current="page"{{end}}>Access</a>
+</nav>
 {{end}}

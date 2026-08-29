@@ -5,100 +5,76 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Apps — Passage</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
 </head>
-<body>
-<nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
-  <div class="passage-admin-container">
-    <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/">
-        passage
-      </a>
-      {{if and .User .User.IsAdmin}}
-      <a class="navbar-item is-size-7 has-text-grey-dark" href="/admin">Admin</a>
-      {{end}}
-    </div>
-    <div class="navbar-menu">
-      <div class="navbar-end">
-        {{if .User}}<span class="navbar-item has-text-grey-dark is-size-7">{{.User.Username}}</span>{{end}}
-        <a class="navbar-item" href="/passkeys">Passkeys</a>
-        <a class="navbar-item" href="/logout">Sign out</a>
-      </div>
-    </div>
+<body class="flex min-h-dvh flex-col">
+{{template "topnav-apps" .}}
+
+<main class="content w-full">
+  {{$hasApps := .Apps}}
+  {{if and (not $hasApps) (not (and .User .User.IsAdmin))}}
+  <div class="empty mt-10" role="status">
+    {{template "ic-inbox"}}
+    <p class="empty-title">You don&rsquo;t have access to any apps yet</p>
+    <p class="empty-sub">Contact your administrator to get access.</p>
   </div>
-</nav>
+  {{else}}
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">My Apps</h1>
+      <p class="page-sub">Applications you can access through Passage.</p>
+    </div>
+    <a href="/passkeys" class="btn btn-outline btn-sm">{{template "ic-key"}}Manage passkeys</a>
+  </div>
 
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <main style="padding: 2rem 0;">
-      <h1 class="title is-4 mb-5">My Apps</h1>
+  {{template "flash" .}}
 
-      {{$hasApps := .Apps}}
-      {{if and (not $hasApps) (not (and .User .User.IsAdmin))}}
-      <div class="notification is-light" role="status">
-        <p>You do not have access to any apps yet. Contact your administrator.</p>
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    {{if and .User .User.IsAdmin}}
+    <div class="card card-hover flex flex-col">
+      <div class="flex items-start gap-3 p-5">
+        <div class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-on-primary">
+          {{template "ic-settings"}}
+        </div>
+        <div class="min-w-0">
+          <p class="font-semibold text-ink">Passage Admin</p>
+          <p class="mt-0.5 text-sm text-muted">Manage users, apps, and settings</p>
+        </div>
       </div>
-      {{else}}
-      <div class="columns is-multiline passage-dashboard-grid">
-        {{if and .User .User.IsAdmin}}
-        <div class="column is-one-third-desktop is-half-tablet is-full-mobile">
-          <div class="card">
-            <div class="card-content">
-              <p class="title is-5 mb-1">Passage Admin</p>
-              <p class="subtitle is-7 has-text-grey mb-2">Manage users, apps, and settings</p>
-            </div>
-            <footer class="card-footer">
-              <a href="/admin" class="card-footer-item">
-                Open ↗
-              </a>
-            </footer>
-          </div>
+      <div class="mt-auto border-t border-line p-4 pt-3.5">
+        <a href="/admin" class="card-link">{{template "ic-arrow-up-right"}}Open admin</a>
+      </div>
+    </div>
+    {{end}}
+
+    {{range .Apps}}
+    <div class="card card-hover flex flex-col">
+      <div class="flex items-start gap-3 p-5">
+        <div class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-soft font-semibold text-on-primary-soft uppercase" aria-hidden="true">
+          {{slice .Name 0 1}}
         </div>
-        {{end}}
-        {{range .Apps}}
-        <div class="column is-one-third-desktop is-half-tablet is-full-mobile">
-          <div class="card">
-            <div class="card-content">
-              <p class="title is-5 mb-1">{{.Name}}</p>
-              {{if .Description}}
-              <p class="subtitle is-7 has-text-grey mb-2">{{.Description}}</p>
-              {{end}}
-              <p class="is-size-7 has-text-grey-dark mb-3">
-                <span class="has-text-weight-semibold">Host:</span>
-                <code>{{.HostPattern}}</code>
-              </p>
-            </div>
-            {{if .DefaultURL}}
-            <footer class="card-footer">
-              <a href="{{.DefaultURL}}" class="card-footer-item"
-                 target="_blank" rel="noopener noreferrer">
-                Open ↗
-              </a>
-            </footer>
-            {{end}}
-          </div>
+        <div class="min-w-0">
+          <p class="font-semibold text-ink">{{.Name}}</p>
+          {{if .Description}}
+          <p class="mt-0.5 text-sm text-muted">{{.Description}}</p>
+          {{end}}
         </div>
+      </div>
+      <div class="mt-auto border-t border-line p-4 pt-3.5">
+        <p class="td-mono text-faint">{{.HostPattern}}</p>
+        {{if .DefaultURL}}
+        <a href="{{.DefaultURL}}" class="card-link mt-2 inline-flex items-center gap-1" target="_blank" rel="noopener noreferrer">
+          Open {{template "ic-arrow-up-right"}}
+        </a>
         {{end}}
       </div>
-      {{end}}
-    </main>
-  </div>
-  <footer class="passage-admin-footer" aria-label="Site footer">
-    <div class="passage-admin-footer-inner">
-      <span>
-        <a href="https://github.com/crueber/passage" target="_blank" rel="noopener noreferrer">passage</a>
-        &mdash; self-hosted auth proxy
-      </span>
-      <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
-      <span>
-        <a href="https://github.com/crueber/passage/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
-      </span>
-      <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
-      <span>&copy; 2026 <a href="https://github.com/crueber" target="_blank" rel="noopener noreferrer">Christopher Rueber</a></span>
     </div>
-  </footer>
-</div>
+    {{end}}
+  </div>
+  {{end}}
+</main>
+
+{{template "app-footer" .}}
 </body>
 </html>
 {{end}}

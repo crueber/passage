@@ -5,76 +5,74 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Apps — Passage Admin</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <div class="passage-admin-shell">
-      {{template "admin-nav" .}}
-      <main class="passage-admin-content">
-        {{template "admin-flash" .}}
-        <div class="level mb-4">
-          <div class="level-left">
-            <h1 class="title is-4 mb-0">Apps</h1>
-          </div>
-          <div class="level-right">
-            <a class="button is-primary is-small" href="/admin/apps/new">+ New App</a>
-          </div>
-        </div>
-        <div class="table-container">
-          <table class="table is-fullwidth is-hoverable is-striped">
-            <thead>
-              <tr>
-                <th scope="col">Slug</th>
-                <th scope="col">Name</th>
-                <th scope="col">Host Pattern</th>
-                <th scope="col">Default URL</th>
-                <th scope="col">Active</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{range .Apps}}
-              <tr>
-                <td>{{.Slug}}</td>
-                <td><a href="/admin/apps/{{.ID}}">{{.Name}}</a></td>
-                <td><code>{{.HostPattern}}</code></td>
-                <td>
-                  {{if .DefaultURL}}
-                  <a href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer"
-                     class="is-size-7">{{.DefaultURL}}</a>
-                  {{else}}
-                  <span class="has-text-grey-light is-size-7">—</span>
-                  {{end}}
-                </td>
-                <td>{{if .IsActive}}<span class="tag is-info is-light">Yes</span>{{else}}<span class="tag is-light">No</span>{{end}}</td>
-                <td>
-                  <div class="buttons are-small">
-                    <a class="button is-light" href="/admin/apps/{{.ID}}/access">Access</a>
-                    <form method="POST" action="/admin/apps/{{.ID}}/delete">
-                      {{csrfField $.CSRFToken}}
-                      <button type="submit" class="button is-danger is-light">Delete</button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-              {{else}}
-              <tr>
-                <td colspan="6"><em>No apps found.</em></td>
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </div>
-      </main>
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Apps</h1>
+      <p class="page-sub">Upstream services protected by Passage.</p>
     </div>
-    {{template "admin-footer" .}}
+    <a class="btn btn-primary btn-sm" href="/admin/apps/new">{{template "ic-apps"}}New App</a>
   </div>
-</div>
+
+  {{if .Apps}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Slug</th>
+          <th scope="col">Host Pattern</th>
+          <th scope="col">Default URL</th>
+          <th scope="col">Active</th>
+          <th scope="col" class="text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Apps}}
+        <tr>
+          <td><a class="font-medium link" href="/admin/apps/{{.ID}}">{{.Name}}</a></td>
+          <td class="td-mono text-muted">{{.Slug}}</td>
+          <td><code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.HostPattern}}</code></td>
+          <td>
+            {{if .DefaultURL}}
+            <a class="link td-mono" href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer">{{.DefaultURL}}</a>
+            {{else}}
+            <span class="text-faint">&mdash;</span>
+            {{end}}
+          </td>
+          <td>{{if .IsActive}}<span class="badge badge-green">Active</span>{{else}}<span class="badge badge-gray">Inactive</span>{{end}}</td>
+          <td>
+            <div class="flex justify-end gap-1.5">
+              <a class="btn btn-outline btn-sm" href="/admin/apps/{{.ID}}/access">Access</a>
+              <form method="POST" action="/admin/apps/{{.ID}}/delete">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty">
+    {{template "ic-apps"}}
+    <p class="empty-title">No apps yet</p>
+    <p class="empty-sub">Register your first protected app to get started.</p>
+    <a href="/admin/apps/new" class="btn btn-primary btn-sm mt-2">New App</a>
+  </div>
+  {{end}}
+</main>
+{{template "admin-footer" .}}
 </body>
 </html>
 {{end}}

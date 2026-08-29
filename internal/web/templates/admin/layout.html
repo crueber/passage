@@ -1,65 +1,71 @@
+{{/* Admin shell, part 1: JS-free drawer toggle + top bar. Opens
+     div.admin-shell and the sidebar/content flex row. Paired with
+     "admin-nav" (sidebar) and "admin-footer" (closes the shell). */}}
 {{define "admin-header"}}
-<nav class="navbar passage-navbar" role="navigation" aria-label="main navigation">
-  <div class="passage-admin-container">
-    <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-bold passage-admin-brand" href="/" aria-label="My Apps">
-        passage
-      </a>
-      <a class="navbar-item has-text-grey-dark" href="/admin" aria-label="Passage Admin home">
-        <span class="has-text-grey-light mr-1" aria-hidden="true">/</span>admin
-      </a>
-      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
-         data-target="admin-navbar-menu">
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-      </a>
-    </div>
-    <div id="admin-navbar-menu" class="navbar-menu">
-      <div class="navbar-end">
-        <a class="navbar-item" href="/logout">Sign out</a>
+<input type="checkbox" id="admin-nav-toggle" class="sr-only" title="Toggle navigation">
+<div class="admin-shell flex min-h-dvh flex-col">
+  <header class="topbar-admin">
+    <div class="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
+      <div class="flex items-center gap-1.5">
+        <label for="admin-nav-toggle" class="sidebar-burger">
+          {{template "ic-menu"}}
+        </label>
+        <a href="/" class="wordmark" aria-label="My Apps">{{template "logo"}}<span>passage</span></a>
+        <span class="mx-1 text-faint" aria-hidden="true">/</span>
+        <a href="/admin" class="text-sm font-medium text-muted hover:text-ink" aria-label="Passage Admin home">admin</a>
       </div>
+      <nav class="flex items-center gap-1" aria-label="Account">
+        <a href="/" class="toplink">My Apps</a>
+        <a href="/logout" class="toplink">{{template "ic-logout"}}<span class="hidden sm:inline">Sign out</span></a>
+      </nav>
     </div>
-  </div>
-</nav>
-<script src="/static/admin.js"></script>
+  </header>
+  <div class="flex w-full flex-1">
 {{end}}
 
+{{/* Admin shell, part 2: drawer overlay + sidebar. Opens the content
+     column div that admin-footer closes. */}}
 {{define "admin-nav"}}
-<aside class="passage-admin-sidebar menu" aria-label="Admin navigation">
-  <p class="menu-label">Navigation</p>
-  <ul class="menu-list">
-    <li><a href="/admin"          {{if eq .ActiveNav "dashboard"}}class="is-active"{{end}}>Dashboard</a></li>
-    <li><a href="/admin/users"    {{if eq .ActiveNav "users"}}class="is-active"{{end}}>Users</a></li>
-    <li><a href="/admin/apps"     {{if eq .ActiveNav "apps"}}class="is-active"{{end}}>Apps</a></li>
-    <li><a href="/admin/sessions" {{if eq .ActiveNav "sessions"}}class="is-active"{{end}}>Sessions</a></li>
-    <li><a href="/admin/settings" {{if eq .ActiveNav "settings"}}class="is-active"{{end}}>Settings</a></li>
-    <li><a href="/admin/audit-log" {{if eq .ActiveNav "audit-log"}}class="is-active"{{end}}>Audit Log</a></li>
-  </ul>
+<label for="admin-nav-toggle" class="sidebar-overlay" aria-hidden="true"></label>
+<aside class="sidebar" aria-label="Admin navigation">
+  <div class="sidebar-head">
+    <span class="wordmark text-base">{{template "logo"}}<span>passage</span></span>
+    <span class="ml-auto rounded-md bg-raised px-2 py-0.5 text-[11px] font-semibold tracking-wide text-muted uppercase">Admin</span>
+  </div>
+  <nav class="sidebar-nav" aria-label="Admin sections">
+    <p class="sidebar-section">Overview</p>
+    <a href="/admin" class="sidebar-link{{if eq .ActiveNav "dashboard"}} is-active{{end}}"{{if eq .ActiveNav "dashboard"}} aria-current="page"{{end}}>{{template "ic-dashboard"}}Dashboard</a>
+    <p class="sidebar-section">Manage</p>
+    <a href="/admin/users" class="sidebar-link{{if eq .ActiveNav "users"}} is-active{{end}}"{{if eq .ActiveNav "users"}} aria-current="page"{{end}}>{{template "ic-users"}}Users</a>
+    <a href="/admin/apps" class="sidebar-link{{if eq .ActiveNav "apps"}} is-active{{end}}"{{if eq .ActiveNav "apps"}} aria-current="page"{{end}}>{{template "ic-apps"}}Apps</a>
+    <a href="/admin/sessions" class="sidebar-link{{if eq .ActiveNav "sessions"}} is-active{{end}}"{{if eq .ActiveNav "sessions"}} aria-current="page"{{end}}>{{template "ic-clock"}}Sessions</a>
+    <p class="sidebar-section">System</p>
+    <a href="/admin/settings" class="sidebar-link{{if eq .ActiveNav "settings"}} is-active{{end}}"{{if eq .ActiveNav "settings"}} aria-current="page"{{end}}>{{template "ic-settings"}}Settings</a>
+    <a href="/admin/audit-log" class="sidebar-link{{if eq .ActiveNav "audit-log"}} is-active{{end}}"{{if eq .ActiveNav "audit-log"}} aria-current="page"{{end}}>{{template "ic-audit"}}Audit Log</a>
+  </nav>
 </aside>
+<div class="flex min-w-0 flex-1 flex-col">
 {{end}}
 
-{{define "admin-flash"}}
-{{if .Flash}}
-<div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light mb-4">
-  {{.Flash.Message}}
-</div>
-{{end}}
-{{end}}
+{{define "admin-flash"}}{{template "flash" .}}{{end}}
 
+{{/* Admin shell, part 3: closes the content column and flex row opened by
+     "admin-header"/"admin-nav", renders the footer, closes the shell. */}}
 {{define "admin-footer"}}
-<footer class="passage-admin-footer" aria-label="Site footer">
-  <div class="passage-admin-footer-inner">
+</div>
+</div>
+<footer class="app-footer">
+  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1">
     <span>
       <a href="https://github.com/crueber/passage" target="_blank" rel="noopener noreferrer">passage</a>
       &mdash; self-hosted auth proxy
     </span>
-    <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
     <span>
       <a href="https://github.com/crueber/passage/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+      <span class="mx-1" aria-hidden="true">&middot;</span>
+      &copy; 2026 <a href="https://github.com/crueber" target="_blank" rel="noopener noreferrer">Christopher Rueber</a>
     </span>
-    <span class="passage-admin-footer-sep" aria-hidden="true">&bull;</span>
-    <span>&copy; 2026 <a href="https://github.com/crueber" target="_blank" rel="noopener noreferrer">Christopher Rueber</a></span>
   </div>
 </footer>
+</div>
 {{end}}

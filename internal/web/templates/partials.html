@@ -1,0 +1,63 @@
+{{define "flash"}}{{if .Flash}}
+<div role="alert" class="note mb-5 {{if eq .Flash.Type "error"}}note-error{{else if eq .Flash.Type "success"}}note-success{{else if eq .Flash.Type "warn"}}note-warn{{else}}note-info{{end}}">
+  {{.Flash.Message}}
+</div>
+{{end}}{{end}}
+
+{{define "app-footer"}}
+<footer class="app-footer">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-1">
+    <span>
+      <a href="https://github.com/crueber/passage" target="_blank" rel="noopener noreferrer">passage</a>
+      &mdash; self-hosted auth proxy
+    </span>
+    <span>
+      <a href="https://github.com/crueber/passage/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+      <span class="mx-1" aria-hidden="true">&middot;</span>
+      &copy; 2026 <a href="https://github.com/crueber" target="_blank" rel="noopener noreferrer">Christopher Rueber</a>
+    </span>
+  </div>
+</footer>
+{{end}}
+
+{{/* Top navigation for the user dashboard ("My Apps" active). */}}
+{{define "topnav-apps"}}
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="flex items-center gap-2">
+      <a href="/" class="wordmark">{{template "logo"}}<span>passage</span></a>
+      {{if and .User .User.IsAdmin}}
+      <span class="text-faint" aria-hidden="true">/</span>
+      <a href="/admin" class="toplink">Admin</a>
+      {{end}}
+    </div>
+    <nav class="flex items-center gap-1" aria-label="Main navigation">
+      {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
+      <a href="/" class="toplink toplink-active" aria-current="page">My Apps</a>
+      <a href="/passkeys" class="toplink">Passkeys</a>
+      <a href="/logout" class="toplink">Sign out</a>
+    </nav>
+  </div>
+</header>
+{{end}}
+
+{{/* Top navigation for the passkeys page ("Passkeys" active). */}}
+{{define "topnav-passkeys"}}
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="flex items-center gap-2">
+      <a href="/" class="wordmark">{{template "logo"}}<span>passage</span></a>
+      {{if and .User .User.IsAdmin}}
+      <span class="text-faint" aria-hidden="true">/</span>
+      <a href="/admin" class="toplink">Admin</a>
+      {{end}}
+    </div>
+    <nav class="flex items-center gap-1" aria-label="Main navigation">
+      {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
+      <a href="/" class="toplink">My Apps</a>
+      <a href="/passkeys" class="toplink toplink-active" aria-current="page">Passkeys</a>
+      <a href="/logout" class="toplink">Sign out</a>
+    </nav>
+  </div>
+</header>
+{{end}}

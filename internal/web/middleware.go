@@ -12,8 +12,8 @@ import "net/http"
 //   - Referrer-Policy: strict-origin-when-cross-origin — limits URL leakage
 //   - Permissions-Policy: disables geolocation, microphone, camera
 //   - Content-Security-Policy: restricts resource loading to self only.
-//     style-src includes 'unsafe-inline' because Bulma's generated HTML relies
-//     on inline style attributes in some components. Scripts are 'self' only.
+//     style-src is 'self' only — no template ships inline style attributes
+//     or <style> blocks. Scripts are 'self' only.
 //     frame-ancestors 'none' disallows all framing (authoritative for modern browsers).
 func SecurityHeaders() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -26,7 +26,7 @@ func SecurityHeaders() func(http.Handler) http.Handler {
 			h.Set("Content-Security-Policy",
 				"default-src 'self'; "+
 					"script-src 'self'; "+
-					"style-src 'self' 'unsafe-inline'; "+
+					"style-src 'self'; "+
 					"img-src 'self' data:; "+
 					"font-src 'self'; "+
 					"connect-src 'self'; "+

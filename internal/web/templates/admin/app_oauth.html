@@ -5,102 +5,120 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OAuth Client — {{.EditApp.Name}} — Passage Admin</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <div class="passage-admin-shell">
-      {{template "admin-nav" .}}
-      <main class="passage-admin-content">
-        {{template "admin-flash" .}}
-        <h1 class="title is-4">{{.EditApp.Name}}</h1>
-        {{template "admin-app-tabs" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
 
-        <h2 class="title is-5">OAuth Client</h2>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{.EditApp.Name}}</h1>
+      <p class="page-sub td-mono">{{.EditApp.Slug}}</p>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/admin/apps">{{template "ic-chevron-left"}}Back to apps</a>
+  </div>
+  {{template "admin-app-tabs" .}}
 
-        {{if .NewClientSecret}}
-        <div class="notification is-success is-light" role="alert">
-          <p><strong>New client secret — copy now, it will not be shown again:</strong></p>
-          <p>
-            <code style="font-size:1.05em; word-break:break-all;">{{.NewClientSecret}}</code>
-            <button type="button" class="button is-small is-light ml-2"
-                    onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
-          </p>
+  <h2 class="mb-4 font-semibold text-ink">OAuth Client</h2>
+
+  {{if .NewClientSecret}}
+  <div class="note note-success mb-5" role="alert">
+    <p class="font-medium">New client secret &mdash; copy now, it will not be shown again:</p>
+    <p class="mt-2 flex flex-wrap items-center gap-2">
+      <code class="min-w-0 flex-1 rounded-md bg-surface/70 px-3 py-2 font-mono text-sm break-all">{{.NewClientSecret}}</code>
+      <button type="button" class="btn btn-outline btn-sm"
+              onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
+    </p>
+  </div>
+  {{end}}
+
+  {{if .EditApp.OAuthEnabled}}
+  <div class="max-w-3xl space-y-5">
+    <div class="card p-5">
+      <dl class="space-y-2 text-sm">
+        <div class="flex flex-wrap items-baseline gap-2">
+          <dt class="font-medium text-ink">Client ID:</dt>
+          <dd><code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.EditApp.ClientID}}</code></dd>
         </div>
-        {{end}}
-
-        {{if .EditApp.OAuthEnabled}}
-        <div class="content">
-          <p><strong>Client ID:</strong> <code>{{.EditApp.ClientID}}</code></p>
-          <p><strong>Client Secret:</strong> •••••••••• (set)</p>
+        <div class="flex flex-wrap items-baseline gap-2">
+          <dt class="font-medium text-ink">Client Secret</dt>
+          <dd class="td-mono text-muted">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull; (set)</dd>
         </div>
+      </dl>
+    </div>
 
-        <h3 class="title is-6 mt-4">OIDC / OAuth Endpoints</h3>
-        {{if .BaseURL}}
-        <p class="mb-3">Configure your app's OAuth / OIDC provider with these endpoints. Most apps
-          that support OIDC discovery only need the <strong>Discovery URL</strong>; others require
-          each endpoint to be entered individually.</p>
-        <table class="table is-bordered is-narrow is-fullwidth" aria-label="OIDC endpoint reference">
+    <section>
+      <h3 class="mb-2 font-semibold text-ink">OIDC / OAuth endpoints</h3>
+      {{if .BaseURL}}
+      <p class="mb-3 text-sm text-muted">
+        Configure your app's OAuth / OIDC provider with these endpoints. Most apps
+        that support OIDC discovery only need the <strong class="text-ink">Discovery URL</strong>; others require
+        each endpoint to be entered individually.
+      </p>
+      <div class="table-wrap">
+        <table class="table" aria-label="OIDC endpoint reference">
           <thead>
             <tr>
-              <th>Endpoint</th>
-              <th>URL</th>
+              <th scope="col">Endpoint</th>
+              <th scope="col">URL</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>Discovery (OIDC)</td>
-              <td><code>{{.BaseURL}}/.well-known/openid-configuration</code></td>
+              <td class="font-medium">Discovery (OIDC)</td>
+              <td><code class="td-mono break-all">{{.BaseURL}}/.well-known/openid-configuration</code></td>
             </tr>
             <tr>
-              <td>JWKS (public key)</td>
-              <td><code>{{.BaseURL}}/.well-known/jwks.json</code></td>
+              <td class="font-medium">JWKS (public key)</td>
+              <td><code class="td-mono break-all">{{.BaseURL}}/.well-known/jwks.json</code></td>
             </tr>
             <tr>
-              <td>Authorization</td>
-              <td><code>{{.BaseURL}}/oauth/authorize</code></td>
+              <td class="font-medium">Authorization</td>
+              <td><code class="td-mono break-all">{{.BaseURL}}/oauth/authorize</code></td>
             </tr>
             <tr>
-              <td>Token</td>
-              <td><code>{{.BaseURL}}/oauth/token</code></td>
+              <td class="font-medium">Token</td>
+              <td><code class="td-mono break-all">{{.BaseURL}}/oauth/token</code></td>
             </tr>
             <tr>
-              <td>Userinfo</td>
-              <td><code>{{.BaseURL}}/oauth/userinfo</code></td>
+              <td class="font-medium">Userinfo</td>
+              <td><code class="td-mono break-all">{{.BaseURL}}/oauth/userinfo</code></td>
             </tr>
           </tbody>
         </table>
-        {{else}}
-        <div class="notification is-warning is-light" role="alert">
-          <strong>Base URL not configured.</strong>
-          Set <code>server.base_url</code> (or <code>PASSAGE_SERVER_BASE_URL</code>) in your
-          Passage configuration to display the full OAuth / OIDC endpoint URLs here.
-        </div>
-        {{end}}
+      </div>
+      {{else}}
+      <div class="note note-warn" role="alert">
+        <strong>Base URL not configured.</strong>
+        Set <code class="font-mono">server.base_url</code> (or <code class="font-mono">PASSAGE_SERVER_BASE_URL</code>) in your
+        Passage configuration to display the full OAuth / OIDC endpoint URLs here.
+      </div>
+      {{end}}
+    </section>
 
-        <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
-          {{csrfField .CSRFToken}}
-          <button type="submit" class="button is-warning is-light"
-                  onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">
-            Rotate Secret
-          </button>
-        </form>
-        {{else}}
-        <p class="mb-3">OAuth is not enabled for this app.</p>
-        <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/generate">
-          {{csrfField .CSRFToken}}
-          <button type="submit" class="button is-info is-light">Enable OAuth &amp; Generate Credentials</button>
-        </form>
-        {{end}}
-      </main>
-    </div>
-    {{template "admin-footer" .}}
+    <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
+      {{csrfField .CSRFToken}}
+      <button type="submit" class="btn btn-danger btn-sm"
+              onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">
+        Rotate Secret
+      </button>
+    </form>
   </div>
-</div>
+  {{else}}
+  <div class="max-w-2xl">
+    <p class="mb-4 text-sm text-muted">OAuth is not enabled for this app.</p>
+    <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/generate">
+      {{csrfField .CSRFToken}}
+      <button type="submit" class="btn btn-primary">Enable OAuth &amp; Generate Credentials</button>
+    </form>
+  </div>
+  {{end}}
+</main>
+{{template "admin-footer" .}}
 </body>
 </html>
 {{end}}

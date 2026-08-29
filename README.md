@@ -334,7 +334,7 @@ Passage is built on the shoulders of these excellent open-source projects:
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) — pure-Go SQLite driver (no CGo)
 - [go-webauthn/webauthn](https://github.com/go-webauthn/webauthn) — WebAuthn/passkeys library for Go
 - [gopkg.in/yaml.v3](https://github.com/go-yaml/yaml) — YAML support for Go
-- [Bulma](https://bulma.io) — modern CSS framework based on Flexbox (v1.0.2)
+- [Tailwind CSS](https://tailwindcss.com) — utility-first CSS framework (v4, compiled locally with the standalone CLI)
 - [htmx](https://htmx.org) — high power tools for HTML
 
 ---

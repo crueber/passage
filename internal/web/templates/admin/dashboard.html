@@ -5,44 +5,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard — Passage Admin</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <div class="passage-admin-shell">
-      {{template "admin-nav" .}}
-      <main class="passage-admin-content">
-        {{template "admin-flash" .}}
-        <h1 class="title is-4">Dashboard</h1>
-        <div class="columns">
-          <div class="column is-narrow">
-            <div class="box passage-stat">
-              <p class="passage-stat-number">{{.UserCount}}</p>
-              <p class="passage-stat-label">Users</p>
-            </div>
-          </div>
-          <div class="column is-narrow">
-            <div class="box passage-stat">
-              <p class="passage-stat-number">{{.AppCount}}</p>
-              <p class="passage-stat-label">Apps</p>
-            </div>
-          </div>
-          <div class="column is-narrow">
-            <div class="box passage-stat">
-              <p class="passage-stat-number">{{.SessionCount}}</p>
-              <p class="passage-stat-label">Active Sessions</p>
-            </div>
-          </div>
-        </div>
-      </main>
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-sub">A quick look at your Passage instance.</p>
     </div>
-    {{template "admin-footer" .}}
   </div>
-</div>
+
+  <div class="grid gap-4 sm:grid-cols-3">
+    <div class="stat passage-stat">
+      <div class="flex items-center gap-3">
+        <div class="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary">{{template "ic-users"}}</div>
+        <div>
+          <p class="stat-value passage-stat-number">{{.UserCount}}</p>
+          <p class="stat-label">Users</p>
+        </div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="flex items-center gap-3">
+        <div class="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary">{{template "ic-apps"}}</div>
+        <div>
+          <p class="stat-value">{{.AppCount}}</p>
+          <p class="stat-label">Apps</p>
+        </div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="flex items-center gap-3">
+        <div class="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary">{{template "ic-clock"}}</div>
+        <div>
+          <p class="stat-value">{{.SessionCount}}</p>
+          <p class="stat-label">Active Sessions</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+{{template "admin-footer" .}}
 </body>
 </html>
 {{end}}

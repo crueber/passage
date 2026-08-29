@@ -5,121 +5,97 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{if .IsNew}}New App{{else}}Edit App{{end}} — Passage Admin</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <div class="passage-admin-shell">
-      {{template "admin-nav" .}}
-      <main class="passage-admin-content">
-        {{template "admin-flash" .}}
-        <h1 class="title is-4">{{if .IsNew}}New App{{else}}{{.EditApp.Name}}{{end}}</h1>
-        {{if not .IsNew}}{{template "admin-app-tabs" .}}{{end}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
 
-        <div class="columns">
-          <div class="column is-half-tablet is-one-third-desktop">
-            <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}">
-              {{csrfField .CSRFToken}}
-              <div class="field">
-                <label class="label" for="slug">Slug</label>
-                <div class="control">
-                  <input class="input" type="text" id="slug" name="slug" required autocomplete="off"
-                         value="{{if .EditApp}}{{.EditApp.Slug}}{{end}}">
-                </div>
-              </div>
-
-              <div class="field">
-                <label class="label" for="name">Name</label>
-                <div class="control">
-                  <input class="input" type="text" id="name" name="name" required autocomplete="off"
-                         value="{{if .EditApp}}{{.EditApp.Name}}{{end}}">
-                </div>
-              </div>
-
-              <div class="field">
-                <label class="label" for="description">Description</label>
-                <div class="control">
-                  <input class="input" type="text" id="description" name="description" autocomplete="off"
-                         value="{{if .EditApp}}{{.EditApp.Description}}{{end}}">
-                </div>
-              </div>
-
-              <div class="field">
-                <label class="label" for="host_pattern">Host Pattern</label>
-                <div class="control">
-                  <input class="input" type="text" id="host_pattern" name="host_pattern" autocomplete="off"
-                         placeholder="e.g. grafana.home.example.com or *.home.example.com"
-                         value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
-                </div>
-              </div>
-
-              <div class="field">
-                <label class="label" for="default_url">Default URL</label>
-                <div class="control">
-                  <input class="input" type="url" id="default_url" name="default_url"
-                         autocomplete="off" placeholder="https://grafana.home.example.com"
-                         value="{{if .EditApp}}{{.EditApp.DefaultURL}}{{end}}">
-                </div>
-                <p class="help">Optional. Used as the launch link on the user dashboard.</p>
-              </div>
-
-              <div class="field">
-                <label class="label" for="session_duration_hours">Session Duration (hours)</label>
-                <div class="control">
-                  <input class="input" type="number" id="session_duration_hours"
-                         name="session_duration_hours" min="0" max="8760" autocomplete="off"
-                         value="{{if and .EditApp (gt .EditApp.SessionDurationHours 0)}}{{.EditApp.SessionDurationHours}}{{end}}">
-                </div>
-                <p class="help">
-                  Override the global session lifetime for this app.
-                  Leave blank or set to 0 to use the global default.
-                </p>
-              </div>
-
-              {{if not .IsNew}}
-              <div class="field">
-                <label class="label" for="redirect_uris">Redirect URIs <span class="has-text-weight-normal is-size-7">(one per line)</span></label>
-                <div class="control">
-                  <textarea class="textarea" id="redirect_uris" name="redirect_uris" rows="4"
-                            style="font-family: monospace;">{{range .EditApp.RedirectURIs}}{{.}}
-{{end}}</textarea>
-                </div>
-                <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
-              </div>
-              {{end}}
-
-              <div class="field">
-                <div class="control">
-                  <label class="checkbox">
-                    <input type="checkbox" name="is_active"
-                           {{if .IsNew}}checked{{else}}{{if .EditApp}}{{if .EditApp.IsActive}}checked{{end}}{{end}}{{end}}>
-                    Active
-                  </label>
-                </div>
-              </div>
-
-              <div class="field is-grouped">
-                <div class="control">
-                  <button type="submit" class="button is-primary">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
-                </div>
-                <div class="control">
-                  <a class="button is-light" href="/admin/apps">Cancel</a>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-
-
-      </main>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{if .IsNew}}New App{{else}}{{.EditApp.Name}}{{end}}</h1>
+      {{if not .IsNew}}<p class="page-sub td-mono">{{.EditApp.Slug}}</p>{{end}}
     </div>
-    {{template "admin-footer" .}}
+    <a class="btn btn-ghost btn-sm" href="/admin/apps">{{template "ic-chevron-left"}}Back to apps</a>
   </div>
-</div>
+  {{if not .IsNew}}{{template "admin-app-tabs" .}}{{end}}
+
+  <div class="max-w-2xl">
+    <form method="POST" action="{{if .IsNew}}/admin/apps{{else}}/admin/apps/{{.EditApp.ID}}{{end}}" class="card space-y-4 p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="label" for="slug">Slug</label>
+          <input class="input font-mono text-sm" type="text" id="slug" name="slug" required autocomplete="off"
+                 value="{{if .EditApp}}{{.EditApp.Slug}}{{end}}">
+        </div>
+        <div>
+          <label class="label" for="name">Name</label>
+          <input class="input" type="text" id="name" name="name" required autocomplete="off"
+                 value="{{if .EditApp}}{{.EditApp.Name}}{{end}}">
+        </div>
+      </div>
+
+      <div>
+        <label class="label" for="description">Description</label>
+        <input class="input" type="text" id="description" name="description" autocomplete="off"
+               value="{{if .EditApp}}{{.EditApp.Description}}{{end}}">
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="label" for="host_pattern">Host pattern</label>
+          <input class="input font-mono text-sm" type="text" id="host_pattern" name="host_pattern" autocomplete="off"
+                 placeholder="grafana.home.example.com or *.home.example.com"
+                 value="{{if .EditApp}}{{.EditApp.HostPattern}}{{end}}">
+        </div>
+        <div>
+          <label class="label" for="default_url">Default URL</label>
+          <input class="input font-mono text-sm" type="url" id="default_url" name="default_url"
+                 autocomplete="off" placeholder="https://grafana.home.example.com"
+                 value="{{if .EditApp}}{{.EditApp.DefaultURL}}{{end}}">
+          <p class="help">Optional. Used as the launch link on the user dashboard.</p>
+        </div>
+      </div>
+
+      <div>
+        <label class="label" for="session_duration_hours">Session duration (hours)</label>
+        <input class="input sm:max-w-xs" type="number" id="session_duration_hours"
+               name="session_duration_hours" min="0" max="8760" autocomplete="off"
+               value="{{if and .EditApp (gt .EditApp.SessionDurationHours 0)}}{{.EditApp.SessionDurationHours}}{{end}}">
+        <p class="help">
+          Override the global session lifetime for this app.
+          Leave blank or set to 0 to use the global default.
+        </p>
+      </div>
+
+      {{if not .IsNew}}
+      <div>
+        <label class="label" for="redirect_uris">Redirect URIs <span class="font-normal text-faint">(one per line)</span></label>
+        <textarea class="input font-mono text-xs" id="redirect_uris" name="redirect_uris" rows="4">{{range .EditApp.RedirectURIs}}{{.}}
+{{end}}</textarea>
+        <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
+      </div>
+      {{end}}
+
+      <label class="checkbox" for="is_active">
+        <input type="checkbox" id="is_active" name="is_active"
+               {{if .IsNew}}checked{{else}}{{if .EditApp}}{{if .EditApp.IsActive}}checked{{end}}{{end}}{{end}}>
+        Active
+      </label>
+
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="btn btn-primary">{{if .IsNew}}Create App{{else}}Save Changes{{end}}</button>
+        <a class="btn btn-outline" href="/admin/apps">Cancel</a>
+      </div>
+    </form>
+  </div>
+</main>
+{{template "admin-footer" .}}
 </body>
 </html>
 {{end}}

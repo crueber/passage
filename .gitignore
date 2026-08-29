@@ -40,3 +40,9 @@ tmp/
 
 # Implementation plans (local only)
 plans/
+
+# Tailwind standalone CLI (fetched locally, not committed) — tools/build-css.sh is tracked
+tools/tailwindcss*
+
+# Local redesign screenshots (uncommitted per contract)
+/redesign-screenshots/
