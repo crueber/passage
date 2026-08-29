@@ -179,7 +179,8 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, app.NewService(app.NewStore(db), app.NewStore(db), logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	appStore := app.NewStore(db)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "loginuser")
@@ -232,7 +233,8 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, app.NewService(app.NewStore(db), app.NewStore(db), logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	appStore := app.NewStore(db)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "rduser")
@@ -1142,7 +1144,8 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, app.NewService(app.NewStore(db), app.NewStore(db), logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	appStore := app.NewStore(db)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "pwuser")
@@ -1167,9 +1170,8 @@ func (failingAppLister) ListAppsForUser(_ context.Context, _ string) ([]*app.App
 }
 
 // TestHandler_GetDashboard_EmptyState verifies the dashboard renders 200 for a
-// non-admin user with no apps. Regression guard: the template executes the
-// shared flash partial, which evaluates .Flash — a dashboard data struct
-// without that field turns every GET / into a 500 (PR #2 regression).
+// non-admin user with no apps (this branch does not reach the flash partial;
+// see TestHandler_GetDashboard_AppsWithFlash for the .Flash regression pin).
 func TestHandler_GetDashboard_EmptyState(t *testing.T) {
 	t.Parallel()
 	f := newFullHandlerFixture(t, true)
@@ -1198,6 +1200,9 @@ func TestHandler_GetDashboard_EmptyState(t *testing.T) {
 
 // TestHandler_GetDashboard_AppsWithFlash verifies a user with granted apps sees
 // them, and that a ?flash= code renders the flash partial end to end.
+// Regression guard: this is the only dashboard branch that executes the
+// shared flash partial, which evaluates .Flash — a dashboard data struct
+// without that field turns every GET / into a 500 (PR #2 regression).
 func TestHandler_GetDashboard_AppsWithFlash(t *testing.T) {
 	t.Parallel()
 	f := newFullHandlerFixture(t, true)

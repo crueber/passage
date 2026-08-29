@@ -77,14 +77,19 @@
       {{if eq .Kind "roles"}}
       <fieldset class="rounded-lg border border-line p-4">
         <legend class="label px-1">Groups granted by this role</legend>
-        {{range .AllGroups}}
-        <label class="checkbox mb-1.5">
-          <input type="checkbox" name="group_ids" value="{{.ID}}" {{if index $.CheckedGroups .ID}}checked{{end}}>
-          {{.Name}}{{if .Description}} <span class="text-faint">&mdash; {{.Description}}</span>{{end}}
-        </label>
-        {{else}}
-        <p class="text-sm text-faint"><em>No groups defined for this app yet.</em></p>
-        {{end}}
+        <div class="check-list">
+          {{range .AllGroups}}
+          <label class="checkbox">
+            <input type="checkbox" name="group_ids" value="{{.ID}}" {{if index $.CheckedGroups .ID}}checked{{end}}>
+            <span class="min-w-0">
+              <span class="block truncate">{{.Name}}</span>
+              {{if .Description}}<span class="block truncate text-xs text-faint">{{.Description}}</span>{{end}}
+            </span>
+          </label>
+          {{else}}
+          <p class="text-sm text-faint"><em>No groups defined for this app yet.</em></p>
+          {{end}}
+        </div>
       </fieldset>
       {{end}}
       <div><button type="submit" class="btn btn-primary">Add</button></div>
