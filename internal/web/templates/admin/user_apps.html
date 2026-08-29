@@ -5,97 +5,96 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>App Access — {{.EditUser.Username}} — Passage Admin</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <div class="passage-admin-shell">
-      {{template "admin-nav" .}}
-      <main class="passage-admin-content">
-        {{template "admin-flash" .}}
-        <h1 class="title is-4">App Access: {{.EditUser.Username}}</h1>
-        <p class="mb-4"><a href="/admin/users/{{.EditUser.ID}}">← Back to user</a></p>
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
 
-        <form method="POST" action="/admin/users/{{.EditUser.ID}}/apps">
-          {{csrfField .CSRFToken}}
-          <div class="table-container mb-4">
-            <table class="table is-fullwidth is-striped is-hoverable">
-              <thead>
-                <tr>
-                  <th scope="col">App</th>
-                  <th scope="col">Access</th>
-                  <th scope="col">Groups</th>
-                  <th scope="col">Roles</th>
-                </tr>
-              </thead>
-              <tbody>
-                {{range $row := .AppsWithAccess}}
-                <tr>
-                  <td>
-                    {{.App.Name}}
-                    <span class="has-text-grey-light is-size-7 ml-1">({{.App.Slug}})</span>
-                    {{if not .App.IsActive}}
-                    <span class="tag is-warning is-light ml-1">inactive</span>
-                    {{end}}
-                  </td>
-                  <td>
-                    <label class="checkbox" for="app_{{.App.ID}}">
-                      <input type="checkbox" id="app_{{.App.ID}}" name="app_id" value="{{.App.ID}}" {{if .HasAccess}}checked{{end}}>
-                      Grant access
-                    </label>
-                  </td>
-                  <td>
-                    {{range .Groups}}
-                    <label class="checkbox{{if .Inherited}} has-text-grey-light{{end}}" {{if .Inherited}}title="Granted via a role — remove the role to revoke this group"{{end}}>
-                      <input type="checkbox" name="groups.{{$row.App.ID}}" value="{{.ID}}" {{if or .Assigned .Inherited}}checked{{end}}{{if .Inherited}} disabled{{end}}>
-                      {{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}
-                    </label>
-                    {{else}}
-                    <span class="has-text-grey-light">—</span>
-                    {{end}}
-                  </td>
-                  <td>
-                    {{range .Roles}}
-                    <label class="checkbox">
-                      <input type="checkbox" name="roles.{{$row.App.ID}}" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
-                      {{.Name}}
-                    </label>
-                    {{else}}
-                    <span class="has-text-grey-light">—</span>
-                    {{end}}
-                  </td>
-                </tr>
-                {{else}}
-                <tr>
-                  <td colspan="4"><em>No apps registered.</em></td>
-                </tr>
-                {{end}}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="has-text-right mb-4">
-            <button type="button" id="select-all-btn" class="button is-light is-small">Select All</button>
-          </div>
-
-          <div class="field is-grouped">
-            <div class="control">
-              <button type="submit" class="button is-primary">Save</button>
-            </div>
-            <div class="control">
-              <a class="button is-light" href="/admin/users/{{.EditUser.ID}}">Cancel</a>
-            </div>
-          </div>
-        </form>
-      </main>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">App Access <span class="text-faint">/</span> {{.EditUser.Username}}</h1>
+      <p class="page-sub">Tick the apps this user can reach, plus group and role assignments.</p>
     </div>
-    {{template "admin-footer" .}}
+    <a class="btn btn-ghost btn-sm" href="/admin/users/{{.EditUser.ID}}">{{template "ic-chevron-left"}}Back to user</a>
   </div>
-</div>
+
+  <form method="POST" action="/admin/users/{{.EditUser.ID}}/apps">
+    {{csrfField .CSRFToken}}
+
+    {{if .AppsWithAccess}}
+    <div class="table-wrap mb-4">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">App</th>
+            <th scope="col">Access</th>
+            <th scope="col">Groups</th>
+            <th scope="col">Roles</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range $row := .AppsWithAccess}}
+          <tr>
+            <td>
+              <span class="font-medium">{{.App.Name}}</span>
+              <span class="td-mono text-faint">({{.App.Slug}})</span>
+              {{if not .App.IsActive}}<span class="badge badge-amber ml-1">inactive</span>{{end}}
+            </td>
+            <td>
+              <label class="checkbox" for="app_{{.App.ID}}">
+                <input type="checkbox" id="app_{{.App.ID}}" name="app_id" value="{{.App.ID}}" {{if .HasAccess}}checked{{end}}>
+                Grant access
+              </label>
+            </td>
+            <td>
+              {{range .Groups}}
+              <label class="checkbox{{if .Inherited}} text-faint{{end}}" {{if .Inherited}}title="Granted via a role — remove the role to revoke this group"{{end}}>
+                <input type="checkbox" name="groups.{{$row.App.ID}}" value="{{.ID}}" {{if or .Assigned .Inherited}}checked{{end}}{{if .Inherited}} disabled{{end}}>
+                {{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}
+              </label>
+              {{else}}
+              <span class="text-faint">&mdash;</span>
+              {{end}}
+            </td>
+            <td>
+              {{range .Roles}}
+              <label class="checkbox">
+                <input type="checkbox" name="roles.{{$row.App.ID}}" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
+                {{.Name}}
+              </label>
+              {{else}}
+              <span class="text-faint">&mdash;</span>
+              {{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty mb-4">
+      {{template "ic-apps"}}
+      <p class="empty-title">No apps registered</p>
+      <p class="empty-sub">Register an app first to grant access to it.</p>
+    </div>
+    {{end}}
+
+    <div class="mb-4">
+      <button type="button" id="select-all-btn" class="btn btn-outline btn-sm">Select All</button>
+    </div>
+
+    <div class="flex gap-2">
+      <button type="submit" class="btn btn-primary">Save</button>
+      <a class="btn btn-outline" href="/admin/users/{{.EditUser.ID}}">Cancel</a>
+    </div>
+  </form>
+</main>
+{{template "admin-footer" .}}
+</body>
 <script>
   (function () {
     var btn = document.getElementById('select-all-btn');
@@ -125,6 +124,5 @@
     updateLabel();
   }());
 </script>
-</body>
 </html>
 {{end}}

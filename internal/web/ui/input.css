@@ -1,0 +1,474 @@
+/* passage UI — Tailwind CSS v4 source.
+ *
+ * Build with: tools/build-css.sh (wraps the tailwindcss standalone CLI).
+ * Output: internal/web/static/passage.css (compiled + minified, committed).
+ *
+ * Structure:
+ *   1. @theme   — design tokens (palette, type, radii, shadows).
+ *   2. base     — dark-mode token overrides, focus-visible rings, body defaults.
+ *   3. components — the passage component layer (@apply on semantic tokens).
+ *   4. plain CSS for the JS-free admin sidebar drawer + tiny helpers.
+ */
+
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 1. Design tokens
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* Type — system stack only. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Brand — deep forest green, evolved from the original palette (#2e6b4f). */
+  --color-brand-50: #f2f7f4;
+  --color-brand-100: #e3efe8;
+  --color-brand-200: #c6e0d3;
+  --color-brand-300: #9dc9b1;
+  --color-brand-400: #6faa8a;
+  --color-brand-500: #4d8c6c;
+  --color-brand-600: #357254;
+  --color-brand-700: #2e6b4f;
+  --color-brand-800: #265741;
+  --color-brand-900: #1f4736;
+  --color-brand-950: #122719;
+
+  /* Semantic surface + text tokens (light values; dark overrides below). */
+  --color-canvas: #f3f6f3;
+  --color-surface: #ffffff;
+  --color-raised: #eef3ef;
+  --color-line: #dbe4dd;
+  --color-ink: #1a211d;
+  --color-muted: #5c6a61;
+  --color-faint: #8b978e;
+
+  /* Primary actions. */
+  --color-primary: #2e6b4f;
+  --color-primary-hover: #265c43;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #e3efe8;
+  --color-primary-soft-hover: #d6e8dd;
+  --color-on-primary-soft: #24513c;
+
+  /* Status. */
+  --color-success: #1e7a46;
+  --color-success-soft: #e0f2e7;
+  --color-on-success-soft: #175c34;
+  --color-danger: #b0362e;
+  --color-danger-hover: #962c25;
+  --color-danger-soft: #fbeae8;
+  --color-on-danger-soft: #8c2b24;
+  --color-warn: #9a5b10;
+  --color-warn-soft: #fdf0dc;
+  --color-on-warn-soft: #7c4810;
+  /* Accent used sparingly (logo dot, focus highlights). */
+  --color-glow: #7fc79e;
+
+  /* Elevation. */
+  --shadow-card: 0 1px 2px 0 rgb(18 39 25 / 0.05),
+    0 4px 14px -4px rgb(18 39 25 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(18 39 25 / 0.12),
+    0 16px 40px -12px rgb(18 39 25 / 0.25);
+
+  /* Radii — one consistent family. */
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 2. Base — dark token overrides, focus rings, body defaults
+ * ──────────────────────────────────────────────────────────────────────── */
+@layer base {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-canvas: #0e1512;
+      --color-surface: #17201b;
+      --color-raised: #1e2a23;
+      --color-line: #2c3a32;
+      --color-ink: #e3ebe6;
+      --color-muted: #a2b3a8;
+      --color-faint: #6f7f75;
+
+      --color-primary: #4d9a74;
+      --color-primary-hover: #5cad83;
+      --color-on-primary: #0b1710;
+      --color-primary-soft: #1e3328;
+      --color-primary-soft-hover: #26402f;
+      --color-on-primary-soft: #a9d8bf;
+
+      --color-success: #4fae7a;
+      --color-success-soft: #16301f;
+      --color-on-success-soft: #9ed8b6;
+      --color-danger: #e0705f;
+      --color-danger-hover: #e88373;
+      --color-danger-soft: #3a1d1a;
+      --color-on-danger-soft: #f0b1a8;
+      --color-warn: #d9a04a;
+      --color-warn-soft: #35270f;
+      --color-on-warn-soft: #ecc789;
+    }
+  }
+
+  /* Visible, consistent keyboard focus everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 3. Components
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@layer components {
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap
+      rounded-lg px-4 py-2 text-sm font-medium leading-none
+      transition-colors duration-150 select-none;
+  }
+  .btn:disabled {
+    @apply pointer-events-none opacity-50;
+  }
+  .btn-primary {
+    @apply bg-primary text-on-primary;
+  }
+  .btn-primary:hover {
+    @apply bg-primary-hover;
+  }
+  .btn-soft {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .btn-soft:hover {
+    @apply bg-primary-soft-hover;
+  }
+  .btn-ghost {
+    @apply bg-transparent text-muted hover:bg-raised hover:text-ink;
+  }
+  .btn-danger {
+    @apply bg-danger-soft text-on-danger-soft;
+  }
+  .btn-danger:hover {
+    @apply bg-danger text-white;
+  }
+  .btn-warn {
+    @apply bg-warn-soft text-on-warn-soft;
+  }
+  .btn-outline {
+    @apply border border-line bg-surface text-ink hover:bg-raised;
+  }
+  .btn-sm {
+    @apply rounded-md px-2.5 py-1.5 text-xs;
+  }
+
+  /* ── Cards & boxes ───────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+  .card-hover {
+    @apply transition-all duration-150 hover:-translate-y-0.5 hover:shadow-pop;
+  }
+
+  /* ── Forms ───────────────────────────────────────────────────────────── */
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+  .input {
+    @apply block w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
+      text-ink shadow-xs transition-colors placeholder:text-faint
+      focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30;
+  }
+  .help {
+    @apply mt-1.5 block text-xs text-muted;
+  }
+
+  /* Checkboxes: align with label text, brand accent. */
+  .checkbox {
+    @apply inline-flex cursor-pointer items-center gap-2 text-sm text-ink;
+  }
+  .checkbox input {
+    @apply size-4 cursor-pointer accent-primary;
+  }
+
+  /* ── Tables ──────────────────────────────────────────────────────────── */
+  .table-wrap {
+    @apply overflow-x-auto rounded-xl border border-line bg-surface shadow-card;
+  }
+  .table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .table thead th {
+    @apply border-b border-line bg-raised px-4 py-2.5 text-xs font-semibold
+      tracking-wide text-muted uppercase;
+  }
+  .table tbody td {
+    @apply border-b border-line px-4 py-3 align-middle text-ink;
+  }
+  .table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .table tbody tr {
+    @apply transition-colors hover:bg-brand-50/60;
+  }
+  @media (prefers-color-scheme: dark) {
+    .table tbody tr {
+      @apply hover:bg-raised/60;
+    }
+  }
+  .td-muted {
+    @apply text-xs text-muted;
+  }
+  .td-mono {
+    @apply font-mono text-xs whitespace-nowrap;
+  }
+
+  /* ── Badges / tags ───────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-green {
+    @apply bg-success-soft text-on-success-soft;
+  }
+  .badge-gray {
+    @apply bg-raised text-muted;
+  }
+  .badge-red {
+    @apply bg-danger-soft text-on-danger-soft;
+  }
+  .badge-amber {
+    @apply bg-warn-soft text-on-warn-soft;
+  }
+
+  /* ── Notifications (flash + inline alerts) ───────────────────────────── */
+  .note {
+    @apply rounded-lg border px-4 py-3 text-sm;
+  }
+  .note-error {
+    @apply border-danger/30 bg-danger-soft text-on-danger-soft;
+  }
+  .note-success {
+    @apply border-success/30 bg-success-soft text-on-success-soft;
+  }
+  .note-info {
+    @apply border-primary/30 bg-primary-soft text-on-primary-soft;
+  }
+  .note-warn {
+    @apply border-warn/30 bg-warn-soft text-on-warn-soft;
+  }
+
+  /* ── Page header pattern ─────────────────────────────────────────────── */
+  .page-head {
+    @apply mb-6 flex flex-wrap items-end justify-between gap-3;
+  }
+  .page-title {
+    @apply text-xl font-semibold tracking-tight text-ink sm:text-2xl;
+  }
+  .page-sub {
+    @apply mt-1 text-sm text-muted;
+  }
+
+  /* ── Stat tiles ──────────────────────────────────────────────────────── */
+  .stat {
+    @apply rounded-xl border border-line bg-surface p-5 shadow-card;
+  }
+  .stat-value {
+    @apply text-3xl font-semibold tracking-tight text-primary;
+  }
+  .stat-label {
+    @apply mt-1 text-xs font-medium tracking-wide text-muted uppercase;
+  }
+
+  /* ── Empty states ────────────────────────────────────────────────────── */
+  .empty {
+    @apply flex flex-col items-center gap-2 rounded-xl border border-dashed
+      border-line bg-surface/50 px-6 py-10 text-center;
+  }
+  .empty-title {
+    @apply text-sm font-medium text-ink;
+  }
+  .empty-sub {
+    @apply text-sm text-muted;
+  }
+
+  /* ── Wordmark ────────────────────────────────────────────────────────── */
+  .wordmark {
+    @apply inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-ink;
+  }
+  .wordmark-dot {
+    @apply inline-block size-2 rounded-full bg-primary;
+  }
+
+  /* ── App top bar (user pages) ────────────────────────────────────────── */
+  .topbar {
+    @apply sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur;
+  }
+  .topbar-inner {
+    @apply mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6;
+  }
+  .toplink {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
+  .toplink-active {
+    @apply bg-primary-soft font-medium text-on-primary-soft;
+  }
+  .topuser {
+    @apply hidden text-sm text-muted sm:inline;
+  }
+
+  /* ── Admin shell ─────────────────────────────────────────────────────── */
+  .topbar-admin {
+    @apply sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur;
+  }
+  .sidebar {
+    @apply fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-line
+      bg-surface transition-transform duration-200 ease-out
+      lg:sticky lg:top-14 lg:z-0 lg:h-[calc(100dvh-3.5rem)]
+      lg:w-60 lg:border-t-0;
+  }
+  .sidebar-overlay {
+    @apply fixed inset-0 z-40 bg-brand-950/40 opacity-0 pointer-events-none
+      transition-opacity duration-200 lg:hidden;
+  }
+  .sidebar-head {
+    @apply flex h-14 shrink-0 items-center gap-2 border-b border-line px-4;
+  }
+  .sidebar-section {
+    @apply mb-1 px-2 pt-3 pb-1 text-[11px] font-semibold tracking-widest text-faint uppercase;
+  }
+  .sidebar-link {
+    @apply mb-0.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm
+      font-medium text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
+  .sidebar-link .ic {
+    @apply size-4.5 shrink-0 text-faint;
+  }
+  .sidebar-link:hover .ic {
+    @apply text-muted;
+  }
+  .sidebar-link.is-active {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .sidebar-link.is-active .ic {
+    @apply text-primary;
+  }
+  .sidebar-link.is-active {
+    @apply relative;
+  }
+  .sidebar-link.is-active::before {
+    content: "";
+    @apply absolute top-1/2 left-0 h-4 w-1 -translate-y-1/2 rounded-r-full bg-primary;
+  }
+  .sidebar-burger {
+    @apply inline-flex items-center justify-center rounded-lg p-2 text-muted hover:bg-raised hover:text-ink lg:hidden;
+  }
+
+  /* ── Content shell ───────────────────────────────────────────────────── */
+  .content {
+    @apply mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8;
+  }
+  .app-footer {
+    @apply border-t border-line px-4 py-3.5 text-xs text-faint sm:px-6;
+  }
+  .app-footer a {
+    @apply text-muted underline decoration-line underline-offset-2 hover:text-ink;
+  }
+
+  /* ── Tabs ────────────────────────────────────────────────────────────── */
+  .tabs {
+    @apply mb-6 flex gap-1 overflow-x-auto border-b border-line;
+  }
+  .tab {
+    @apply -mb-px whitespace-nowrap border-b-2 border-transparent px-3.5 py-2.5 text-sm
+      font-medium text-muted transition-colors hover:border-line hover:text-ink;
+  }
+  .tab.is-active {
+    @apply border-primary text-primary;
+  }
+
+  /* ── Auth pages ──────────────────────────────────────────────────────── */
+  .auth-shell {
+    @apply flex min-h-dvh flex-col items-center justify-center px-4 py-10;
+    background:
+      radial-gradient(
+        60rem 32rem at 50% -12rem,
+        color-mix(in oklab, var(--color-primary) 14%, transparent),
+        transparent 65%
+      ),
+      var(--color-canvas);
+  }
+  .auth-card {
+    @apply mt-6 w-full max-w-md rounded-2xl border border-line bg-surface p-7 shadow-pop sm:p-8;
+  }
+  .auth-title {
+    @apply text-lg font-semibold tracking-tight text-ink;
+  }
+  .auth-sub {
+    @apply mt-1.5 text-sm text-muted;
+  }
+  .auth-alt {
+    @apply mt-6 border-t border-line pt-5 text-center text-sm;
+  }
+  .auth-alt a {
+    @apply text-on-primary-soft underline decoration-primary/30 underline-offset-2 hover:decoration-primary;
+  }
+
+  /* ── Misc ────────────────────────────────────────────────────────────── */
+  .ic {
+    @apply inline-block size-4 shrink-0 align-[-0.125em];
+  }
+  .ic-lg {
+    @apply size-6;
+  }
+  .card-link {
+    @apply font-medium text-on-primary-soft underline decoration-primary/25
+      underline-offset-2 transition-colors hover:decoration-primary;
+  }
+  .link {
+    @apply text-on-primary-soft underline decoration-primary/25 underline-offset-2 hover:decoration-primary;
+  }
+}
+
+@layer components {
+  /* Legacy class hook kept for admin templates that emit `tag is-info is-light`. */
+  .tag.is-info.is-light {
+    @apply inline-flex items-center rounded-md bg-success-soft px-1.5 py-0.5 text-xs
+      font-medium text-on-success-soft;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 4. JS-free admin sidebar drawer (checkbox + sibling selectors).
+ * Mobile (<64rem): the sidebar is off-canvas; the hidden checkbox closes
+ * the circuit. Desktop (≥64rem): the sidebar is sticky and always visible.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@media (width < 64rem) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+  #admin-nav-toggle:checked ~ .admin-shell .sidebar {
+    transform: translateX(0);
+    box-shadow: var(--shadow-pop);
+  }
+  #admin-nav-toggle:checked ~ .admin-shell .sidebar-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  #admin-nav-toggle:focus-visible ~ .admin-shell .sidebar-burger {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}

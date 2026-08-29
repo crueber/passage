@@ -5,57 +5,57 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Access — {{.App.Name}} — Passage Admin</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <div class="passage-admin-shell">
-      {{template "admin-nav" .}}
-      <main class="passage-admin-content">
-        {{template "admin-flash" .}}
-        <h1 class="title is-4">{{.App.Name}}</h1>
-        {{template "admin-app-tabs" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
 
-        <h2 class="title is-5">Users with access</h2>
-        <div class="table-container mb-6">
-          <table class="table is-fullwidth is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th scope="col">Username</th>
-                <th scope="col">Email</th>
-                <th scope="col"></th>
-              </tr>
-            </thead>
-            <tbody id="users-with-access">
-              {{template "admin-app-access-with-rows" .}}
-            </tbody>
-          </table>
-        </div>
-
-        <h2 class="title is-5">Users without access</h2>
-        <div class="table-container">
-          <table class="table is-fullwidth is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th scope="col">Username</th>
-                <th scope="col">Email</th>
-                <th scope="col"></th>
-              </tr>
-            </thead>
-            <tbody id="users-without-access">
-              {{template "admin-app-access-without-rows" .}}
-            </tbody>
-          </table>
-        </div>
-      </main>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{.App.Name}}</h1>
+      <p class="page-sub td-mono">{{.App.HostPattern}}</p>
     </div>
-    {{template "admin-footer" .}}
+    <a class="btn btn-ghost btn-sm" href="/admin/apps">{{template "ic-chevron-left"}}Back to apps</a>
   </div>
-</div>
+  {{template "admin-app-tabs" .}}
+
+  <h2 class="mb-3 font-semibold text-ink">Users with access</h2>
+  <div class="table-wrap mb-8">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">Email</th>
+          <th scope="col" class="text-right"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="users-with-access">
+        {{template "admin-app-access-with-rows" .}}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="mb-3 font-semibold text-ink">Users without access</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">Email</th>
+          <th scope="col" class="text-right"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="users-without-access">
+        {{template "admin-app-access-without-rows" .}}
+      </tbody>
+    </table>
+  </div>
+</main>
+{{template "admin-footer" .}}
 </body>
 </html>
 {{end}}
@@ -63,25 +63,30 @@
 {{define "admin-app-access-with-rows"}}
 {{range $.UsersWithAccess}}
               <tr>
-                <td>{{.User.Username}}</td>
-                <td>{{.User.Email}}</td>
+                <td class="font-medium">{{.User.Username}}</td>
+                <td class="td-muted">{{.User.Email}}</td>
                 <td>
-                  <div class="buttons are-small">
-                    <a class="button is-light" href="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/assignments">Assignments</a>
+                  <div class="flex justify-end gap-1.5">
+                    <a class="btn btn-outline btn-sm" href="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/assignments">Assignments</a>
                   <form method="POST"
                         action="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
                         hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
                         hx-target="closest tr"
                         hx-swap="delete">
-                    {{csrfField $.CSRFToken}}
-                    <button type="submit" class="button is-danger is-small is-light">Revoke</button>
+                    <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
                   </form>
                   </div>
                 </td>
               </tr>
 {{else}}
               <tr>
-                <td colspan="3" class="has-text-grey-light"><em>No users have access.</em></td>
+                <td colspan="3">
+                  <div class="empty border-none bg-transparent py-6">
+                    {{template "ic-users"}}
+                    <p class="empty-title">No users have access.</p>
+                    <p class="empty-sub">Grant access using the list below.</p>
+                  </div>
+                </td>
               </tr>
 {{end}}
 {{end}}
@@ -89,19 +94,22 @@
 {{define "admin-app-access-without-rows"}}
 {{range $.UsersWithoutAccess}}
               <tr>
-                <td>{{.Username}}</td>
-                <td>{{.Email}}</td>
+                <td class="font-medium">{{.Username}}</td>
+                <td class="td-muted">{{.Email}}</td>
                 <td>
-                  <form method="POST" action="/admin/apps/{{$.App.ID}}/access">
+                  <form method="POST" class="text-right"
+                        action="/admin/apps/{{$.App.ID}}/access">
                     {{csrfField $.CSRFToken}}
                     <input type="hidden" name="user_id" value="{{.ID}}">
-                    <button type="submit" class="button is-primary is-small is-light">Grant</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Grant</button>
                   </form>
-                </td>
-              </tr>
 {{else}}
               <tr>
-                <td colspan="3" class="has-text-grey-light"><em>All users already have access.</em></td>
+                <td colspan="3">
+                  <div class="empty border-none bg-transparent py-6">
+                    <p class="empty-title">All users already have access</p>
+                  </div>
+                </td>
               </tr>
 {{end}}
 {{end}}

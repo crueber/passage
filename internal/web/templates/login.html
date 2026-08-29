@@ -5,92 +5,72 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sign in — Passage</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/passkey.js" defer></script>
 </head>
 <body>
-<section class="hero is-fullheight">
-  <div class="hero-body">
-    <div class="container">
-      <div class="columns is-centered">
-        <div class="column is-narrow">
-          <p class="passage-wordmark">passage</p>
+<main class="auth-shell">
+  <a href="/" class="wordmark text-xl">{{template "logo"}}<span>passage</span></a>
 
-          {{if .Flash}}
-          <div role="alert" class="notification {{if eq .Flash.Type "error"}}is-danger{{else if eq .Flash.Type "success"}}is-success{{else}}is-info{{end}} is-light">
-            {{.Flash.Message}}
-          </div>
-          {{end}}
+  <div class="w-full max-w-md">{{template "flash" .}}</div>
 
-          <div class="card" style="min-width:22rem;max-width:26rem;">
-            <div class="card-content">
-              <h1 class="title is-5">Sign in to continue</h1>
+  <div class="auth-card">
+    <h1 class="auth-title">Sign in to continue</h1>
 
-              {{if .AllowPassword}}
-              <form method="POST" action="/login">
-                <input type="hidden" name="rd" value="{{.RedirectTo}}">
-                {{csrfField .CSRFToken}}
+    {{if .AllowPassword}}
+    <form method="POST" action="/login" class="mt-5 space-y-4">
+      <input type="hidden" name="rd" value="{{.RedirectTo}}">
+      {{csrfField .CSRFToken}}
 
-                <div class="field">
-                  <label class="label" for="username">Username</label>
-                  <div class="control">
-                    <input class="input" type="text" id="username" name="username"
-                           autocomplete="username" required autofocus value="{{.Username}}">
-                  </div>
-                </div>
-
-                <div class="field">
-                  <label class="label" for="password">Password</label>
-                  <div class="control">
-                    <input class="input" type="password" id="password" name="password"
-                           autocomplete="current-password" required>
-                  </div>
-                </div>
-
-                <div class="field">
-                  <div class="control">
-                    <button type="submit" class="button is-primary is-fullwidth">Sign in</button>
-                  </div>
-                </div>
-              </form>
-              {{end}}
-
-              {{if .AllowPasskey}}
-              <div class="field mt-4">
-                <div class="control">
-                  <button type="button" id="passkey-login-btn" class="button is-light is-fullwidth">
-                    Sign in with a passkey
-                  </button>
-                </div>
-                <p id="passkey-login-status" class="help mt-1" aria-live="polite"></p>
-              </div>
-              {{end}}
-
-              {{if .AllowMagicLink}}
-              <div class="field mt-4">
-                <div class="control">
-                  <a href="/login/magic{{if .RedirectTo}}?rd={{.RedirectTo}}{{end}}" class="button is-light is-fullwidth">
-                    Email me a sign-in link
-                  </a>
-                </div>
-              </div>
-              {{end}}
-
-              <div class="has-text-centered mt-4 is-size-7">
-                <a href="/reset">Forgot password?</a>
-                {{if .AllowRegistration}}
-                &nbsp;·&nbsp;
-                <a href="/register">Create an account</a>
-                {{end}}
-              </div>
-            </div>
-          </div>
-        </div>
+      <div>
+        <label class="label" for="username">Username</label>
+        <input class="input" type="text" id="username" name="username"
+               autocomplete="username" required autofocus value="{{.Username}}">
       </div>
+
+      <div>
+        <div class="flex items-baseline justify-between">
+          <label class="label" for="password">Password</label>
+          <a href="/reset" class="mb-1.5 text-xs text-muted hover:text-ink">Forgot password?</a>
+        </div>
+        <input class="input" type="password" id="password" name="password"
+               autocomplete="current-password" required>
+      </div>
+
+      <button type="submit" class="btn btn-primary w-full">Sign in</button>
+    </form>
+    {{end}}
+
+    {{if and .AllowPasskey .AllowPassword}}
+    <div class="my-5 flex items-center gap-3 text-xs text-faint" aria-hidden="true">
+      <span class="h-px flex-1 bg-line"></span>or<span class="h-px flex-1 bg-line"></span>
     </div>
+    {{end}}
+
+    {{if .AllowPasskey}}
+    <div class="space-y-2.5">
+      <button type="button" id="passkey-login-btn" class="btn btn-outline w-full">
+        {{template "ic-key"}}Sign in with a passkey
+      </button>
+      <p id="passkey-login-status" class="help text-center" aria-live="polite"></p>
+    </div>
+    {{end}}
+
+    {{if .AllowMagicLink}}
+    <a href="/login/magic{{if .RedirectTo}}?rd={{.RedirectTo}}{{end}}" class="btn btn-outline mt-2.5 w-full">
+      {{template "ic-mail"}}Email me a sign-in link
+    </a>
+    {{end}}
+
+    {{if .AllowRegistration}}
+    <p class="auth-alt">
+      New here? <a href="/register">Create an account</a>
+    </p>
+    {{end}}
   </div>
-</section>
+
+  <p class="mt-8 text-xs text-faint">Self-hosted authentication for your home lab</p>
+</main>
 </body>
 </html>
 {{end}}

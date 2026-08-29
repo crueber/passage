@@ -5,113 +5,88 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Settings — Passage Admin</title>
-  <link rel="stylesheet" href="/static/bulma.min.css">
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
-<div class="passage-admin-body">
-  <div class="passage-admin-container">
-    <div class="passage-admin-shell">
-      {{template "admin-nav" .}}
-      <main class="passage-admin-content">
-        {{template "admin-flash" .}}
-        <h1 class="title is-4">Settings</h1>
-        <div class="columns">
-          <div class="column is-half-tablet is-one-third-desktop">
-            <form method="POST" action="/admin/settings">
-              {{csrfField .CSRFToken}}
-              <div class="field">
-                <div class="control">
-                  <label class="checkbox">
-                    <input type="checkbox" id="allow_registration" name="allow_registration"
-                           {{if eq .AllowRegistration "true"}}checked{{end}}>
-                    Allow public registration
-                  </label>
-                </div>
-              </div>
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
 
-              <div class="field">
-                <label class="label" for="session_duration_hours">Session Duration (hours)</label>
-                <div class="control">
-                  <input class="input" type="number" id="session_duration_hours" name="session_duration_hours"
-                         min="1" max="8760" value="{{.SessionDurationHours}}">
-                </div>
-                <p class="help">
-                  Global default for all apps. Takes effect immediately for new sessions.
-                  Per-app overrides can be set on each app's edit page.
-                </p>
-              </div>
-
-              <div class="field">
-                <label class="label" for="smtp_from">SMTP From Address</label>
-                <div class="control">
-                  <input class="input" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
-                         value="{{.SMTPFrom}}">
-                </div>
-                <p class="help">Requires restart to take effect. Leave empty to use config file value.</p>
-              </div>
-
-              <div class="field">
-                <div class="control">
-                  <button type="submit" class="button is-primary">Save Settings</button>
-                </div>
-              </div>
-            </form>
-
-            <hr>
-
-            <h2 class="title is-5">Authentication Methods</h2>
-            <form method="POST" action="/admin/settings/auth-methods">
-              {{csrfField .CSRFToken}}
-              <div class="field">
-                <div class="control">
-                  <label class="checkbox">
-                    <input type="checkbox" id="auth_password_enabled" name="auth_password_enabled"
-                           {{if eq .AuthPasswordEnabled "true"}}checked{{end}}>
-                    Enable password authentication
-                  </label>
-                </div>
-              </div>
-
-              <div class="field">
-                <div class="control">
-                  <label class="checkbox">
-                    <input type="checkbox" id="auth_passkey_enabled" name="auth_passkey_enabled"
-                           {{if eq .AuthPasskeyEnabled "true"}}checked{{end}}>
-                    Enable passkey (WebAuthn) authentication
-                  </label>
-                </div>
-              </div>
-
-              <div class="field">
-                <div class="control">
-                  <label class="checkbox">
-                     <input type="checkbox" id="auth_magic_link_enabled" name="auth_magic_link_enabled"
-                           {{if eq .AuthMagicLinkEnabled "true"}}checked{{end}}
-                           {{if not .SMTPConfigured}}disabled{{end}}>
-                    Enable magic link authentication
-                  </label>
-                </div>
-                {{if not .SMTPConfigured}}
-                <p class="help">Requires SMTP to be configured.</p>
-                {{end}}
-              </div>
-
-              <div class="field">
-                <div class="control">
-                  <button type="submit" class="button is-primary">Save Auth Methods</button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      </main>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Settings</h1>
+      <p class="page-sub">Instance-wide configuration.</p>
     </div>
-    {{template "admin-footer" .}}
   </div>
-</div>
+
+  <div class="max-w-2xl space-y-6">
+    <section class="card p-5 sm:p-6">
+      <h2 class="font-semibold text-ink">General</h2>
+      <form method="POST" action="/admin/settings" class="mt-4 space-y-4">
+        {{csrfField .CSRFToken}}
+
+        <label class="checkbox" for="allow_registration">
+          <input type="checkbox" id="allow_registration" name="allow_registration"
+                 {{if eq .AllowRegistration "true"}}checked{{end}}>
+          Allow public registration
+        </label>
+
+        <div>
+          <label class="label" for="session_duration_hours">Session duration (hours)</label>
+          <input class="input sm:max-w-xs" type="number" id="session_duration_hours" name="session_duration_hours"
+                 min="1" max="8760" value="{{.SessionDurationHours}}">
+          <p class="help">
+            Global default for all apps. Takes effect immediately for new sessions.
+            Per-app overrides can be set on each app's edit page.
+          </p>
+        </div>
+
+        <div>
+          <label class="label" for="smtp_from">SMTP from address</label>
+          <input class="input sm:max-w-xs" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
+                 value="{{.SMTPFrom}}">
+          <p class="help">Requires restart to take effect. Leave empty to use config file value.</p>
+        </div>
+
+        <div><button type="submit" class="btn btn-primary">Save Settings</button></div>
+      </form>
+    </section>
+
+    <section class="card p-5 sm:p-6">
+      <h2 class="font-semibold text-ink">Authentication methods</h2>
+      <form method="POST" action="/admin/settings/auth-methods" class="mt-4 space-y-4">
+        {{csrfField .CSRFToken}}
+
+        <label class="checkbox" for="auth_password_enabled">
+          <input type="checkbox" id="auth_password_enabled" name="auth_password_enabled"
+                 {{if eq .AuthPasswordEnabled "true"}}checked{{end}}>
+          Enable password authentication
+        </label>
+
+        <label class="checkbox" for="auth_passkey_enabled">
+          <input type="checkbox" id="auth_passkey_enabled" name="auth_passkey_enabled"
+                 {{if eq .AuthPasskeyEnabled "true"}}checked{{end}}>
+          Enable passkey (WebAuthn) authentication
+        </label>
+
+        <label class="checkbox" for="auth_magic_link_enabled">
+          <input type="checkbox" id="auth_magic_link_enabled" name="auth_magic_link_enabled"
+                 {{if eq .AuthMagicLinkEnabled "true"}}checked{{end}}
+                 {{if not .SMTPConfigured}}disabled{{end}}>
+          Enable magic link authentication
+        </label>
+        {{if not .SMTPConfigured}}
+        <p class="help -mt-2">Requires SMTP to be configured.</p>
+        {{end}}
+
+        <div><button type="submit" class="btn btn-primary">Save Auth Methods</button></div>
+      </form>
+    </section>
+  </div>
+</main>
+{{template "admin-footer" .}}
 </body>
 </html>
 {{end}}
