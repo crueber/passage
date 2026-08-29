@@ -261,7 +261,7 @@ For applications without native OAuth/OIDC support, Passage supports the forward
 
 ### Requirements
 
-- Go 1.22 or later
+- Go 1.25 or later (see `go.mod`)
 - `CGO_ENABLED=0` — no CGo, ever
 
 ### Build
@@ -273,6 +273,18 @@ CGO_ENABLED=0 go build -o passage ./cmd/passage
 # With version injected
 CGO_ENABLED=0 go build -ldflags "-X main.version=0.1.0" -o passage ./cmd/passage
 ```
+
+### UI stylesheet (Tailwind)
+
+The UI is styled with Tailwind CSS v4, compiled locally — no Node, no CDNs. The source of truth is `internal/web/ui/input.css`; the committed `internal/web/static/passage.css` is generated output.
+
+```bash
+# After editing input.css, rebuild the stylesheet (fetches the standalone
+# tailwindcss binary into tools/ on first use — see tools/build-css.sh)
+make css
+```
+
+CI fails if the committed `passage.css` doesn't match a fresh build, so always commit the rebuilt file together with your `input.css` change. Never hand-edit `passage.css`.
 
 ### Test
 

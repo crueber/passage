@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
@@ -40,12 +41,25 @@ type settingsReader interface {
 	Get(ctx context.Context, key string) (string, error)
 }
 
+// AppLister provides the list of apps a user can access, for the dashboard.
+// Defined at the consumer boundary; backed by *app.Service in run.go.
+type AppLister interface {
+	ListAppsForUser(ctx context.Context, userID string) ([]*app.App, error)
+}
+
+// userContextReader extracts the authenticated user from the request context.
+// Defined at the consumer boundary because the session package imports user;
+// run.go wires session.UserFromContext in.
+type userContextReader func(ctx context.Context) (*User, bool)
+
 // Handler handles user-facing HTTP flows: login, register, password reset, logout.
 type Handler struct {
 	users    *Service
+	apps     AppLister
 	sessions sessionCreator
 	settings settingsReader
 	mailer   email.Sender
+	userCtx  userContextReader
 	tmpl     *template.Template
 	cfg      *config.Config
 	logger   *slog.Logger
@@ -54,18 +68,22 @@ type Handler struct {
 // NewHandler creates a new Handler with the given dependencies.
 func NewHandler(
 	users *Service,
+	apps AppLister,
 	sessions sessionCreator,
 	settings settingsReader,
 	mailer email.Sender,
+	userCtx userContextReader,
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
 		users:    users,
+		apps:     apps,
 		sessions: sessions,
 		settings: settings,
 		mailer:   mailer,
+		userCtx:  userCtx,
 		tmpl:     tmpl,
 		cfg:      cfg,
 		logger:   logger,
@@ -120,6 +138,13 @@ type resetConfirmData struct {
 	CSRFToken string
 }
 
+// dashboardData is the template data for the "My Apps" page.
+type dashboardData struct {
+	User  *User
+	Apps  []*app.App
+	Flash *Flash
+}
+
 // GetLogin renders the login form.
 func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 	rd := r.URL.Query().Get("rd")
@@ -137,6 +162,28 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
+	})
+}
+
+// GetDashboard renders the "My Apps" page for the authenticated user.
+func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
+	u, ok := h.userCtx(r.Context())
+	if !ok || u == nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	apps, err := h.apps.ListAppsForUser(r.Context(), u.ID)
+	if err != nil {
+		h.logger.Error("dashboard: list apps for user", "user_id", u.ID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	h.render(w, r, "user-dashboard", dashboardData{
+		User:  u,
+		Apps:  apps,
+		Flash: flashFromCode(r.URL.Query().Get("flash")),
 	})
 }
 

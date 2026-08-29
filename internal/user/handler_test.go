@@ -14,9 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/config"
 	"github.com/go-chi/chi/v5"
 
-	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/user"
@@ -42,6 +43,7 @@ type handlerFixture struct {
 	db      *sql.DB
 	handler *user.Handler
 	userSvc *user.Service
+	appSvc  *app.Service
 	cfg     *config.Config
 }
 
@@ -86,12 +88,15 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, noopSettings{}, noopSender{}, tmpl, cfg, logger)
+	appStore := app.NewStore(db)
+	appSvc := app.NewService(appStore, appStore, logger)
+	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	return &handlerFixture{
 		db:      db,
 		handler: h,
 		userSvc: userSvc,
+		appSvc:  appSvc,
 		cfg:     cfg,
 	}
 }
@@ -174,7 +179,8 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, noopSettings{}, noopSender{}, tmpl, cfg, logger)
+	appStore := app.NewStore(db)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "loginuser")
@@ -227,7 +233,8 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, noopSettings{}, noopSender{}, tmpl, cfg, logger)
+	appStore := app.NewStore(db)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "rduser")
@@ -1137,7 +1144,8 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, disabledSettings{}, noopSender{}, tmpl, cfg, logger)
+	appStore := app.NewStore(db)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "pwuser")
@@ -1151,5 +1159,119 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 	res := rec.Result()
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("PostLogin with password disabled: got status %d, want %d", res.StatusCode, http.StatusForbidden)
+	}
+}
+
+// failingAppLister satisfies user.AppLister and always errors.
+type failingAppLister struct{}
+
+func (failingAppLister) ListAppsForUser(_ context.Context, _ string) ([]*app.App, error) {
+	return nil, errors.New("lister boom")
+}
+
+// TestHandler_GetDashboard_EmptyState verifies the dashboard renders 200 for a
+// non-admin user with no apps (this branch does not reach the flash partial;
+// see TestHandler_GetDashboard_AppsWithFlash for the .Flash regression pin).
+func TestHandler_GetDashboard_EmptyState(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+	u, err := f.userSvc.Register(context.Background(), "dashuser", "dash@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	rec := httptest.NewRecorder()
+	f.handler.GetDashboard(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GetDashboard: got status %d, want %d", res.StatusCode, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "My Apps") {
+		t.Error("GetDashboard: body missing page title")
+	}
+	if !strings.Contains(body, "Contact your administrator to get access.") {
+		t.Error("GetDashboard: body missing empty state")
+	}
+}
+
+// TestHandler_GetDashboard_AppsWithFlash verifies a user with granted apps sees
+// them, and that a ?flash= code renders the flash partial end to end.
+// Regression guard: this is the only dashboard branch that executes the
+// shared flash partial, which evaluates .Flash — a dashboard data struct
+// without that field turns every GET / into a 500 (PR #2 regression).
+func TestHandler_GetDashboard_AppsWithFlash(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+	u, err := f.userSvc.Register(context.Background(), "dashapps", "dashapps@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	a := &app.App{Slug: "grafana", Name: "Grafana", HostPattern: "grafana.lab.local", IsActive: true}
+	if err := f.appSvc.Create(context.Background(), a); err != nil {
+		t.Fatalf("seed app: %v", err)
+	}
+	if err := f.appSvc.GrantAccess(context.Background(), u.ID, a.ID); err != nil {
+		t.Fatalf("grant access: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/?flash=registered", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	rec := httptest.NewRecorder()
+	f.handler.GetDashboard(rec, req)
+
+	res := rec.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GetDashboard: got status %d, want %d", res.StatusCode, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Grafana") {
+		t.Error("GetDashboard: body missing granted app name")
+	}
+	if !strings.Contains(body, "grafana.lab.local") {
+		t.Error("GetDashboard: body missing app host pattern")
+	}
+	if !strings.Contains(body, "Account created. Please sign in.") {
+		t.Error("GetDashboard: body missing flash message")
+	}
+}
+
+// TestHandler_GetDashboard_ListerError verifies an app-listing failure returns
+// 500 instead of a partial page.
+func TestHandler_GetDashboard_ListerError(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := &config.Config{
+		Auth:    config.AuthConfig{AllowRegistration: true, BcryptCost: 10},
+		Session: config.SessionConfig{DurationHours: 24, CookieName: "passage_session"},
+	}
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
+	u, err := userSvc.Register(context.Background(), "dasherr", "dasherr@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	sessionStore := session.NewStore(db)
+	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+	})
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	rec := httptest.NewRecorder()
+	h.GetDashboard(rec, req)
+
+	if res := rec.Result(); res.StatusCode != http.StatusInternalServerError {
+		t.Errorf("GetDashboard lister error: got status %d, want %d", res.StatusCode, http.StatusInternalServerError)
 	}
 }

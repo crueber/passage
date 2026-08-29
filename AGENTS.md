@@ -86,6 +86,7 @@ All wiring lives in `cmd/passage/run.go` — construction order matters. Key fac
 - **Top-level context**: `signal.NotifyContext` (SIGINT/SIGTERM). Every background goroutine and the HTTP server shutdown hang off this context. Never start a goroutine without wiring it to a cancellable context.
 - **Background cleanup goroutines** (started in `run()`): expired sessions (hourly), WebAuthn challenges (10 min), OAuth codes/tokens (hourly), rate-limiter cleanup (5 min).
 - **Construction order**: settings store and app store are built *before* `session.NewService` because the session service reads the global `session_duration_hours` setting and per-app duration overrides (via the unexported `appDurationAdapter` at the wiring layer). Cross-package adapters live in `run.go`, not in the packages themselves.
+- **Dashboard handler**: `/` (the "My Apps" page) is served by `user.Handler.GetDashboard` — not a run.go closure — so it can be regression-tested (see `internal/user/handler_test.go`). `user.NewHandler` takes an `AppLister` (satisfied by `*app.Service`) and a `userContextReader` (wired to `session.UserFromContext`) at the consumer boundary, because `internal/session` imports `internal/user`.
 - **First-run bootstrap**: if no admin user exists, `user.SetupTokenManager` generates a one-time token logged to stdout, valid 1 hour. `/setup` self-disables (`IsActive()` checked per request) once any admin exists.
 - **OAuth signing key**: one RSA key stored in SQLite (`oauthStore.GetOrCreateRSAKey`), served via `/.well-known/jwks.json`.
 - **Single template set**: `web.Parse` parses `templates/*.html` and `templates/admin/*.html` into one `*template.Template` — user and admin pages share one `{{define}}` namespace. The `csrfField` template function must be provided in the `FuncMap`.
@@ -115,8 +116,7 @@ Route groups in `run.go`; when adding routes, pick the right group:
 
 ## Deployment & CI
 
-- **Dockerfile**: multi-stage, `golang:1.25-alpine` → `alpine:3.21`, fully static binary, runs as non-root user `passage`, SQLite lives on the `/data` volume (`PASSAGE_DATABASE_PATH` must point under `/data`). `HEALTHCHECK` hits `/healthz`.
-- **CI** (`.github/workflows/ci.yml`): on every push/PR runs `go mod verify`, `go vet ./...`, `go test -race ./...`. On push to `main` or `v*` tags builds a multi-arch (amd64/arm64) image and publishes to `ghcr.io/crueber/passage` with version injected via build args.
+- **CI** (`.github/workflows/ci.yml`): on every push/PR runs `go mod verify`, `go vet ./...`, `go test -race ./...`, and a **CSS drift check** — rebuilds `internal/web/static/passage.css` from `input.css` with the pinned tailwindcss CLI (sha256-verified) and fails if the committed output differs, so `input.css` edits always ship with a fresh `make css` run. On push to `main` or `v*` tags builds a multi-arch (amd64/arm64) image and publishes to `ghcr.io/crueber/passage` with version injected via build args.
 
 ---
 
@@ -208,6 +208,10 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 
 - **Tailwind CSS v4** is the CSS framework. Source of truth is `internal/web/ui/input.css`: a `@theme` block of design tokens (brand scale, semantic surface/ink/line/muted colours, radii, shadows) plus `@layer components` classes (`.btn`, `.card`, `.input`, `.label`, `.table`, `.badge`, `.note`, `.stat`, `.empty`, `.sidebar-link`, …). Prefer existing component classes and utilities over inventing new ones.
 - `internal/web/static/passage.css` is **generated** — minified Tailwind output, committed. Never hand-edit it. Edit `input.css` and rebuild with `make css` (the `tailwindcss` standalone CLI lives at `tools/tailwindcss`, gitignored; fetch the v4.x release binary for linux/macOS to rebuild).
+- **Flash partial contract**: any template that renders `{{template "flash" .}}` requires a `Flash *Flash` field on its render data struct. Go templates error at *execution* (→ 500) on missing struct fields — this is invisible at compile time and only surfaces at runtime. The dashboard regression (PR #2/#3) is pinned by `TestHandler_GetDashboard_*` tests in `internal/user/handler_test.go`; keep them passing when touching render data.
+- **Strict CSP**: the global `web.SecurityHeaders()` middleware sends `script-src 'self'; style-src 'self'` — the browser silently drops inline `<script>` blocks and `on*=` handler attributes. Never add them. Interactive behavior lives in `internal/web/static/app.js` (loaded with `defer`), driven by `data-` attributes: `data-copy="#id"` (copy target text), `data-confirm="message"` (confirm before form submit), plus the `#select-all-btn` wiring. Verify any new interactive element actually runs — a CSP-blocked handler fails silently with no server-side error.
+- Template copy and class names are load-bearing: Go tests assert specific strings and hooks (e.g. `"No users have access."`, `passage-stat`, `tag is-info is-light`). Grep the test files before rewording copy or renaming classes.
+- Checkbox option lists (roles, groups, assignments) use the `.check-list` grid component (1-col mobile / 2-col ≥sm) with a name line + muted description line per label — don't stack bare `.checkbox` labels in table cells.
 - Use `html/template` with `{{define}}` partials for shared layout pieces; each admin page template is a standalone `{{define}}` that calls shared partials (`admin-header`, `admin-nav`, `admin-flash`, `admin-footer`).
 - All templates live in one parsed set (`web.Parse`): user pages in `templates/*.html`, admin pages in `templates/admin/*.html`. `{{define}}` names are global across both — prefix admin templates (`admin-*`, `user-dashboard`) to avoid collisions.
 - Forms on every POST route carry `{{csrfField .CSRFToken}}` (or `$.CSRFToken` inside range blocks); templates must include the hidden CSRF input on every POST form.
@@ -265,6 +269,7 @@ go mod tidy && git diff --exit-code go.mod go.sum
 - **No global variables** for loggers, DB connections, or config
 - **No `math/rand`** for anything security-sensitive
 - **No `template.HTML()`** bypass without an explicit comment explaining why it is safe
+- **No inline `<script>` blocks or `on*=` handler attributes in templates** — the strict CSP silently blocks them; put behavior in `internal/web/static/app.js` (see UI Conventions)
 - **No unapproved dependencies** — do not add packages not in `go.mod` without flagging it first
 - **No scope creep** — do not implement features beyond what the current phase requires (YAGNI)
 - **No files outside the project structure** without a documented reason
