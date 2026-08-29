@@ -7,7 +7,7 @@
   <header class="topbar-admin">
     <div class="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
       <div class="flex items-center gap-1.5">
-        <label for="admin-nav-toggle" class="sidebar-burger" role="button" aria-label="Toggle navigation" tabindex="0">
+        <label for="admin-nav-toggle" class="sidebar-burger">
           {{template "ic-menu"}}
         </label>
         <a href="/" class="wordmark" aria-label="My Apps">{{template "logo"}}<span>passage</span></a>
@@ -32,7 +32,7 @@
     <span class="wordmark text-base">{{template "logo"}}<span>passage</span></span>
     <span class="ml-auto rounded-md bg-raised px-2 py-0.5 text-[11px] font-semibold tracking-wide text-muted uppercase">Admin</span>
   </div>
-  <nav class="sidebar-nav">
+  <nav class="sidebar-nav" aria-label="Admin sections">
     <p class="sidebar-section">Overview</p>
     <a href="/admin" class="sidebar-link{{if eq .ActiveNav "dashboard"}} is-active{{end}}"{{if eq .ActiveNav "dashboard"}} aria-current="page"{{end}}>{{template "ic-dashboard"}}Dashboard</a>
     <p class="sidebar-section">Manage</p>

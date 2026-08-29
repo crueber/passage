@@ -33,6 +33,9 @@ jobs:
           mkdir -p tools
           curl -fsSL --retry 3 -o tools/tailwindcss \
             "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64"
+          # Checksum pinned to the official v4.3.3 tailwindcss-linux-x64 release.
+          # Bump together with TAILWIND_VERSION (value from the release sha256sums.txt).
+          echo "dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a  tools/tailwindcss" | sha256sum -c -
           chmod +x tools/tailwindcss
           ./tools/build-css.sh
           # Fail if the committed passage.css doesn't match a fresh build

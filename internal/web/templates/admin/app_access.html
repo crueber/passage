@@ -73,6 +73,7 @@
                         hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
                         hx-target="closest tr"
                         hx-swap="delete">
+                    {{csrfField $.CSRFToken}}
                     <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
                   </form>
                   </div>
