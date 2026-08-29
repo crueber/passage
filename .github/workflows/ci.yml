@@ -26,6 +26,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify compiled CSS is up to date
+        env:
+          TAILWIND_VERSION: v4.3.3
+        run: |
+          mkdir -p tools
+          curl -fsSL --retry 3 -o tools/tailwindcss \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64"
+          chmod +x tools/tailwindcss
+          ./tools/build-css.sh
+          # Fail if the committed passage.css doesn't match a fresh build
+          # (i.e. input.css was edited without running `make css`).
+          git diff --exit-code internal/web/static/passage.css
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
