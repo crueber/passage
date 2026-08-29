@@ -8,6 +8,7 @@
   <title>Passkeys — Passage</title>
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/passkey.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </head>
 <body class="flex min-h-dvh flex-col">
 {{template "topnav-passkeys" .}}
@@ -58,10 +59,9 @@
               <td class="td-mono">{{.CreatedAt.Format "2006-01-02"}}</td>
               <td class="td-mono">{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}<span class="text-faint">Never</span>{{end}}</td>
               <td class="text-right">
-                <form method="POST" action="/passkeys/delete/{{.ID}}"
-                      onsubmit="return confirm('Remove this passkey?')">
+                <form method="POST" action="/passkeys/delete/{{.ID}}">
                   {{csrfField $.CSRFToken}}
-                  <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                  <button type="submit" class="btn btn-danger btn-sm" data-confirm="Remove this passkey?">Remove</button>
                 </form>
               </td>
             </tr>

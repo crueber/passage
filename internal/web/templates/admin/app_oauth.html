@@ -7,6 +7,7 @@
   <title>OAuth Client — {{.EditApp.Name}} — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
@@ -29,9 +30,8 @@
   <div class="note note-success mb-5" role="alert">
     <p class="font-medium">New client secret &mdash; copy now, it will not be shown again:</p>
     <p class="mt-2 flex flex-wrap items-center gap-2">
-      <code class="min-w-0 flex-1 rounded-md bg-surface/70 px-3 py-2 font-mono text-sm break-all">{{.NewClientSecret}}</code>
-      <button type="button" class="btn btn-outline btn-sm"
-              onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">Copy</button>
+      <code id="new-client-secret" class="min-w-0 flex-1 rounded-md bg-surface/70 px-3 py-2 font-mono text-sm break-all">{{.NewClientSecret}}</code>
+      <button type="button" class="btn btn-outline btn-sm" data-copy="#new-client-secret">Copy</button>
     </p>
   </div>
   {{end}}
@@ -103,7 +103,7 @@
     <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth/rotate">
       {{csrfField .CSRFToken}}
       <button type="submit" class="btn btn-danger btn-sm"
-              onclick="return confirm('Rotate the client secret? The current secret will stop working immediately.')">
+              data-confirm="Rotate the client secret? The current secret will stop working immediately.">
         Rotate Secret
       </button>
     </form>

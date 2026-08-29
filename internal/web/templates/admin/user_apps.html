@@ -7,6 +7,7 @@
   <title>App Access — {{.EditUser.Username}} — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
   <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
@@ -95,34 +96,5 @@
 </main>
 {{template "admin-footer" .}}
 </body>
-<script>
-  (function () {
-    var btn = document.getElementById('select-all-btn');
-    if (!btn) return;
-
-    function getCheckboxes() {
-      return Array.prototype.slice.call(document.querySelectorAll('input[name="app_id"]'));
-    }
-
-    function allChecked(boxes) {
-      return boxes.length > 0 && boxes.every(function (cb) { return cb.checked; });
-    }
-
-    function updateLabel() {
-      var boxes = getCheckboxes();
-      btn.textContent = allChecked(boxes) ? 'Deselect All' : 'Select All';
-    }
-
-    btn.addEventListener('click', function () {
-      var boxes = getCheckboxes();
-      var check = !allChecked(boxes);
-      boxes.forEach(function (cb) { cb.checked = check; });
-      updateLabel();
-    });
-
-    // Initialise label to reflect server-rendered checked state
-    updateLabel();
-  }());
-</script>
 </html>
 {{end}}
