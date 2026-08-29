@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -246,7 +245,7 @@ func run() error {
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
 
 	// Build user handler.
-	userHandler := user.NewHandler(userSvc, sessionSvc, settingsStore, mailer, tmpl, cfg, logger)
+	userHandler := user.NewHandler(userSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, tmpl, cfg, logger)
 
 	// If no admin user exists, generate a one-time setup token so the operator
 	// can bootstrap the first admin account via /setup. The token is logged to
@@ -363,38 +362,7 @@ func run() error {
 	r.Group(func(r chi.Router) {
 		r.Use(session.RequireSession(sessionSvc, cfg))
 		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.EffectiveCookieName()))
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			u, _ := session.UserFromContext(r.Context())
-
-			ctx := r.Context()
-			var apps []*app.App
-			if u != nil {
-				var err error
-				apps, err = appSvc.ListAppsForUser(ctx, u.ID)
-				if err != nil {
-					logger.Error("dashboard: list apps for user", "user_id", u.ID, "error", err)
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
-			}
-
-			type dashboardData struct {
-				User *user.User
-				Apps []*app.App
-			}
-
-			var buf bytes.Buffer
-			if err := tmpl.ExecuteTemplate(&buf, "user-dashboard", dashboardData{
-				User: u,
-				Apps: apps,
-			}); err != nil {
-				logger.Error("dashboard: render template", "error", err)
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = buf.WriteTo(w)
-		})
+		r.Get("/", userHandler.GetDashboard)
 
 		// Passkey management routes (require session).
 		passkeyHandler.ProfileRoutes(r)

@@ -27,26 +27,36 @@
     <div class="grid max-w-3xl gap-4 sm:grid-cols-2">
       <fieldset class="card p-5">
         <legend class="label px-1">Roles</legend>
-        {{range .Roles}}
-        <label class="checkbox mb-1.5">
-          <input type="checkbox" name="role_ids" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
-          {{.Name}}{{if .Description}} <span class="text-faint">&mdash; {{.Description}}</span>{{end}}
-        </label>
-        {{else}}
-        <p class="text-sm text-faint"><em>No roles defined for this app yet.</em></p>
-        {{end}}
+        <div class="check-list">
+          {{range .Roles}}
+          <label class="checkbox">
+            <input type="checkbox" name="role_ids" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
+            <span class="min-w-0">
+              <span class="block truncate">{{.Name}}</span>
+              {{if .Description}}<span class="block truncate text-xs text-faint">{{.Description}}</span>{{end}}
+            </span>
+          </label>
+          {{else}}
+          <p class="text-sm text-faint"><em>No roles defined for this app yet.</em></p>
+          {{end}}
+        </div>
       </fieldset>
 
       <fieldset class="card p-5">
         <legend class="label px-1">Groups</legend>
-        {{range .Groups}}
-        <label class="checkbox mb-1.5{{if .Inherited}} text-faint{{end}}" {{if .Inherited}}title="Granted via a role — remove the role to revoke this group"{{end}}>
-          <input type="checkbox" name="group_ids" value="{{.ID}}" {{if or .Assigned .Inherited}}checked{{end}}{{if .Inherited}} disabled{{end}}>
-          {{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}{{if .Description}} <span class="text-faint">&mdash; {{.Description}}</span>{{end}}
-        </label>
-        {{else}}
-        <p class="text-sm text-faint"><em>No groups defined for this app yet.</em></p>
-        {{end}}
+        <div class="check-list">
+          {{range .Groups}}
+          <label class="checkbox{{if .Inherited}} text-faint{{end}}" {{if .Inherited}}title="Granted via a role — remove the role to revoke this group"{{end}}>
+            <input type="checkbox" name="group_ids" value="{{.ID}}" {{if or .Assigned .Inherited}}checked{{end}}{{if .Inherited}} disabled{{end}}>
+            <span class="min-w-0">
+              <span class="block truncate">{{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}</span>
+              {{if .Description}}<span class="block truncate text-xs text-faint">{{.Description}}</span>{{end}}
+            </span>
+          </label>
+          {{else}}
+          <p class="text-sm text-faint"><em>No groups defined for this app yet.</em></p>
+          {{end}}
+        </div>
       </fieldset>
     </div>
 

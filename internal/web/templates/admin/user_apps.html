@@ -26,54 +26,54 @@
     {{csrfField .CSRFToken}}
 
     {{if .AppsWithAccess}}
-    <div class="table-wrap mb-4">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">App</th>
-            <th scope="col">Access</th>
-            <th scope="col">Groups</th>
-            <th scope="col">Roles</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{range $row := .AppsWithAccess}}
-          <tr>
-            <td>
-              <span class="font-medium">{{.App.Name}}</span>
-              <span class="td-mono text-faint">({{.App.Slug}})</span>
-              {{if not .App.IsActive}}<span class="badge badge-amber ml-1">inactive</span>{{end}}
-            </td>
-            <td>
-              <label class="checkbox" for="app_{{.App.ID}}">
-                <input type="checkbox" id="app_{{.App.ID}}" name="app_id" value="{{.App.ID}}" {{if .HasAccess}}checked{{end}}>
-                Grant access
-              </label>
-            </td>
-            <td>
+    <div class="mb-4 grid gap-4">
+      {{range $row := .AppsWithAccess}}
+      <div class="card p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="min-w-0">
+            <span class="font-medium">{{.App.Name}}</span>
+            <span class="td-mono text-faint">({{.App.Slug}})</span>
+            {{if not .App.IsActive}}<span class="badge badge-amber ml-1">inactive</span>{{end}}
+          </div>
+          <label class="checkbox shrink-0" for="app_{{.App.ID}}">
+            <input type="checkbox" id="app_{{.App.ID}}" name="app_id" value="{{.App.ID}}" {{if .HasAccess}}checked{{end}}>
+            Grant access
+          </label>
+        </div>
+        <div class="mt-4 grid gap-x-6 gap-y-4 border-t border-line pt-4 sm:grid-cols-2">
+          <fieldset class="min-w-0">
+            <legend class="label mb-1.5">Groups</legend>
+            <div class="check-list">
               {{range .Groups}}
               <label class="checkbox{{if .Inherited}} text-faint{{end}}" {{if .Inherited}}title="Granted via a role — remove the role to revoke this group"{{end}}>
                 <input type="checkbox" name="groups.{{$row.App.ID}}" value="{{.ID}}" {{if or .Assigned .Inherited}}checked{{end}}{{if .Inherited}} disabled{{end}}>
-                {{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}
+                <span class="min-w-0">
+                  <span class="block truncate">{{.Name}}{{if .Inherited}} <em>(via role)</em>{{end}}</span>
+                </span>
               </label>
               {{else}}
-              <span class="text-faint">&mdash;</span>
+              <span class="text-sm text-faint">None defined</span>
               {{end}}
-            </td>
-            <td>
+            </div>
+          </fieldset>
+          <fieldset class="min-w-0">
+            <legend class="label mb-1.5">Roles</legend>
+            <div class="check-list">
               {{range .Roles}}
               <label class="checkbox">
                 <input type="checkbox" name="roles.{{$row.App.ID}}" value="{{.ID}}" {{if .Assigned}}checked{{end}}>
-                {{.Name}}
+                <span class="min-w-0">
+                  <span class="block truncate">{{.Name}}</span>
+                </span>
               </label>
               {{else}}
-              <span class="text-faint">&mdash;</span>
+              <span class="text-sm text-faint">None defined</span>
               {{end}}
-            </td>
-          </tr>
-          {{end}}
-        </tbody>
-      </table>
+            </div>
+          </fieldset>
+        </div>
+      </div>
+      {{end}}
     </div>
     {{else}}
     <div class="empty mb-4">

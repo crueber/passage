@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
@@ -242,7 +243,7 @@ func newMagicLinkHandlerFixture(t *testing.T) (*user.Handler, *handlerFixture) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, sessionSvc, magicLinkEnabledSettings{}, noopSender{}, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(app.NewStore(db), app.NewStore(db), logger), sessionSvc, magicLinkEnabledSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 	f := &handlerFixture{
 		db:      db,
@@ -436,7 +437,7 @@ func TestHandler_GetMagicLinkVerify(t *testing.T) {
 		}
 		logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 		// disabledSettings returns "false" for every key, disabling all auth methods.
-		h := user.NewHandler(userSvc, sessionSvc, disabledSettings{}, noopSender{}, tmpl, cfg, logger)
+		h := user.NewHandler(userSvc, app.NewService(app.NewStore(db), app.NewStore(db), logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
 
 		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token=anytoken", nil)
 		rec := httptest.NewRecorder()
