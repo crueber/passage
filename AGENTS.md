@@ -11,7 +11,7 @@ Passage is a self-hosted authentication proxy for home labs. It implements the *
 **Key characteristics:**
 - Single static Go binary — no CGo, no external runtime dependencies
 - SQLite backing store via `modernc.org/sqlite` (pure Go driver)
-- Web UI built with `html/template` + `embed.FS` + Bulma 1.0.2 CSS framework
+- Web UI built with `html/template` + `embed.FS` + Tailwind CSS v4 (compiled locally, vendored output)
 - Supports username/password (bcrypt), passkeys (WebAuthn), and OAuth 2.0 / OIDC provider
 
 ---
@@ -48,9 +48,12 @@ passage/
     ratelimit/          # in-memory sliding-window limiter + chi Middleware
     web/
       templates/        # html/template files, embedded via embed.FS (user pages at top level, admin pages in admin/)
-      static/           # bulma.min.css, passage.css, htmx.min.js, passkey.js, admin.js
+      static/           # passage.css (generated: compiled+minified Tailwind output), htmx.min.js, passkey.js
+      ui/               # input.css — Tailwind v4 source (@theme tokens + @layer components); rebuild with `make css`
     testutil/           # NewTestDB(t) — in-memory SQLite with migrations, for tests
   docs/                 # nginx/traefik config examples, security.md, forward-auth.md
+  tools/                # tailwindcss standalone CLI binary (gitignored — fetch the v4.x release to rebuild CSS)
+  Makefile              # css / build / vet / test targets
   Dockerfile            # multi-stage build; runtime mounts /data volume for SQLite
   docker-compose.yml    # local deployment example
   passage.example.yaml  # copy to passage.yaml — full config reference
@@ -203,34 +206,25 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 
 ---
 
-## UI Conventions
-
+- **Tailwind CSS v4** is the CSS framework. Source of truth is `internal/web/ui/input.css`: a `@theme` block of design tokens (brand scale, semantic surface/ink/line/muted colours, radii, shadows) plus `@layer components` classes (`.btn`, `.card`, `.input`, `.label`, `.table`, `.badge`, `.note`, `.stat`, `.empty`, `.sidebar-link`, …). Prefer existing component classes and utilities over inventing new ones.
+- `internal/web/static/passage.css` is **generated** — minified Tailwind output, committed. Never hand-edit it. Edit `input.css` and rebuild with `make css` (the `tailwindcss` standalone CLI lives at `tools/tailwindcss`, gitignored; fetch the v4.x release binary for linux/macOS to rebuild).
 - Use `html/template` with `{{define}}` partials for shared layout pieces; each admin page template is a standalone `{{define}}` that calls shared partials (`admin-header`, `admin-nav`, `admin-flash`, `admin-footer`).
-- **Bulma 1.0.2** is the CSS framework — use Bulma utility classes and components. Avoid inventing new class names for things Bulma already covers.
-- `passage.css` owns all theme customisation: CSS custom property overrides (brand colours, sidebar width, footer colours, `--passage-max-width`), the fixed-width container, responsive breakpoints, sidebar min-height, and footer styles. Do not put theme-specific CSS elsewhere.
 - All templates live in one parsed set (`web.Parse`): user pages in `templates/*.html`, admin pages in `templates/admin/*.html`. `{{define}}` names are global across both — prefix admin templates (`admin-*`, `user-dashboard`) to avoid collisions.
 - Forms on every POST route carry `{{csrfField .CSRFToken}}` (or `$.CSRFToken` inside range blocks); templates must include the hidden CSRF input on every POST form.
-- **Admin layout structure** (required on every admin page):
+- **Admin layout structure** — three partials bracket every admin page:
   ```html
-  <div class="passage-admin-body">
-    <div class="passage-admin-container">
-      <div class="passage-admin-shell">
-        {{template "admin-nav" .}}
-        <main class="passage-admin-content"> … </main>
-      </div>
-      {{template "admin-footer" .}}
-    </div>
-  </div>
+  {{template "admin-header" .}}   {{/* opens .admin-shell + topbar, opens flex row */}}
+  {{template "admin-nav" .}}      {{/* .sidebar (drawer on mobile) + opens content column */}}
+  <main …> … </main>
+  {{template "admin-footer" .}}   {{/* closes content column + flex row, renders .app-footer, closes shell */}}
   ```
-  - `passage-admin-body`: flex column, fills viewport below navbar, pushes footer to bottom.
-  - `passage-admin-container`: centres content at `--passage-max-width` (1280px) with responsive side padding.
-  - `passage-admin-shell`: flex row (sidebar + content), `align-items: stretch` so the sidebar background fills the full shell height.
-  - `passage-admin-footer`: full-bleed footer bar with MIT license, GitHub link, and copyright.
+  - `admin-header`: JS-free drawer toggle (`#admin-nav-toggle` checkbox, `.sr-only`), top bar with wordmark breadcrumb, "My Apps" and "Sign out".
+  - `admin-nav`: sidebar with section labels (Overview/Manage/System), inline-SVG icons via `{{template "ic-*"}}` (defined in `templates/icons.html`), `.is-active` + `aria-current="page"` for the current section.
+  - `admin-footer`: closes the shell and renders the full-width footer (license, GitHub, copyright).
 - htmx is used for progressive enhancement in the admin UI only. **Core flows must work without JavaScript.**
-- Every `<input>` must have a paired `<label for="...">` — never use placeholder as a label.
+- Dark mode is automatic via `@media (prefers-color-scheme: dark)` — one semantic token-override block in `input.css` redefines colours and every component flips with it. Do not hardcode colours in templates.
 - Every page must have a unique, descriptive `<title>`.
 - Accessibility: WCAG AA contrast, `:focus-visible` rings, semantic HTML, `aria-` attributes where needed.
-- Dark mode is automatic via `@media (prefers-color-scheme: dark)` — all colour tokens have dark-mode overrides in `passage.css`. Do not hardcode colours in templates.
 
 ---
 
