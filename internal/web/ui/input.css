@@ -10,7 +10,15 @@
  *   4. plain CSS for the JS-free admin sidebar drawer + tiny helpers.
  */
 
-@import "tailwindcss";
+/* Scan scope is pinned: without source(none), Tailwind auto-detects every
+   non-ignored file in the repo — including markdown — and prose words become
+   CSS candidates (an AGENTS.md edit once generated an .invisible utility and
+   broke the CI drift check). Class candidates live only in templates.
+   Register any new class-bearing path here. */
+@import "tailwindcss" source(none);
+@source "../templates";
+@source "../static/app.js";
+@source "../static/passkey.js";
 
 /* ─────────────────────────────────────────────────────────────────────────
  * 1. Design tokens
