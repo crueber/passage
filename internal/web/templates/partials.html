@@ -26,14 +26,9 @@
   <div class="topbar-inner">
     <div class="flex items-center gap-2">
       <a href="/" class="wordmark">{{template "logo"}}<span>passage</span></a>
-      {{if and .User .User.IsAdmin}}
-      <span class="text-faint" aria-hidden="true">/</span>
-      <a href="/admin" class="toplink">Admin</a>
-      {{end}}
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
       {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
-      <a href="/" class="toplink toplink-active" aria-current="page">My Apps</a>
       <a href="/passkeys" class="toplink">Passkeys</a>
       <a href="/logout" class="toplink">Sign out</a>
     </nav>
@@ -47,14 +42,9 @@
   <div class="topbar-inner">
     <div class="flex items-center gap-2">
       <a href="/" class="wordmark">{{template "logo"}}<span>passage</span></a>
-      {{if and .User .User.IsAdmin}}
-      <span class="text-faint" aria-hidden="true">/</span>
-      <a href="/admin" class="toplink">Admin</a>
-      {{end}}
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
       {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
-      <a href="/" class="toplink">My Apps</a>
       <a href="/passkeys" class="toplink toplink-active" aria-current="page">Passkeys</a>
       <a href="/logout" class="toplink">Sign out</a>
     </nav>

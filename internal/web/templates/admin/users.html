@@ -31,7 +31,6 @@
           <th scope="col">Email</th>
           <th scope="col">Name</th>
           <th scope="col">Flags</th>
-          <th scope="col">Apps</th>
           <th scope="col" class="text-right">Actions</th>
         </tr>
       </thead>
@@ -42,9 +41,9 @@
           <td class="td-muted">{{.Email}}</td>
           <td>{{.Name}}</td>
           <td>{{if .IsAdmin}}<span class="badge badge-green">Admin</span> {{end}}{{if not .IsActive}}<span class="badge badge-red">Inactive</span>{{else if not .IsAdmin}}<span class="text-faint">&mdash;</span>{{end}}</td>
-          <td><a class="btn btn-ghost btn-sm" href="/admin/users/{{.ID}}/apps">{{template "ic-apps"}}Access</a></td>
           <td>
             <div class="flex justify-end gap-1.5">
+              <a class="btn btn-outline btn-sm" href="/admin/users/{{.ID}}/apps">{{template "ic-apps"}}Access</a>
               <form method="POST" action="/admin/users/{{.ID}}/reset-password">
                 {{csrfField $.CSRFToken}}
                 <button type="submit" class="btn btn-outline btn-sm">Send Reset</button>

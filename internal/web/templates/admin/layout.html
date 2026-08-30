@@ -11,14 +11,10 @@
           {{template "ic-menu"}}
         </label>
         <a href="/" class="wordmark" aria-label="My Apps">{{template "logo"}}<span>passage</span></a>
-        <span class="mx-1 text-faint" aria-hidden="true">/</span>
-        <a href="/admin" class="text-sm font-medium text-muted hover:text-ink" aria-label="Passage Admin home">admin</a>
       </div>
       <nav class="flex items-center gap-1" aria-label="Account">
-        <a href="/" class="toplink">My Apps</a>
         <a href="/logout" class="toplink">{{template "ic-logout"}}<span class="hidden sm:inline">Sign out</span></a>
       </nav>
-    </div>
   </header>
   <div class="flex w-full flex-1">
 {{end}}
