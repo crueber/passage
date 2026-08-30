@@ -30,8 +30,8 @@
           <th scope="col">Username</th>
           <th scope="col">Email</th>
           <th scope="col">Name</th>
-          <th scope="col">Admin</th>
-          <th scope="col">Active</th>
+          <th scope="col">Flags</th>
+          <th scope="col">Apps</th>
           <th scope="col" class="text-right">Actions</th>
         </tr>
       </thead>
@@ -41,8 +41,8 @@
           <td><a class="font-medium link" href="/admin/users/{{.ID}}">{{.Username}}</a></td>
           <td class="td-muted">{{.Email}}</td>
           <td>{{.Name}}</td>
-          <td>{{if .IsAdmin}}<span class="badge badge-green">Admin</span>{{else}}<span class="badge badge-gray">No</span>{{end}}</td>
-          <td>{{if .IsActive}}<span class="badge badge-green">Active</span>{{else}}<span class="badge badge-red">Inactive</span>{{end}}</td>
+          <td>{{if .IsAdmin}}<span class="badge badge-green">Admin</span> {{end}}{{if not .IsActive}}<span class="badge badge-red">Inactive</span>{{else if not .IsAdmin}}<span class="text-faint">&mdash;</span>{{end}}</td>
+          <td><a class="btn btn-ghost btn-sm" href="/admin/users/{{.ID}}/apps">{{template "ic-apps"}}Access</a></td>
           <td>
             <div class="flex justify-end gap-1.5">
               <form method="POST" action="/admin/users/{{.ID}}/reset-password">

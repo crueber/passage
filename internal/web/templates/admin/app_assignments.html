@@ -15,7 +15,7 @@
 
   <div class="page-head">
     <div>
-      <h1 class="page-title">{{.App.Name}} <span class="text-faint">/</span> {{.User.Username}}</h1>
+      <h1 class="page-title"><a class="link" href="/admin/apps/{{.App.ID}}">{{.App.Name}}</a> <span class="text-faint">/</span> {{.User.Username}}</h1>
       <p class="page-sub">Roles and groups assigned to this user for this app.</p>
     </div>
     <a class="btn btn-ghost btn-sm" href="/admin/apps/{{.App.ID}}/access">{{template "ic-chevron-left"}}Back to access</a>
@@ -23,6 +23,7 @@
 
   <form method="POST" action="/admin/apps/{{.App.ID}}/access/{{.User.ID}}/assignments">
     {{csrfField .CSRFToken}}
+    {{if or .Roles .Groups}}
 
     <div class="grid max-w-3xl gap-4 sm:grid-cols-2">
       <fieldset class="card p-5">
@@ -74,6 +75,12 @@
       <a class="btn btn-outline" href="/admin/apps/{{.App.ID}}/access">Cancel</a>
     </div>
   </form>
+    {{else}}
+    <div class="empty">
+      <p class="empty-title">No roles or groups yet</p>
+      <p class="empty-sub">Define roles or groups for {{.App.Name}} to assign them to {{.User.Username}}.</p>
+    </div>
+    {{end}}
 </main>
 {{template "admin-footer" .}}
 </body>

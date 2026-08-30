@@ -16,7 +16,7 @@
 
   <div class="page-head">
     <div>
-      <h1 class="page-title">{{.App.Name}}</h1>
+      <h1 class="page-title"><a class="link" href="/admin/apps/{{.App.ID}}">{{.App.Name}}</a></h1>
       <p class="page-sub td-mono">{{.App.HostPattern}}</p>
     </div>
     <a class="btn btn-ghost btn-sm" href="/admin/apps">{{template "ic-chevron-left"}}Back to apps</a>
