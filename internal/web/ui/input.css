@@ -179,7 +179,8 @@
     @apply border border-line bg-surface text-ink hover:bg-raised;
   }
   .btn-sm {
-    @apply rounded-md px-2.5 py-1.5 text-xs;
+    /* Fixed height so icons and border variants all render identically. */
+    @apply h-7 rounded-md px-2.5 text-xs;
   }
 
   /* ── Cards & boxes ───────────────────────────────────────────────────── */
