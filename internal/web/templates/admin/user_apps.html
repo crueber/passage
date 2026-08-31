@@ -32,7 +32,7 @@
       <div class="card p-5">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="min-w-0">
-            <span class="font-medium">{{.App.Name}}</span>
+            <span class="font-medium"><a class="link" href="/admin/apps/{{.App.ID}}">{{.App.Name}}</a></span>
             <span class="td-mono text-faint">({{.App.Slug}})</span>
             {{if not .App.IsActive}}<span class="badge badge-amber ml-1">inactive</span>{{end}}
           </div>
@@ -41,6 +41,7 @@
             Grant access
           </label>
         </div>
+        {{if and .Groups .Roles}}
         <div class="mt-4 grid gap-x-6 gap-y-4 border-t border-line pt-4 sm:grid-cols-2">
           <fieldset class="min-w-0">
             <legend class="label mb-1.5">Groups</legend>
@@ -73,6 +74,7 @@
             </div>
           </fieldset>
         </div>
+        {{end}}
       </div>
       {{end}}
     </div>
