@@ -24,6 +24,8 @@ func TestOpen_CreatesSchema(t *testing.T) {
 		"password_reset_tokens",
 		"webauthn_credentials",
 		"settings",
+		// Email verification tokens added in migration 015.
+		"email_verification_tokens",
 		// OAuth tables added in migration 002.
 		"oauth_codes",
 		"oauth_tokens",
