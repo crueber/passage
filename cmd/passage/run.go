@@ -386,6 +386,19 @@ func run() error {
 	// Logout is a GET that revokes a session cookie — no state-changing CSRF risk.
 	r.Get("/logout", userHandler.GetLogout)
 
+	// Email verification links arrive from a mail client: a public GET with no
+	// CSRF token. The optional session lookup below only decides where the
+	// success flash is shown — it never changes the outcome, and an invalid
+	// session is simply ignored.
+	r.With(ratelimit.Middleware(magicLinkLimiter)).Get("/verify-email/{token}", func(w http.ResponseWriter, req *http.Request) {
+		if c, err := req.Cookie(cfg.Session.EffectiveCookieName()); err == nil && c.Value != "" {
+			if _, u, err := sessionSvc.ValidateSession(req.Context(), c.Value); err == nil {
+				req = req.WithContext(session.WithUser(req.Context(), u))
+			}
+		}
+		userHandler.GetVerifyEmail(w, req)
+	})
+
 	// Passkey login routes (public — no session required).
 	// These are JSON API endpoints driven by passkey.js — no CSRF token needed
 	// because the browser WebAuthn API does not submit cross-origin credentials.
@@ -397,6 +410,7 @@ func run() error {
 		r.Use(session.RequireSession(sessionSvc, cfg))
 		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.EffectiveCookieName()))
 		r.Get("/", userHandler.GetDashboard)
+		r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/verify-email/resend", userHandler.PostVerifyEmailResend)
 
 		// Passkey management routes (require session).
 		passkeyHandler.ProfileRoutes(r)

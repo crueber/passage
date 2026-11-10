@@ -71,6 +71,10 @@ func (s *Service) Register(ctx context.Context, username, email, password string
 		IsActive:     true,
 		IsAdmin:      false,
 		Roles:        "[]",
+		// Without a usable SMTP server there is no way to prove control of the
+		// address, so the account is created verified rather than nagging the
+		// user with a banner they cannot clear.
+		EmailVerified: !s.smtpConfigured(),
 	}
 
 	if err := s.store.Create(ctx, u); err != nil {
@@ -105,6 +109,9 @@ func (s *Service) CreateAdmin(ctx context.Context, username, email, password str
 		IsActive:     true,
 		IsAdmin:      true,
 		Roles:        "[]",
+		// The operator creates the bootstrap admin out of band; there is no
+		// self-service owner to verify against, so treat it as trusted.
+		EmailVerified: true,
 	}
 
 	if err := s.store.Create(ctx, u); err != nil {
@@ -251,6 +258,9 @@ func (s *Service) FindOrCreateByEmail(ctx context.Context, emailAddr string) (*U
 		Email:    normalized,
 		IsActive: true,
 		Roles:    "[]",
+		// A magic-link account starts unverified; it is flipped to verified when
+		// the link is actually used, which is the proof of mailbox control.
+		EmailVerified: false,
 	}
 
 	if err := s.store.Create(ctx, newUser); err != nil {
@@ -342,6 +352,82 @@ func (s *Service) ConsumeMagicLinkToken(ctx context.Context, token string) (*Use
 func (s *Service) DeleteExpiredMagicLinkTokens(ctx context.Context) error {
 	if err := s.tokenStore.DeleteExpiredMagicLinkTokens(ctx); err != nil {
 		return fmt.Errorf("user: delete expired magic link tokens: %w", err)
+	}
+	return nil
+}
+
+// EmailVerificationTTL is how long an email verification link stays valid.
+const EmailVerificationTTL = 24 * time.Hour
+
+// smtpConfigured reports whether outgoing mail is usable. A host without a
+// From address cannot send (go-mail rejects the From header), so both are
+// required. When false, registrations are auto-verified and no verification
+// link is ever generated.
+func (s *Service) smtpConfigured() bool {
+	return s.cfg != nil && s.cfg.SMTP.Host != "" && s.cfg.SMTP.From != ""
+}
+
+// CreateEmailVerificationToken issues a fresh verification token for the user,
+// replacing any earlier unused one.
+func (s *Service) CreateEmailVerificationToken(ctx context.Context, userID, emailAddr string) (*EmailVerificationToken, error) {
+	tok, err := s.tokenStore.CreateEmailVerificationToken(ctx, userID, emailAddr, EmailVerificationTTL)
+	if err != nil {
+		return nil, fmt.Errorf("user: create email verification token: %w", err)
+	}
+	return tok, nil
+}
+
+// ConsumeEmailVerificationToken validates a single-use verification token and
+// marks the account's email verified. The token is consumed atomically after
+// the address is confirmed to still match, so a replayed link, or a link for an
+// address that has since changed, cannot verify an account.
+func (s *Service) ConsumeEmailVerificationToken(ctx context.Context, token string) (*User, error) {
+	t, err := s.tokenStore.GetEmailVerificationToken(ctx, token)
+	if err != nil {
+		if errors.Is(err, ErrEmailVerificationTokenNotFound) {
+			return nil, ErrEmailVerificationTokenNotFound
+		}
+		return nil, fmt.Errorf("user: consume email verification token get: %w", err)
+	}
+
+	if t.ExpiresAt.Before(time.Now().UTC()) {
+		return nil, ErrEmailVerificationTokenExpired
+	}
+	if t.UsedAt != nil {
+		return nil, ErrEmailVerificationTokenUsed
+	}
+
+	u, err := s.store.GetByID(ctx, t.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("user: consume email verification token get user: %w", err)
+	}
+	// The token proves control of the address it was mailed to. If the account's
+	// address has changed since (e.g. an admin edit), the link is stale and must
+	// not verify the new address.
+	if t.Email != "" && !strings.EqualFold(t.Email, u.Email) {
+		return nil, ErrEmailVerificationTokenNotFound
+	}
+
+	if err := s.tokenStore.MarkEmailVerificationTokenUsed(ctx, token); err != nil {
+		if errors.Is(err, ErrEmailVerificationTokenUsed) {
+			return nil, ErrEmailVerificationTokenUsed
+		}
+		return nil, fmt.Errorf("user: consume email verification token mark used: %w", err)
+	}
+
+	if err := s.store.SetEmailVerified(ctx, t.UserID, true); err != nil {
+		return nil, fmt.Errorf("user: consume email verification token set verified: %w", err)
+	}
+
+	u.EmailVerified = true
+	return u, nil
+}
+
+// MarkEmailVerified records that the account holder has proven control of their
+// address. Used after a successful magic-link sign-in.
+func (s *Service) MarkEmailVerified(ctx context.Context, userID string) error {
+	if err := s.store.SetEmailVerified(ctx, userID, true); err != nil {
+		return fmt.Errorf("user: mark email verified: %w", err)
 	}
 	return nil
 }

@@ -48,12 +48,13 @@ func (s *SQLiteStore) Create(ctx context.Context, u *User) error {
 	u.UpdatedAt = now
 
 	const query = `
-		INSERT INTO users (id, username, email, name, password_hash, is_admin, is_active, roles, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO users (id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		u.ID, u.Username, u.Email, u.Name, u.PasswordHash,
 		boolToInt(u.IsAdmin), boolToInt(u.IsActive), u.Roles,
+		boolToInt(u.EmailVerified),
 		u.CreatedAt, u.UpdatedAt,
 	)
 	if err != nil {
@@ -65,7 +66,7 @@ func (s *SQLiteStore) Create(ctx context.Context, u *User) error {
 // GetByID looks up a user by their UUID.
 func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
 		FROM users WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, query, id)
 	u, err := scanUser(row)
@@ -78,7 +79,7 @@ func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*User, error) {
 // GetByUsername looks up a user by their username.
 func (s *SQLiteStore) GetByUsername(ctx context.Context, username string) (*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
 		FROM users WHERE username = ?`
 	row := s.db.QueryRowContext(ctx, query, username)
 	u, err := scanUser(row)
@@ -91,7 +92,7 @@ func (s *SQLiteStore) GetByUsername(ctx context.Context, username string) (*User
 // GetByEmail looks up a user by their email address.
 func (s *SQLiteStore) GetByEmail(ctx context.Context, email string) (*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
 		FROM users WHERE email = ?`
 	row := s.db.QueryRowContext(ctx, query, email)
 	u, err := scanUser(row)
@@ -104,7 +105,7 @@ func (s *SQLiteStore) GetByEmail(ctx context.Context, email string) (*User, erro
 // List returns all users ordered by username.
 func (s *SQLiteStore) List(ctx context.Context) ([]*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
 		FROM users ORDER BY username`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -133,12 +134,12 @@ func (s *SQLiteStore) Update(ctx context.Context, u *User) error {
 	const query = `
 		UPDATE users
 		SET username = ?, email = ?, name = ?, password_hash = ?,
-		    is_admin = ?, is_active = ?, roles = ?, updated_at = ?
+		    is_admin = ?, is_active = ?, roles = ?, email_verified = ?, updated_at = ?
 		WHERE id = ?`
 
 	res, err := s.db.ExecContext(ctx, query,
 		u.Username, u.Email, u.Name, u.PasswordHash,
-		boolToInt(u.IsAdmin), boolToInt(u.IsActive), u.Roles, u.UpdatedAt,
+		boolToInt(u.IsAdmin), boolToInt(u.IsActive), u.Roles, boolToInt(u.EmailVerified), u.UpdatedAt,
 		u.ID,
 	)
 	if err != nil {
@@ -150,6 +151,23 @@ func (s *SQLiteStore) Update(ctx context.Context, u *User) error {
 	}
 	if n == 0 {
 		return fmt.Errorf("user store update: %w", ErrNotFound)
+	}
+	return nil
+}
+
+// SetEmailVerified sets only the email_verified flag for the given user.
+func (s *SQLiteStore) SetEmailVerified(ctx context.Context, id string, verified bool) error {
+	const query = `UPDATE users SET email_verified = ?, updated_at = ? WHERE id = ?`
+	res, err := s.db.ExecContext(ctx, query, boolToInt(verified), time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("user store set email verified: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("user store set email verified rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("user store set email verified: %w", ErrNotFound)
 	}
 	return nil
 }
@@ -323,6 +341,96 @@ func (s *SQLiteStore) DeleteExpiredMagicLinkTokens(ctx context.Context) error {
 	return nil
 }
 
+// CreateEmailVerificationToken generates a 32-byte hex token, invalidates any
+// earlier unused token for the same user, and stores the new one with the given
+// TTL. Only the newest link can verify an address. The delete and insert share
+// a transaction so two concurrent resends cannot leave two live links.
+func (s *SQLiteStore) CreateEmailVerificationToken(ctx context.Context, userID, emailAddr string, ttl time.Duration) (*EmailVerificationToken, error) {
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, fmt.Errorf("generate email verification token: %w", err)
+	}
+
+	now := time.Now().UTC()
+	evt := &EmailVerificationToken{
+		Token:     hex.EncodeToString(b),
+		UserID:    userID,
+		Email:     emailAddr,
+		ExpiresAt: now.Add(ttl),
+		CreatedAt: now,
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("store email verification token begin: %w", err)
+	}
+	// Rollback after a successful commit is a no-op; the error is deliberately
+	// ignored so it cannot mask the real result.
+	defer func() { _ = tx.Rollback() }()
+
+	const deleteQuery = `DELETE FROM email_verification_tokens WHERE user_id = ? AND used_at IS NULL`
+	if _, err := tx.ExecContext(ctx, deleteQuery, userID); err != nil {
+		return nil, fmt.Errorf("store email verification token invalidate previous: %w", err)
+	}
+
+	const insertQuery = `
+		INSERT INTO email_verification_tokens (token, user_id, email, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?)`
+	if _, err := tx.ExecContext(ctx, insertQuery, evt.Token, evt.UserID, evt.Email, evt.ExpiresAt, evt.CreatedAt); err != nil {
+		return nil, fmt.Errorf("store email verification token insert: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("store email verification token commit: %w", err)
+	}
+	return evt, nil
+}
+
+// GetEmailVerificationToken looks up an email verification token.
+func (s *SQLiteStore) GetEmailVerificationToken(ctx context.Context, token string) (*EmailVerificationToken, error) {
+	const query = `
+		SELECT token, user_id, email, expires_at, used_at, created_at
+		FROM email_verification_tokens WHERE token = ?`
+	row := s.db.QueryRowContext(ctx, query, token)
+
+	var evt EmailVerificationToken
+	var usedAt sql.NullTime
+	err := row.Scan(&evt.Token, &evt.UserID, &evt.Email, &evt.ExpiresAt, &usedAt, &evt.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrEmailVerificationTokenNotFound
+		}
+		return nil, fmt.Errorf("get email verification token: %w", err)
+	}
+	if usedAt.Valid {
+		evt.UsedAt = &usedAt.Time
+	}
+	return &evt, nil
+}
+
+// MarkEmailVerificationTokenUsed atomically marks a token as used.
+// Returns ErrEmailVerificationTokenUsed if it was already consumed, which closes
+// the double-spend window between two concurrent clicks.
+func (s *SQLiteStore) MarkEmailVerificationTokenUsed(ctx context.Context, token string) error {
+	const query = `UPDATE email_verification_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL`
+	res, err := s.db.ExecContext(ctx, query, time.Now().UTC(), token)
+	if err != nil {
+		return fmt.Errorf("mark email verification token used: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark email verification token used rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrEmailVerificationTokenUsed
+	}
+	return nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error
@@ -331,11 +439,11 @@ type scanner interface {
 // scanUser scans a user from a row result.
 func scanUser(s scanner) (*User, error) {
 	var u User
-	var isAdmin, isActive int
+	var isAdmin, isActive, emailVerified int
 	var passwordHash sql.NullString
 	err := s.Scan(
 		&u.ID, &u.Username, &u.Email, &u.Name, &passwordHash,
-		&isAdmin, &isActive, &u.Roles, &u.CreatedAt, &u.UpdatedAt,
+		&isAdmin, &isActive, &u.Roles, &emailVerified, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -345,6 +453,7 @@ func scanUser(s scanner) (*User, error) {
 	}
 	u.IsAdmin = isAdmin != 0
 	u.IsActive = isActive != 0
+	u.EmailVerified = emailVerified != 0
 	if passwordHash.Valid {
 		u.PasswordHash = passwordHash.String
 	}

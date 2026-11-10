@@ -23,6 +23,10 @@ var (
 	ErrMagicLinkTokenNotFound = errors.New("user: magic link token not found")
 	ErrMagicLinkTokenExpired  = errors.New("user: magic link token expired")
 	ErrMagicLinkTokenUsed     = errors.New("user: magic link token already used")
+
+	ErrEmailVerificationTokenNotFound = errors.New("user: email verification token not found")
+	ErrEmailVerificationTokenExpired  = errors.New("user: email verification token expired")
+	ErrEmailVerificationTokenUsed     = errors.New("user: email verification token already used")
 )
 
 // User represents a Passage user account.
@@ -35,8 +39,12 @@ type User struct {
 	IsAdmin      bool
 	IsActive     bool
 	Roles        string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// EmailVerified reports whether the account holder has proven control of
+	// Email. It is informational only: it never blocks authentication, so a
+	// broken or absent mail server cannot lock anyone out.
+	EmailVerified bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ResetToken represents a password reset token.
@@ -58,6 +66,18 @@ type MagicLinkToken struct {
 	CreatedAt time.Time
 }
 
+// EmailVerificationToken is a single-use, time-limited token that proves the
+// account holder controls the address on the account. Email is captured at
+// issue time so a token cannot verify a later, different address.
+type EmailVerificationToken struct {
+	Token     string
+	UserID    string
+	Email     string
+	ExpiresAt time.Time
+	UsedAt    *time.Time // nil = not yet consumed
+	CreatedAt time.Time
+}
+
 // Store is the persistence interface for users. It is defined here, at the
 // consumer boundary, as per Go convention.
 type Store interface {
@@ -68,6 +88,10 @@ type Store interface {
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, user *User) error
 	Delete(ctx context.Context, id string) error
+	// SetEmailVerified sets only the email_verified flag for one user. Used by
+	// the verification flow and by magic-link sign-in (which proves control of
+	// the address) so a concurrent profile edit cannot be clobbered.
+	SetEmailVerified(ctx context.Context, id string, verified bool) error
 	// HasAdmin reports whether at least one admin user exists in the database.
 	// Used at startup to determine whether the /setup endpoint should be active.
 	HasAdmin(ctx context.Context) (bool, error)
@@ -87,4 +111,10 @@ type TokenStore interface {
 	GetMagicLinkToken(ctx context.Context, token string) (*MagicLinkToken, error)
 	MarkMagicLinkTokenUsed(ctx context.Context, token string) error
 	DeleteExpiredMagicLinkTokens(ctx context.Context) error
+
+	// Email verification tokens. Creating a token invalidates any earlier
+	// unused token for the same user, so only the newest link works.
+	CreateEmailVerificationToken(ctx context.Context, userID, emailAddr string, ttl time.Duration) (*EmailVerificationToken, error)
+	GetEmailVerificationToken(ctx context.Context, token string) (*EmailVerificationToken, error)
+	MarkEmailVerificationTokenUsed(ctx context.Context, token string) error
 }

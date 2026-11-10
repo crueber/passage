@@ -14,6 +14,20 @@
 
 <main class="content w-full">
   {{$hasApps := .Apps}}
+  {{template "flash" .}}
+
+  {{if and .User (not .User.EmailVerified)}}
+  <div role="alert" class="note note-warn mb-5">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <span>Verify your email &mdash; we sent a link to <strong>{{.User.Email}}</strong>.</span>
+      <form method="post" action="/verify-email/resend" class="shrink-0">
+        {{csrfField .CSRFToken}}
+        <button type="submit" class="btn btn-sm btn-outline">Resend verification email</button>
+      </form>
+    </div>
+  </div>
+  {{end}}
+
   {{if and (not $hasApps) (not (and .User .User.IsAdmin))}}
   <div class="empty mt-10" role="status">
     {{template "ic-inbox"}}
@@ -28,8 +42,6 @@
     </div>
     <a href="/passkeys" class="btn btn-outline btn-sm">{{template "ic-key"}}Manage passkeys</a>
   </div>
-
-  {{template "flash" .}}
 
   <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
     {{if and .User .User.IsAdmin}}
