@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 )
@@ -30,35 +31,45 @@ type oauthService interface {
 	// TokenAssignments resolves a user's app-scoped role names and effective
 	// (direct plus role-inherited) group names for the userinfo response.
 	TokenAssignments(ctx context.Context, userID, appID string) (roles, groups []string, err error)
+	// ClientForIDTokenHint verifies an id_token presented as a logout hint and
+	// returns the app it was issued to.
+	ClientForIDTokenHint(ctx context.Context, idTokenHint string) (*app.App, error)
+	// RevokeToken implements RFC 7009 revocation.
+	RevokeToken(ctx context.Context, token, tokenTypeHint, clientID, clientSecret string) error
+	// IntrospectToken implements RFC 7662 introspection. A nil result means
+	// the token is not active.
+	IntrospectToken(ctx context.Context, token, tokenTypeHint, clientID, clientSecret string) (*TokenInfo, error)
 }
 
-// sessionValidator is the interface the Handler uses to validate sessions.
+// sessionValidator is the interface the Handler uses to validate and revoke
+// browser sessions.
 // Defined here at the consumer boundary, per Go convention.
 type sessionValidator interface {
 	ValidateSession(ctx context.Context, token string) (*session.Session, *user.User, error)
+	RevokeSession(ctx context.Context, token string) error
 }
 
 // Handler handles OAuth2/OIDC HTTP requests.
 type Handler struct {
-	svc        oauthService
-	sessions   sessionValidator
-	publicKey  *rsa.PublicKey
-	keyID      string // kid included in JWKS and id_token header
-	baseURL    string
-	cookieName string
-	logger     *slog.Logger
+	svc       oauthService
+	sessions  sessionValidator
+	publicKey *rsa.PublicKey
+	keyID     string // kid included in JWKS and id_token header
+	baseURL   string
+	cfg       *config.Config
+	logger    *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(svc oauthService, sessions sessionValidator, publicKey *rsa.PublicKey, keyID, baseURL, cookieName string, logger *slog.Logger) *Handler {
+func NewHandler(svc oauthService, sessions sessionValidator, publicKey *rsa.PublicKey, keyID, baseURL string, cfg *config.Config, logger *slog.Logger) *Handler {
 	return &Handler{
-		svc:        svc,
-		sessions:   sessions,
-		publicKey:  publicKey,
-		keyID:      keyID,
-		baseURL:    baseURL,
-		cookieName: cookieName,
-		logger:     logger,
+		svc:       svc,
+		sessions:  sessions,
+		publicKey: publicKey,
+		keyID:     keyID,
+		baseURL:   baseURL,
+		cfg:       cfg,
+		logger:    logger,
 	}
 }
 
@@ -69,25 +80,34 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Get("/oauth/authorize", h.Authorize)
 	r.Post("/oauth/token", h.Token)
 	r.Get("/oauth/userinfo", h.UserInfo)
+	r.Get("/oauth/logout", h.Logout)
+	r.Post("/oauth/logout", h.Logout)
+	r.Post("/oauth/revoke", h.Revoke)
+	r.Post("/oauth/introspect", h.Introspect)
 }
 
 // Discovery returns the OpenID Connect discovery document.
 func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 	doc := map[string]any{
-		"issuer":                                h.baseURL,
-		"authorization_endpoint":                h.baseURL + "/oauth/authorize",
-		"token_endpoint":                        h.baseURL + "/oauth/token",
-		"userinfo_endpoint":                     h.baseURL + "/oauth/userinfo",
-		"jwks_uri":                              h.baseURL + "/.well-known/jwks.json",
-		"response_types_supported":              []string{"code"},
-		"subject_types_supported":               []string{"public"},
-		"id_token_signing_alg_values_supported": []string{"RS256"},
-		"scopes_supported":                      []string{"openid", "profile", "email"},
-		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"claims_supported":                      []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "email_verified", "preferred_username", "roles", "groups"},
-		"nonce_supported":                       true,
-		"code_challenge_methods_supported":      []string{"S256"},
+		"issuer":                                        h.baseURL,
+		"authorization_endpoint":                        h.baseURL + "/oauth/authorize",
+		"token_endpoint":                                h.baseURL + "/oauth/token",
+		"userinfo_endpoint":                             h.baseURL + "/oauth/userinfo",
+		"end_session_endpoint":                          h.baseURL + "/oauth/logout",
+		"revocation_endpoint":                           h.baseURL + "/oauth/revoke",
+		"introspection_endpoint":                        h.baseURL + "/oauth/introspect",
+		"jwks_uri":                                      h.baseURL + "/.well-known/jwks.json",
+		"response_types_supported":                      []string{"code"},
+		"subject_types_supported":                       []string{"public"},
+		"id_token_signing_alg_values_supported":         []string{"RS256"},
+		"scopes_supported":                              []string{"openid", "profile", "email"},
+		"token_endpoint_auth_methods_supported":         []string{"client_secret_post", "client_secret_basic"},
+		"revocation_endpoint_auth_methods_supported":    []string{"client_secret_post", "client_secret_basic"},
+		"introspection_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
+		"grant_types_supported":                         []string{"authorization_code", "refresh_token"},
+		"claims_supported":                              []string{"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "name", "email", "email_verified", "preferred_username", "roles", "groups"},
+		"nonce_supported":                               true,
+		"code_challenge_methods_supported":              []string{"S256"},
 	}
 
 	h.writeJSON(w, http.StatusOK, doc)
@@ -160,7 +180,7 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate the session.
-	cookie, err := r.Cookie(h.cookieName)
+	cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName())
 	if err != nil {
 		// No session cookie — redirect to login.
 		h.redirectToLogin(w, r)
@@ -279,11 +299,206 @@ func (h *Handler) handleRefreshTokenGrant(ctx context.Context, w http.ResponseWr
 
 	resp, err := h.svc.RefreshTokens(ctx, refreshToken, clientID, clientSecret)
 	if err != nil {
+		// Refresh-token reuse is a security event, not an ordinary bad grant.
+		// Log it here (no token material) — the integrator hooks authentication
+		// event emission onto this branch, and the service has already revoked
+		// the whole family by the time the error is returned.
+		var reuseErr *RefreshTokenReuseError
+		if errors.As(err, &reuseErr) {
+			h.logger.Warn("oauth refresh token reuse detected; token family revoked",
+				"app_id", reuseErr.AppID,
+				"user_id", reuseErr.UserID,
+			)
+		}
 		h.writeTokenError(w, err)
 		return
 	}
 
 	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// Logout implements OIDC RP-Initiated Logout 1.0 at /oauth/logout.
+//
+// It accepts GET and POST. The endpoint is intentionally exempt from CSRF
+// protection and client authentication: RPs reach it by redirecting or
+// auto-submitting the user's browser, and the request is authenticated by the
+// signed id_token_hint. A cross-site caller can only terminate the session of
+// the browser that is making the request, which is the point of single logout.
+// Do not copy this exemption to any other endpoint.
+//
+// Parameters:
+//   - id_token_hint: an id_token issued by this server. Its aud identifies the
+//     app, and its registration list authorises post_logout_redirect_uri.
+//   - post_logout_redirect_uri: must exactly match a registered redirect URI.
+//   - state: echoed back on the redirect when non-empty.
+//   - client_id: optional; when present it must match the hint's audience.
+//
+// Without a hint there is nothing to verify, so the browser is sent to the
+// server base URL and post_logout_redirect_uri is ignored (never a redirect
+// target). The local SSO session is always revoked.
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+
+	if err := r.ParseForm(); err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "failed to parse request")
+		return
+	}
+
+	idTokenHint := r.FormValue("id_token_hint")
+	postLogoutRedirectURI := r.FormValue("post_logout_redirect_uri")
+	state := r.FormValue("state")
+	clientID := r.FormValue("client_id")
+
+	target := h.baseURL
+
+	if idTokenHint != "" {
+		a, err := h.svc.ClientForIDTokenHint(ctx, idTokenHint)
+		if err != nil {
+			// The reason (bad signature, wrong issuer, unknown client) is
+			// logged for operators and never described to the caller.
+			h.logger.Warn("oauth logout: id_token_hint rejected", "error", err)
+			h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "id_token_hint is not valid")
+			return
+		}
+		if clientID != "" && clientID != a.ClientID {
+			h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "client_id does not match id_token_hint")
+			return
+		}
+		if postLogoutRedirectURI != "" {
+			// Exact match only: no prefix, suffix, or wildcard comparison.
+			registered := false
+			for _, uri := range a.RedirectURIs {
+				if uri == postLogoutRedirectURI {
+					registered = true
+					break
+				}
+			}
+			if !registered {
+				h.logger.Warn("oauth logout: unregistered post_logout_redirect_uri", "client_id", a.ClientID)
+				h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
+					"post_logout_redirect_uri is not registered for this client")
+				return
+			}
+			target = postLogoutRedirectURI
+		}
+	}
+
+	// End the local SSO session. Clear the cookie unconditionally so the
+	// browser forgets the token even if the row is already gone, then delete
+	// the row — clearing the cookie alone would leave a replayable session.
+	session.ClearCookie(w, h.cfg)
+	if cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName()); err == nil && cookie.Value != "" {
+		if err := h.sessions.RevokeSession(ctx, cookie.Value); err != nil && !errors.Is(err, session.ErrSessionNotFound) {
+			h.logger.Error("oauth logout: revoke session", "error", err)
+			h.writeJSONError(w, http.StatusInternalServerError, "server_error", "failed to terminate the session")
+			return
+		}
+	}
+
+	h.redirectWithState(w, r, target, state)
+}
+
+// Revoke implements RFC 7009 token revocation at POST /oauth/revoke.
+// It always answers 200 with an empty body once the client is authenticated:
+// the response must not reveal whether the token existed. Bad client
+// credentials are rejected with 401 invalid_client.
+func (h *Handler) Revoke(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+
+	if err := r.ParseForm(); err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "failed to parse request body")
+		return
+	}
+
+	clientID, clientSecret := extractClientCredentials(r)
+	if clientID == "" {
+		h.writeJSONError(w, http.StatusUnauthorized, "invalid_client", "client credentials are required")
+		return
+	}
+
+	err := h.svc.RevokeToken(ctx, r.FormValue("token"), r.FormValue("token_type_hint"), clientID, clientSecret)
+	if err != nil {
+		if isClientAuthError(err) {
+			h.writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Client authentication failed.")
+			return
+		}
+		// Internal failure. RFC 7009 requires 200 for unknown tokens and the
+		// response must never leak token state, so log and report success.
+		h.logger.Error("oauth revoke: unexpected error", "error", err)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// Introspect implements RFC 7662 token introspection at POST /oauth/introspect.
+// Active tokens return claims about the token (never the token itself);
+// everything else returns {"active": false}.
+func (h *Handler) Introspect(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+
+	if err := r.ParseForm(); err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "failed to parse request body")
+		return
+	}
+
+	clientID, clientSecret := extractClientCredentials(r)
+	if clientID == "" {
+		h.writeJSONError(w, http.StatusUnauthorized, "invalid_client", "client credentials are required")
+		return
+	}
+
+	info, err := h.svc.IntrospectToken(ctx, r.FormValue("token"), r.FormValue("token_type_hint"), clientID, clientSecret)
+	if err != nil {
+		if isClientAuthError(err) {
+			h.writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Client authentication failed.")
+			return
+		}
+		h.logger.Error("oauth introspect: unexpected error", "error", err)
+		h.writeJSONError(w, http.StatusInternalServerError, "server_error", "An unexpected error occurred.")
+		return
+	}
+
+	if info == nil {
+		h.writeJSON(w, http.StatusOK, map[string]bool{"active": false})
+		return
+	}
+	h.writeJSON(w, http.StatusOK, info)
+}
+
+// isClientAuthError reports whether err is a client-authentication failure
+// (as opposed to an internal error).
+func isClientAuthError(err error) bool {
+	return errors.Is(err, app.ErrInvalidClientSecret) || errors.Is(err, app.ErrOAuthNotEnabled)
+}
+
+// redirectWithState redirects to target, appending state as a query parameter
+// when one was supplied. target has already been validated by the caller.
+func (h *Handler) redirectWithState(w http.ResponseWriter, r *http.Request, target, state string) {
+	if target == "" {
+		// No configured base URL (development): stay on this host.
+		target = "/"
+	}
+	u, err := url.Parse(target)
+	if err != nil {
+		h.logger.Error("oauth logout: invalid redirect target", "error", err)
+		h.writeJSONError(w, http.StatusInternalServerError, "server_error", "invalid redirect target")
+		return
+	}
+	if state != "" {
+		q := u.Query()
+		q.Set("state", state)
+		u.RawQuery = q.Encode()
+	}
+	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
 // writeTokenError maps service errors to RFC 6749 JSON error responses.
@@ -295,6 +510,7 @@ func (h *Handler) writeTokenError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrCodeExpired),
 		errors.Is(err, ErrRefreshNotFound),
 		errors.Is(err, ErrRefreshUsed),
+		errors.Is(err, ErrRefreshTokenReuse),
 		errors.Is(err, ErrRefreshExpired),
 		errors.Is(err, ErrPKCEVerificationFailed),
 		errors.Is(err, ErrUserInactive),

@@ -3,6 +3,7 @@ package oauth_test
 import (
 	"context"
 	"crypto/rsa"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -28,10 +29,22 @@ type fakeSessionValidator struct {
 	sess *session.Session
 	u    *user.User
 	err  error
+
+	// revoked records tokens passed to RevokeSession.
+	revoked   []string
+	revokeErr error
 }
 
 func (f *fakeSessionValidator) ValidateSession(_ context.Context, _ string) (*session.Session, *user.User, error) {
 	return f.sess, f.u, f.err
+}
+
+func (f *fakeSessionValidator) RevokeSession(_ context.Context, token string) error {
+	if f.revokeErr != nil {
+		return f.revokeErr
+	}
+	f.revoked = append(f.revoked, token)
+	return nil
 }
 
 // handlerTestStack holds a Handler and the underlying Service and store DB.
@@ -39,6 +52,7 @@ type handlerTestStack struct {
 	handler *oauth.Handler
 	svc     *oauth.Service
 	store   *oauth.SQLiteStore
+	db      *sql.DB
 	appID   string
 	userID  string
 }
@@ -69,11 +83,12 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 		t.Fatalf("buildHandlerTestStack: NewService: %v", err)
 	}
 
-	h := oauth.NewHandler(svc, sv, svc.PrivateKey().Public().(*rsa.PublicKey), svc.KeyID(), "https://auth.example.com", "passage_session", slog.Default())
+	h := oauth.NewHandler(svc, sv, svc.PrivateKey().Public().(*rsa.PublicKey), svc.KeyID(), "https://auth.example.com", testConfig(), slog.Default())
 	return &handlerTestStack{
 		handler: h,
 		svc:     svc,
 		store:   store,
+		db:      db,
 		appID:   appID,
 		userID:  userID,
 	}
@@ -86,6 +101,9 @@ func newTestRouter(h *oauth.Handler) *chi.Mux {
 	return r
 }
 
+// TestHandler_Discovery checks the discovery document exposes every endpoint
+// the server implements, including the OIDC end_session_endpoint and the
+// RFC 7009/7662 revocation and introspection endpoints.
 func TestHandler_Discovery(t *testing.T) {
 
 	sv := &fakeSessionValidator{}
@@ -118,6 +136,7 @@ func TestHandler_Discovery(t *testing.T) {
 		"scopes_supported", "token_endpoint_auth_methods_supported",
 		"grant_types_supported", "claims_supported",
 		"code_challenge_methods_supported",
+		"end_session_endpoint", "revocation_endpoint", "introspection_endpoint",
 	}
 	for _, field := range requiredFields {
 		if _, ok := doc[field]; !ok {
@@ -127,6 +146,15 @@ func TestHandler_Discovery(t *testing.T) {
 
 	if doc["issuer"] != "https://auth.example.com" {
 		t.Errorf("Discovery issuer: got %v", doc["issuer"])
+	}
+	if doc["end_session_endpoint"] != "https://auth.example.com/oauth/logout" {
+		t.Errorf("Discovery end_session_endpoint: got %v", doc["end_session_endpoint"])
+	}
+	if doc["revocation_endpoint"] != "https://auth.example.com/oauth/revoke" {
+		t.Errorf("Discovery revocation_endpoint: got %v", doc["revocation_endpoint"])
+	}
+	if doc["introspection_endpoint"] != "https://auth.example.com/oauth/introspect" {
+		t.Errorf("Discovery introspection_endpoint: got %v", doc["introspection_endpoint"])
 	}
 
 	// Verify code_challenge_methods_supported contains exactly "S256" —
