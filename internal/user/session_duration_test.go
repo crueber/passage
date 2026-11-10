@@ -75,7 +75,7 @@ func newLoginFixture(t *testing.T) *loginFixture {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	handler := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
 
 	u, err := userSvc.Register(context.Background(), "login_user", "login@example.com", "password123")
 	if err != nil {
