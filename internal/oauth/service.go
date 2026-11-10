@@ -258,7 +258,8 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		return nil, fmt.Errorf("oauth exchange code: create token: %w", err)
 	}
 
-	// Create refresh token.
+	// Create refresh token. FamilyID is left empty so the store starts a new
+	// rotation family for this grant.
 	refreshToken := &RefreshToken{
 		AppID:     a.ID,
 		UserID:    u.ID,
@@ -318,6 +319,24 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		return nil, app.ErrInvalidClientSecret
 	}
 
+	// Reuse detection (OAuth 2.1 §6.1). A refresh token is single-use: once it
+	// has been rotated, presenting it again can only mean the value leaked, so
+	// the whole rotation family is revoked and the request is rejected with
+	// invalid_grant. This check runs after client authentication on purpose —
+	// otherwise anyone holding a stale token value could destroy a live family
+	// without knowing the client secret. The sentinel wraps ErrRefreshUsed as
+	// well, so "already used" callers see the same class of failure.
+	if rt.UsedAt != nil {
+		if err := s.store.DeleteRefreshFamily(ctx, rt.FamilyID); err != nil {
+			return nil, fmt.Errorf("oauth refresh tokens: delete reused family: %w", err)
+		}
+		return nil, &RefreshTokenReuseError{
+			AppID:    rt.AppID,
+			UserID:   rt.UserID,
+			FamilyID: rt.FamilyID,
+		}
+	}
+
 	// Atomically mark old refresh token as used (rotation) — returns ErrRefreshUsed on double-spend.
 	if err := s.store.MarkRefreshTokenUsed(ctx, refreshToken); err != nil {
 		return nil, err
@@ -357,11 +376,13 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		return nil, fmt.Errorf("oauth refresh tokens: create token: %w", err)
 	}
 
-	// Create new refresh token (rotation).
+	// Create new refresh token (rotation). The child inherits the parent's
+	// family_id so a replay of any token in the chain revokes the chain.
 	newRefreshToken := &RefreshToken{
 		AppID:     a.ID,
 		UserID:    u.ID,
 		Scopes:    rt.Scopes,
+		FamilyID:  rt.FamilyID,
 		ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
 	}
 	if err := s.store.CreateRefreshToken(ctx, newRefreshToken); err != nil {
@@ -412,6 +433,217 @@ func (s *Service) ValidateAccessToken(ctx context.Context, token string) (*user.
 	}
 
 	return u, t, nil
+}
+
+// authenticateClient resolves an OAuth client and verifies its secret.
+// It is the shared client-authentication path for the token, revocation, and
+// introspection endpoints. The returned errors are the app package sentinels
+// (ErrOAuthNotEnabled, ErrInvalidClientSecret) so callers can map them to
+// invalid_client; anything else is an internal failure.
+func (s *Service) authenticateClient(ctx context.Context, clientID, clientSecret string) (*app.App, error) {
+	if clientID == "" {
+		return nil, app.ErrOAuthNotEnabled
+	}
+	a, err := s.apps.GetByClientID(ctx, clientID)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			return nil, app.ErrOAuthNotEnabled
+		}
+		return nil, fmt.Errorf("oauth client auth: get app: %w", err)
+	}
+	if !a.OAuthEnabled {
+		return nil, app.ErrOAuthNotEnabled
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(a.ClientSecretHash), []byte(clientSecret)); err != nil {
+		return nil, app.ErrInvalidClientSecret
+	}
+	return a, nil
+}
+
+// ClientForIDTokenHint verifies that idTokenHint was signed by this server and
+// returns the app named by its aud claim. The signature is checked against the
+// live signing key with RS256 only; claim *timestamps* are not validated
+// because OIDC RP-Initiated Logout 1.0 §2 allows an expired id_token as a hint
+// (the RP may be logging out a session whose token has already expired).
+// Nothing else from the hint is trusted.
+func (s *Service) ClientForIDTokenHint(ctx context.Context, idTokenHint string) (*app.App, error) {
+	claims := jwtlib.MapClaims{}
+	_, err := jwtlib.ParseWithClaims(idTokenHint, claims, func(t *jwtlib.Token) (any, error) {
+		// Reject any algorithm confusion (e.g. HS256 signed with the public key).
+		if _, ok := t.Method.(*jwtlib.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method %q", t.Method.Alg())
+		}
+		return &s.privateKey.PublicKey, nil
+	}, jwtlib.WithValidMethods([]string{"RS256"}), jwtlib.WithoutClaimsValidation())
+	if err != nil {
+		// The parse error is not returned to the client; it is kept in the
+		// wrapped chain for logs while the sentinel drives the response.
+		return nil, fmt.Errorf("oauth verify id token hint: %w: %w", err, ErrInvalidIDTokenHint)
+	}
+
+	issuer, err := claims.GetIssuer()
+	if err != nil || issuer != s.baseURL {
+		return nil, fmt.Errorf("oauth verify id token hint: issuer mismatch: %w", ErrInvalidIDTokenHint)
+	}
+
+	audience, err := claims.GetAudience()
+	if err != nil || len(audience) == 0 {
+		return nil, fmt.Errorf("oauth verify id token hint: missing audience: %w", ErrInvalidIDTokenHint)
+	}
+
+	a, err := s.apps.GetByClientID(ctx, audience[0])
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			return nil, fmt.Errorf("oauth verify id token hint: unknown client: %w", ErrInvalidIDTokenHint)
+		}
+		return nil, fmt.Errorf("oauth verify id token hint: get app: %w", err)
+	}
+	return a, nil
+}
+
+// Token kinds used by the revocation and introspection endpoints. They match
+// the token_type_hint values defined by RFC 7009 §2.1 and RFC 7662 §2.1 and the
+// token_type values returned by introspection.
+const (
+	tokenKindAccess  = "access_token"
+	tokenKindRefresh = "refresh_token"
+)
+
+// tokenKinds returns the token types to try, in order, for a request that
+// carries an optional token_type_hint. The hint is advisory: if the hinted type
+// does not hold the token, the other type is still tried.
+func tokenKinds(tokenTypeHint string) []string {
+	switch tokenTypeHint {
+	case tokenKindRefresh:
+		return []string{tokenKindRefresh, tokenKindAccess}
+	default:
+		return []string{tokenKindAccess, tokenKindRefresh}
+	}
+}
+
+// RevokeToken implements RFC 7009 token revocation. Revoking a refresh token
+// revokes its whole rotation family; revoking an access token deletes that one
+// token. Unknown tokens, tokens owned by a different client, and hints that do
+// not match are all silent no-ops so the endpoint never reveals whether a token
+// exists. Only client authentication failures are reported to the caller.
+func (s *Service) RevokeToken(ctx context.Context, token, tokenTypeHint, clientID, clientSecret string) error {
+	a, err := s.authenticateClient(ctx, clientID, clientSecret)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		return nil
+	}
+
+	for _, kind := range tokenKinds(tokenTypeHint) {
+		if kind == tokenKindAccess {
+			t, err := s.store.GetToken(ctx, token)
+			if err != nil {
+				if errors.Is(err, ErrTokenNotFound) {
+					continue
+				}
+				return fmt.Errorf("oauth revoke: get access token: %w", err)
+			}
+			if t.AppID != a.ID {
+				// Another client's token: report success without touching it.
+				return nil
+			}
+			if err := s.store.DeleteToken(ctx, token); err != nil {
+				return fmt.Errorf("oauth revoke: delete access token: %w", err)
+			}
+			return nil
+		}
+
+		rt, err := s.store.GetRefreshToken(ctx, token)
+		if err != nil {
+			if errors.Is(err, ErrRefreshNotFound) {
+				continue
+			}
+			return fmt.Errorf("oauth revoke: get refresh token: %w", err)
+		}
+		if rt.AppID != a.ID {
+			return nil
+		}
+		if err := s.store.DeleteRefreshFamily(ctx, rt.FamilyID); err != nil {
+			return fmt.Errorf("oauth revoke: delete refresh family: %w", err)
+		}
+		return nil
+	}
+	return nil
+}
+
+// IntrospectToken implements RFC 7662 token introspection. It returns nil for
+// any token that is unknown, expired, used, owned by a different client, or
+// whose user is deactivated — the handler renders that as {"active": false}.
+// The token value itself is never echoed back. Only client authentication
+// failures and infrastructure errors are reported to the caller.
+func (s *Service) IntrospectToken(ctx context.Context, token, tokenTypeHint, clientID, clientSecret string) (*TokenInfo, error) {
+	a, err := s.authenticateClient(ctx, clientID, clientSecret)
+	if err != nil {
+		return nil, err
+	}
+	if token == "" {
+		return nil, nil
+	}
+
+	for _, kind := range tokenKinds(tokenTypeHint) {
+		if kind == tokenKindAccess {
+			t, err := s.store.GetToken(ctx, token)
+			if err != nil {
+				if errors.Is(err, ErrTokenNotFound) {
+					continue
+				}
+				return nil, fmt.Errorf("oauth introspect: get access token: %w", err)
+			}
+			if t.AppID != a.ID || time.Now().UTC().After(t.ExpiresAt) {
+				return nil, nil
+			}
+			u, err := s.users.GetByID(ctx, t.UserID)
+			if err != nil {
+				return nil, fmt.Errorf("oauth introspect: get user: %w", err)
+			}
+			if !u.IsActive {
+				return nil, nil
+			}
+			return s.tokenInfo(a, u, t.Scopes, t.CreatedAt, t.ExpiresAt, "Bearer"), nil
+		}
+
+		rt, err := s.store.GetRefreshToken(ctx, token)
+		if err != nil {
+			if errors.Is(err, ErrRefreshNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("oauth introspect: get refresh token: %w", err)
+		}
+		if rt.AppID != a.ID || rt.UsedAt != nil || time.Now().UTC().After(rt.ExpiresAt) {
+			return nil, nil
+		}
+		u, err := s.users.GetByID(ctx, rt.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("oauth introspect: get user: %w", err)
+		}
+		if !u.IsActive {
+			return nil, nil
+		}
+		return s.tokenInfo(a, u, rt.Scopes, rt.CreatedAt, rt.ExpiresAt, tokenKindRefresh), nil
+	}
+	return nil, nil
+}
+
+// tokenInfo assembles the RFC 7662 response for an active token.
+func (s *Service) tokenInfo(a *app.App, u *user.User, scope string, issuedAt, expiresAt time.Time, tokenType string) *TokenInfo {
+	return &TokenInfo{
+		Active:    true,
+		ClientID:  a.ClientID,
+		Username:  u.Username,
+		Subject:   u.ID,
+		Scope:     scope,
+		ExpiresAt: expiresAt.Unix(),
+		IssuedAt:  issuedAt.Unix(),
+		TokenType: tokenType,
+		Issuer:    s.baseURL,
+		Audience:  a.ClientID,
+	}
 }
 
 // buildIDToken constructs and signs a JWT id_token using RS256.

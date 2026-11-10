@@ -5,7 +5,17 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/crueber/passage/internal/config"
 )
+
+// testConfig returns a minimal config for handler tests. CookieSecure is false
+// so the effective session cookie name stays "passage_session".
+func testConfig() *config.Config {
+	return &config.Config{
+		Session: config.SessionConfig{CookieName: "passage_session"},
+	}
+}
 
 // seedAppAndUser inserts a minimal user and app row into the test database and
 // returns their IDs. This satisfies foreign key constraints for OAuth records.
