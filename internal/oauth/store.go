@@ -179,6 +179,8 @@ func (s *SQLiteStore) DeleteToken(ctx context.Context, token string) error {
 
 // CreateRefreshToken inserts a new refresh token into the database.
 // A random 64-char hex token is assigned to rt.Token before inserting.
+// When rt.FamilyID is empty a fresh family is generated — this is the start of
+// a rotation chain. Rotation passes the parent's FamilyID through unchanged.
 func (s *SQLiteStore) CreateRefreshToken(ctx context.Context, rt *RefreshToken) error {
 	tok, err := generateToken()
 	if err != nil {
@@ -186,15 +188,23 @@ func (s *SQLiteStore) CreateRefreshToken(ctx context.Context, rt *RefreshToken) 
 	}
 	rt.Token = tok
 
+	if rt.FamilyID == "" {
+		familyID, err := generateToken()
+		if err != nil {
+			return err
+		}
+		rt.FamilyID = familyID
+	}
+
 	now := time.Now().UTC()
 	rt.CreatedAt = now
 
 	const query = `
-		INSERT INTO oauth_refresh_tokens (token, app_id, user_id, scopes, expires_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO oauth_refresh_tokens (token, app_id, user_id, scopes, family_id, expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
-		rt.Token, rt.AppID, rt.UserID, rt.Scopes, rt.ExpiresAt, rt.CreatedAt, now,
+		rt.Token, rt.AppID, rt.UserID, rt.Scopes, rt.FamilyID, rt.ExpiresAt, rt.CreatedAt, now,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth store create refresh token: %w", err)
@@ -206,14 +216,14 @@ func (s *SQLiteStore) CreateRefreshToken(ctx context.Context, rt *RefreshToken) 
 // Returns ErrRefreshNotFound if the token does not exist.
 func (s *SQLiteStore) GetRefreshToken(ctx context.Context, token string) (*RefreshToken, error) {
 	const query = `
-		SELECT token, app_id, user_id, scopes, expires_at, used_at, created_at
+		SELECT token, app_id, user_id, scopes, family_id, expires_at, used_at, created_at
 		FROM oauth_refresh_tokens WHERE token = ?`
 
 	row := s.db.QueryRowContext(ctx, query, token)
 	var rt RefreshToken
 	var usedAt sql.NullTime
 	err := row.Scan(
-		&rt.Token, &rt.AppID, &rt.UserID, &rt.Scopes,
+		&rt.Token, &rt.AppID, &rt.UserID, &rt.Scopes, &rt.FamilyID,
 		&rt.ExpiresAt, &usedAt, &rt.CreatedAt,
 	)
 	if err != nil {
@@ -245,6 +255,21 @@ func (s *SQLiteStore) MarkRefreshTokenUsed(ctx context.Context, token string) er
 	}
 	if n == 0 {
 		return ErrRefreshUsed
+	}
+	return nil
+}
+
+// DeleteRefreshFamily removes every refresh token belonging to familyID, which
+// ends the whole rotation chain. An empty familyID is a no-op: pre-migration
+// rows are backfilled, so an empty value would only be a caller bug, and
+// deleting on it would wipe unrelated tokens.
+func (s *SQLiteStore) DeleteRefreshFamily(ctx context.Context, familyID string) error {
+	if familyID == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oauth_refresh_tokens WHERE family_id = ?`, familyID)
+	if err != nil {
+		return fmt.Errorf("oauth store delete refresh family: %w", err)
 	}
 	return nil
 }
