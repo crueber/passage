@@ -1,0 +1,114 @@
+{{define "admin-security-log"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Log — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Security Log</h1>
+      <p class="page-sub">Authentication events — sign-ins, failures, passkey and magic-link use. Newest first.</p>
+    </div>
+  </div>
+
+  <form method="GET" action="/admin/security-log" class="mb-5 flex flex-wrap items-center gap-2">
+    <div>
+      <label class="sr-only" for="event-filter">Filter by event</label>
+      <select name="event" id="event-filter" class="input w-auto pr-8">
+        <option value=""{{if eq .EventFilter ""}} selected{{end}}>All events</option>
+        {{range .EventNames}}
+        <option value="{{.}}"{{if eq . $.EventFilter}} selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <label class="sr-only" for="outcome-filter">Filter by outcome</label>
+      <select name="outcome" id="outcome-filter" class="input w-auto pr-8">
+        <option value=""{{if eq .OutcomeFilter ""}} selected{{end}}>All outcomes</option>
+        {{range .Outcomes}}
+        <option value="{{.}}"{{if eq . $.OutcomeFilter}} selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <label class="sr-only" for="username-filter">Filter by username</label>
+      <input type="search" name="username" id="username-filter" class="input" value="{{.UsernameFilter}}" placeholder="Username">
+    </div>
+    <div>
+      <label class="sr-only" for="days-filter">Time range</label>
+      <select name="days" id="days-filter" class="input w-auto pr-8">
+        {{range .DaysOptions}}
+        <option value="{{.}}"{{if eq . $.Days}} selected{{end}}>Last {{.}} days</option>
+        {{end}}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-outline">Filter</button>
+    {{if .Filtered}}
+    <a href="/admin/security-log" class="btn btn-ghost">Clear</a>
+    {{end}}
+  </form>
+
+  {{if .Events}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Event</th>
+          <th scope="col">Username</th>
+          <th scope="col">IP</th>
+          <th scope="col">User Agent</th>
+          <th scope="col">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Events}}
+        <tr>
+          <td class="td-mono whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+          <td><span class="badge {{if eq .Outcome "success"}}badge-green{{else if eq .Outcome "failure"}}badge-red{{else if eq .Outcome "throttled"}}badge-amber{{else}}badge-gray{{end}}">{{.Event}}</span></td>
+          <td class="font-medium">{{if .Username}}{{.Username}}{{else}}&mdash;{{end}}</td>
+          <td class="td-mono">{{if .IP}}{{.IP}}{{else}}&mdash;{{end}}</td>
+          <td class="td-muted max-w-xs truncate" title="{{.UserAgent}}">{{if .UserAgent}}{{.UserAgent}}{{else}}&mdash;{{end}}</td>
+          <td class="td-muted max-w-xs truncate" title="{{.Detail}}">{{if .Detail}}{{.Detail}}{{else}}&mdash;{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <nav class="mt-4 flex items-center justify-between gap-2" aria-label="Pagination">
+    <div>
+      {{if .PrevURL}}<a href="{{.PrevURL}}" class="btn btn-outline btn-sm">Previous</a>{{end}}
+    </div>
+    <p class="text-xs text-muted">Page {{.Page}} of {{.TotalPages}} &middot; {{.Total}} events</p>
+    <div>
+      {{if .NextURL}}<a href="{{.NextURL}}" class="btn btn-outline btn-sm">Next</a>{{end}}
+    </div>
+  </nav>
+  {{else}}
+  <div class="empty">
+    {{template "ic-shield"}}
+    <p class="empty-title">No authentication events found</p>
+    {{if .Filtered}}
+    <p class="empty-sub">Try widening the time range or clearing the filters.</p>
+    {{else}}
+    <p class="empty-sub">Sign-ins and failures will appear here.</p>
+    {{end}}
+  </div>
+  {{end}}
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}
