@@ -1,12 +1,14 @@
 {{define "passkeys.html"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{theme}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{.CSRFToken}}">
   <title>Passkeys — Passage</title>
   <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
   <script src="/static/passkey.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>

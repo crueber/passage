@@ -1,0 +1,159 @@
+package web_test
+
+import (
+	"bytes"
+	"html/template"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/crueber/passage/internal/theme"
+	"github.com/crueber/passage/internal/web"
+)
+
+// themeFunc stands in for the "theme" template function that cmd/passage wires
+// to cfg.UI.Theme.
+func themeFunc() string { return theme.Default() }
+
+// TestTemplates_ThemeWiring guards the two things every full page must carry:
+// the data-theme hook on <html> and the theme assets in <head>. Adding a new
+// page without them fails here rather than shipping an unthemed page.
+func TestTemplates_ThemeWiring(t *testing.T) {
+	t.Parallel()
+
+	var pages int
+	err := filepath.Walk("templates", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".html") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		body := string(src)
+		if !strings.Contains(body, "<html") {
+			return nil // partial — no document element
+		}
+		pages++
+
+		checks := []struct {
+			name   string
+			needle string
+		}{
+			{"data-theme hook", `<html lang="en" data-theme="{{theme}}">`},
+			{"themes stylesheet", `<link rel="stylesheet" href="/static/themes.css">`},
+			{"theme bootstrap script", `<script src="/static/theme.js"></script>`},
+		}
+		for _, c := range checks {
+			if !strings.Contains(body, c.needle) {
+				t.Errorf("%s: missing %s (%q)", path, c.name, c.needle)
+			}
+		}
+
+		// The theme bootstrap must run before the deferred scripts so a stored
+		// preference applies before first paint.
+		themeAt := strings.Index(body, `<script src="/static/theme.js"></script>`)
+		if deferredAt := strings.Index(body, " defer></script>"); deferredAt >= 0 && themeAt > deferredAt {
+			t.Errorf("%s: theme.js must precede deferred scripts", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk templates: %v", err)
+	}
+	if pages == 0 {
+		t.Fatal("no full-page templates found")
+	}
+}
+
+// TestRender_ThemeAttributes executes the login and admin settings pages with
+// the same FuncMap production uses, proving the theme func and the picker data
+// are wired end to end (template errors only surface at execution time).
+func TestRender_ThemeAttributes(t *testing.T) {
+	t.Parallel()
+
+	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
+		"csrfField": func(_ string) template.HTML { return "" },
+		"theme":     themeFunc,
+	})
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+
+	login := struct {
+		Flash             any
+		CSRFToken         string
+		Username          string
+		RedirectTo        string
+		AllowPassword     bool
+		AllowPasskey      bool
+		AllowMagicLink    bool
+		AllowRegistration bool
+	}{AllowPassword: true}
+
+	settings := struct {
+		ActiveNav            string
+		Flash                any
+		CSRFToken            string
+		AllowRegistration    string
+		SessionDurationHours string
+		SMTPFrom             string
+		Themes               []theme.Theme
+		AuthPasswordEnabled  string
+		AuthPasskeyEnabled   string
+		AuthMagicLinkEnabled string
+		SMTPConfigured       bool
+	}{
+		Themes:              theme.All,
+		AuthPasswordEnabled: "true",
+		AuthPasskeyEnabled:  "true",
+	}
+
+	tests := []struct {
+		template string
+		data     any
+		needles  []string
+	}{
+		{
+			template: "login.html",
+			data:     login,
+			needles: []string{
+				`data-theme="` + theme.Default() + `"`,
+				`/static/themes.css`,
+				`<script src="/static/theme.js"></script>`,
+			},
+		},
+		{
+			template: "admin-settings",
+			data:     settings,
+			needles: []string{
+				`data-theme="` + theme.Default() + `"`,
+				`/static/themes.css`,
+				`<script src="/static/theme.js"></script>`,
+				`id="theme-select"`,
+				`data-default="` + theme.Default() + `"`,
+				`<option value="">Server default</option>`,
+				`<option value="nord">Nord</option>`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.template, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&buf, tt.template, tt.data); err != nil {
+				t.Fatalf("execute %s: %v", tt.template, err)
+			}
+			out := buf.String()
+			for _, want := range tt.needles {
+				if !strings.Contains(out, want) {
+					t.Errorf("%s output missing %q", tt.template, want)
+				}
+			}
+		})
+	}
+}

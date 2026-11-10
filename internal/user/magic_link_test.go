@@ -15,6 +15,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
+	"github.com/crueber/passage/internal/theme"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
 )
@@ -237,6 +238,7 @@ func newMagicLinkHandlerFixture(t *testing.T) (*user.Handler, *handlerFixture) {
 
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
+		"theme":     func() string { return theme.Default() },
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -432,6 +434,7 @@ func TestHandler_GetMagicLinkVerify(t *testing.T) {
 		sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 		tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 			"csrfField": func(_ string) template.HTML { return "" },
+			"theme":     func() string { return theme.Default() },
 		})
 		if err != nil {
 			t.Fatalf("parse templates: %v", err)

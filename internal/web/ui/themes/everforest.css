@@ -1,0 +1,103 @@
+/* everforest — Earthy parchment and deep green-gray. Warm botanical sage, olive and moss. */
+:root[data-theme="everforest"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #f3f6e2;
+  --color-brand-100: #e7eec6;
+  --color-brand-200: #d7e2a4;
+  --color-brand-300: #c2d27c;
+  --color-brand-400: #acc056;
+  --color-brand-500: #95aa2e;
+  --color-brand-600: #7c9007;
+  --color-brand-700: #657705;
+  --color-brand-800: #526006;
+  --color-brand-900: #444e09;
+  --color-brand-950: #2a3107;
+
+  /* surfaces + text */
+  --color-canvas: #f3f0dd;
+  --color-surface: #fdfbf0;
+  --color-raised: #e9e5d0;
+  --color-line: #d8d3bb;
+  --color-ink: #4d584c;
+  --color-muted: #64705f;
+  --color-faint: #838e78;
+
+  /* primary actions */
+  --color-primary: #5f7009;
+  --color-primary-hover: #4e5c07;
+  --color-on-primary: #fffbf0;
+  --color-primary-soft: #eaefd2;
+  --color-primary-soft-hover: #e0e8c2;
+  --color-on-primary-soft: #3f4a08;
+
+  /* status */
+  --color-success: #5f7009;
+  --color-success-soft: #e7eed0;
+  --color-on-success-soft: #3b4706;
+  --color-danger: #b03a2e;
+  --color-danger-hover: #983126;
+  --color-danger-soft: #fbe5db;
+  --color-on-danger-soft: #8a2c20;
+  --color-warn: #8f6403;
+  --color-warn-soft: #fbedcd;
+  --color-on-warn-soft: #6b4a02;
+
+  /* accent */
+  --color-glow: #35a77c;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(82 94 80 / 0.05), 0 4px 14px -4px rgb(82 94 80 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(82 94 80 / 0.12), 0 16px 40px -12px rgb(82 94 80 / 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="everforest"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #dfe9c2;
+    --color-brand-100: #c6d3a6;
+    --color-brand-200: #adbb8c;
+    --color-brand-300: #94a374;
+    --color-brand-400: #7d8b5f;
+    --color-brand-500: #687551;
+    --color-brand-600: #566247;
+    --color-brand-700: #47533c;
+    --color-brand-800: #3c4733;
+    --color-brand-900: #333c2c;
+    --color-brand-950: #0d0f11;
+
+    /* surfaces + text */
+    --color-canvas: #262d32;
+    --color-surface: #2d353b;
+    --color-raised: #343f44;
+    --color-line: #475258;
+    --color-ink: #d3c6aa;
+    --color-muted: #a6b0a0;
+    --color-faint: #838e7f;
+
+    /* primary actions */
+    --color-primary: #a7c080;
+    --color-primary-hover: #b7cd95;
+    --color-on-primary: #1c2419;
+    --color-primary-soft: #35422f;
+    --color-primary-soft-hover: #3e4c37;
+    --color-on-primary-soft: #c3d8a4;
+
+    /* status */
+    --color-success: #a7c080;
+    --color-success-soft: #2e3b28;
+    --color-on-success-soft: #c3d8a4;
+    --color-danger: #e67e80;
+    --color-danger-hover: #ed9091;
+    --color-danger-soft: #42302f;
+    --color-on-danger-soft: #f0c0be;
+    --color-warn: #dbbc7f;
+    --color-warn-soft: #3b3627;
+    --color-on-warn-soft: #e8d5a6;
+
+    /* accent */
+    --color-glow: #83c092;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 4px 14px -4px rgb(0 0 0 / 0.45);
+    --shadow-pop: 0 4px 10px -2px rgb(0 0 0 / 0.5), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  }
+}

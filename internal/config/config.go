@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/crueber/passage/internal/theme"
 )
 
 // Config holds all configuration for the Passage server.
@@ -19,6 +22,15 @@ type Config struct {
 	Log       LogConfig
 	CSRF      CSRFConfig
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
+	UI        UIConfig        `yaml:"ui"`
+}
+
+// UIConfig holds web UI presentation settings.
+type UIConfig struct {
+	// Theme is the default colour theme served to browsers and used by the
+	// compiled fallback stylesheet. Must be one of theme.Names().
+	// Env: PASSAGE_UI_THEME.
+	Theme string `yaml:"theme"`
 }
 
 // CSRFConfig holds CSRF protection settings.
@@ -163,6 +175,9 @@ func defaults() *Config {
 			MagicLinkRequests:       5,
 			MagicLinkWindowMinutes:  60,
 		},
+		UI: UIConfig{
+			Theme: theme.Default(),
+		},
 	}
 }
 
@@ -222,6 +237,11 @@ func (c *Config) Validate() error {
 	// Validate CSRF key length if explicitly set.
 	if c.CSRF.Key != "" && len(c.CSRF.Key) < 64 {
 		errs = append(errs, fmt.Errorf("csrf.key must be at least 64 hex characters (32 random bytes) when set, got %d", len(c.CSRF.Key)))
+	}
+
+	// Validate the UI theme against the registry.
+	if _, ok := theme.Lookup(c.UI.Theme); !ok {
+		errs = append(errs, fmt.Errorf("ui.theme %q is not a known theme (valid: %s)", c.UI.Theme, strings.Join(theme.Names(), ", ")))
 	}
 
 	// Validate rate limit values — all must be positive.
@@ -358,6 +378,11 @@ func applyEnvOverrides(cfg *Config) {
 	// CSRF
 	if v := os.Getenv("PASSAGE_CSRF_KEY"); v != "" {
 		cfg.CSRF.Key = v
+	}
+
+	// UI
+	if v := os.Getenv("PASSAGE_UI_THEME"); v != "" {
+		cfg.UI.Theme = v
 	}
 
 	// RateLimit

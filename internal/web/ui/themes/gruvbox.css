@@ -1,0 +1,103 @@
+/* gruvbox — Warm retro earth tones. Cream paper and deep warm gray, olive, amber, rust. */
+:root[data-theme="gruvbox"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #fdf7dc;
+  --color-brand-100: #f9edbd;
+  --color-brand-200: #f0dc96;
+  --color-brand-300: #e3c468;
+  --color-brand-400: #d3a941;
+  --color-brand-500: #bf8f24;
+  --color-brand-600: #a67717;
+  --color-brand-700: #875e10;
+  --color-brand-800: #6b490c;
+  --color-brand-900: #523709;
+  --color-brand-950: #352405;
+
+  /* surfaces + text */
+  --color-canvas: #fbf1c7;
+  --color-surface: #fffcf0;
+  --color-raised: #f2e5bc;
+  --color-line: #e0cfa9;
+  --color-ink: #3c3836;
+  --color-muted: #665c54;
+  --color-faint: #7c6f64;
+
+  /* primary actions */
+  --color-primary: #736d09;
+  --color-primary-hover: #605c05;
+  --color-on-primary: #fdf4cf;
+  --color-primary-soft: #ece6b8;
+  --color-primary-soft-hover: #e4dcac;
+  --color-on-primary-soft: #565304;
+
+  /* status */
+  --color-success: #79740e;
+  --color-success-soft: #e9e6ba;
+  --color-on-success-soft: #4f4c05;
+  --color-danger: #9d0006;
+  --color-danger-hover: #800005;
+  --color-danger-soft: #f6dfd6;
+  --color-on-danger-soft: #7d0005;
+  --color-warn: #b57614;
+  --color-warn-soft: #f8ead0;
+  --color-on-warn-soft: #7f5209;
+
+  /* accent */
+  --color-glow: #b57614;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(60 56 54 / 0.05), 0 4px 14px -4px rgb(60 56 54 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(60 56 54 / 0.12), 0 16px 40px -12px rgb(60 56 54 / 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="gruvbox"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #f8eab4;
+    --color-brand-100: #efdc8b;
+    --color-brand-200: #e0ca6d;
+    --color-brand-300: #ccb453;
+    --color-brand-400: #b39a3c;
+    --color-brand-500: #947d2f;
+    --color-brand-600: #756327;
+    --color-brand-700: #5c4f21;
+    --color-brand-800: #4a401c;
+    --color-brand-900: #3a3318;
+    --color-brand-950: #0c0c0c;
+
+    /* surfaces + text */
+    --color-canvas: #282828;
+    --color-surface: #32302f;
+    --color-raised: #3c3836;
+    --color-line: #504945;
+    --color-ink: #ebdbb2;
+    --color-muted: #bdae93;
+    --color-faint: #a89984;
+
+    /* primary actions */
+    --color-primary: #fabd2f;
+    --color-primary-hover: #ffc94a;
+    --color-on-primary: #282828;
+    --color-primary-soft: #3a3318;
+    --color-primary-soft-hover: #463d1c;
+    --color-on-primary-soft: #f2cd6a;
+
+    /* status */
+    --color-success: #b8bb26;
+    --color-success-soft: #333514;
+    --color-on-success-soft: #d8da74;
+    --color-danger: #fb4934;
+    --color-danger-hover: #fc6552;
+    --color-danger-soft: #3c1c18;
+    --color-on-danger-soft: #ffa396;
+    --color-warn: #fabd2f;
+    --color-warn-soft: #3a2f14;
+    --color-on-warn-soft: #f5d27a;
+
+    /* accent */
+    --color-glow: #fabd2f;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 4px 14px -4px rgb(0 0 0 / 0.45);
+    --shadow-pop: 0 4px 10px -2px rgb(0 0 0 / 0.5), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  }
+}

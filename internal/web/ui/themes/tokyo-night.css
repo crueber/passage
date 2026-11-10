@@ -1,0 +1,103 @@
+/* tokyo-night — Neon indigo night with periwinkle and cyan. */
+:root[data-theme="tokyo-night"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #f2f4fe;
+  --color-brand-100: #e5eafa;
+  --color-brand-200: #ccd7f7;
+  --color-brand-300: #adc0f2;
+  --color-brand-400: #8aa3e9;
+  --color-brand-500: #6a86dc;
+  --color-brand-600: #4f6bcf;
+  --color-brand-700: #3d55b8;
+  --color-brand-800: #33479c;
+  --color-brand-900: #2c3b7f;
+  --color-brand-950: #1e2854;
+
+  /* surfaces + text */
+  --color-canvas: #e1e2e7;
+  --color-surface: #ffffff;
+  --color-raised: #d0d5e3;
+  --color-line: #c4cade;
+  --color-ink: #263051;
+  --color-muted: #4c5878;
+  --color-faint: #6f789c;
+
+  /* primary actions */
+  --color-primary: #1f63c9;
+  --color-primary-hover: #1a56b0;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #dfe7fa;
+  --color-primary-soft-hover: #d2dcf8;
+  --color-on-primary-soft: #1c4b9e;
+
+  /* status */
+  --color-success: #587539;
+  --color-success-soft: #e4eeda;
+  --color-on-success-soft: #3d5426;
+  --color-danger: #d91e52;
+  --color-danger-hover: #bf1747;
+  --color-danger-soft: #fbe0e8;
+  --color-on-danger-soft: #b01443;
+  --color-warn: #8c6c3e;
+  --color-warn-soft: #f8f0dc;
+  --color-on-warn-soft: #6a4e20;
+
+  /* accent */
+  --color-glow: #2e7de9;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(42 79 168 / 0.06), 0 4px 14px -4px rgb(42 79 168 / 0.12);
+  --shadow-pop: 0 4px 10px -2px rgb(42 79 168 / 0.14), 0 16px 40px -12px rgb(42 79 168 / 0.28);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="tokyo-night"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #f2f4fe;
+    --color-brand-100: #e5eafa;
+    --color-brand-200: #ccd7f7;
+    --color-brand-300: #adc0f2;
+    --color-brand-400: #8aa3e9;
+    --color-brand-500: #6a86dc;
+    --color-brand-600: #4f6bcf;
+    --color-brand-700: #3d55b8;
+    --color-brand-800: #33479c;
+    --color-brand-900: #2c3b7f;
+    --color-brand-950: #07080b;
+
+    /* surfaces + text */
+    --color-canvas: #1a1b26;
+    --color-surface: #1f2335;
+    --color-raised: #292e42;
+    --color-line: #3b4261;
+    --color-ink: #c0caf5;
+    --color-muted: #a9b1d6;
+    --color-faint: #6f78a8;
+
+    /* primary actions */
+    --color-primary: #7aa2f7;
+    --color-primary-hover: #8fb4ff;
+    --color-on-primary: #16161e;
+    --color-primary-soft: #242b45;
+    --color-primary-soft-hover: #2b3354;
+    --color-on-primary-soft: #b8c7f7;
+
+    /* status */
+    --color-success: #9ece6a;
+    --color-success-soft: #232d1c;
+    --color-on-success-soft: #b8dc94;
+    --color-danger: #f7768e;
+    --color-danger-hover: #ff8fa8;
+    --color-danger-soft: #351e28;
+    --color-on-danger-soft: #f8a9ba;
+    --color-warn: #e0af68;
+    --color-warn-soft: #302818;
+    --color-on-warn-soft: #e8c88f;
+
+    /* accent */
+    --color-glow: #7dcfff;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 4px 14px -4px rgb(0 0 0 / 0.45);
+    --shadow-pop: 0 4px 10px -2px rgb(0 0 0 / 0.5), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  }
+}

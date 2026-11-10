@@ -1,0 +1,103 @@
+/* rose-pine — Muted rose and iris over soft dusk surfaces. */
+:root[data-theme="rose-pine"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #f6f1f8;
+  --color-brand-100: #ece3f1;
+  --color-brand-200: #ded1e8;
+  --color-brand-300: #cbb9dc;
+  --color-brand-400: #b39acb;
+  --color-brand-500: #9b81b7;
+  --color-brand-600: #846aa0;
+  --color-brand-700: #70568a;
+  --color-brand-800: #5d4772;
+  --color-brand-900: #4d3b60;
+  --color-brand-950: #392c48;
+
+  /* surfaces + text */
+  --color-canvas: #faf4ed;
+  --color-surface: #fffaf3;
+  --color-raised: #f2e9e1;
+  --color-line: #e4dbd1;
+  --color-ink: #575279;
+  --color-muted: #6f6b8a;
+  --color-faint: #8b859c;
+
+  /* primary actions */
+  --color-primary: #74597f;
+  --color-primary-hover: #63496d;
+  --color-on-primary: #fffaf3;
+  --color-primary-soft: #f2eaf4;
+  --color-primary-soft-hover: #e9dcee;
+  --color-on-primary-soft: #5c4370;
+
+  /* status */
+  --color-success: #286983;
+  --color-success-soft: #e2eff0;
+  --color-on-success-soft: #1e5568;
+  --color-danger: #ad5a71;
+  --color-danger-hover: #9a4c62;
+  --color-danger-soft: #fbe9ee;
+  --color-on-danger-soft: #8c3d55;
+  --color-warn: #8f5f14;
+  --color-warn-soft: #fdf0da;
+  --color-on-warn-soft: #6f470e;
+
+  /* accent */
+  --color-glow: #937bba;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(87 82 121 / 0.05), 0 4px 14px -4px rgb(87 82 121 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(87 82 121 / 0.12), 0 16px 40px -12px rgb(87 82 121 / 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="rose-pine"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #e9e3f2;
+    --color-brand-100: #d3c9e2;
+    --color-brand-200: #bdaed0;
+    --color-brand-300: #a692bb;
+    --color-brand-400: #8e79a5;
+    --color-brand-500: #75618c;
+    --color-brand-600: #5f4d75;
+    --color-brand-700: #4c3d5f;
+    --color-brand-800: #3d314d;
+    --color-brand-900: #322841;
+    --color-brand-950: #07060a;
+
+    /* surfaces + text */
+    --color-canvas: #191724;
+    --color-surface: #1f1d2e;
+    --color-raised: #26233a;
+    --color-line: #3b3650;
+    --color-ink: #e0def4;
+    --color-muted: #908caa;
+    --color-faint: #75708d;
+
+    /* primary actions */
+    --color-primary: #c4a7e7;
+    --color-primary-hover: #d1bcf0;
+    --color-on-primary: #191724;
+    --color-primary-soft: #2c2442;
+    --color-primary-soft-hover: #352b4f;
+    --color-on-primary-soft: #d8c9f2;
+
+    /* status */
+    --color-success: #9ccfd8;
+    --color-success-soft: #1d3037;
+    --color-on-success-soft: #a9dbe3;
+    --color-danger: #eb6f92;
+    --color-danger-hover: #f28ba9;
+    --color-danger-soft: #3a1f2b;
+    --color-on-danger-soft: #f4b3c6;
+    --color-warn: #f6c177;
+    --color-warn-soft: #372a1a;
+    --color-on-warn-soft: #f7cd93;
+
+    /* accent */
+    --color-glow: #cbb4ee;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 4px 14px -4px rgb(0 0 0 / 0.45);
+    --shadow-pop: 0 4px 10px -2px rgb(0 0 0 / 0.5), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  }
+}

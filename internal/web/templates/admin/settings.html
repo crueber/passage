@@ -1,11 +1,13 @@
 {{define "admin-settings"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{theme}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Settings — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -52,6 +54,27 @@
 
         <div><button type="submit" class="btn btn-primary">Save Settings</button></div>
       </form>
+    </section>
+
+    {{/* Appearance is a per-browser preference stored in localStorage by
+         /static/theme.js. It is deliberately NOT part of the settings POST form
+         and has no server handler — ui.theme (config) stays authoritative, and
+         this page works unchanged without JavaScript. */}}
+    <section class="card p-5 sm:p-6">
+      <h2 class="font-semibold text-ink">Appearance</h2>
+      <div class="mt-4">
+        <label class="label" for="theme-select">Theme</label>
+        <select id="theme-select" class="input sm:max-w-xs" data-default="{{theme}}">
+          <option value="">Server default</option>
+          {{range .Themes}}
+          <option value="{{.Name}}">{{.Label}}</option>
+          {{end}}
+        </select>
+        <p class="help">
+          Applies to this browser only. “Server default” uses the instance theme
+          configured by the operator.
+        </p>
+      </div>
     </section>
 
     <section class="card p-5 sm:p-6">

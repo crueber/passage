@@ -42,6 +42,12 @@ jobs:
           # (i.e. input.css was edited without running `make css`).
           git diff --exit-code internal/web/static/passage.css
 
+      - name: Verify compiled theme CSS is up to date
+        # themes.css is a plain concatenation of internal/web/ui/themes/*.css —
+        # no Tailwind involved. Fails if a theme file was edited without running
+        # `make themes`.
+        run: ./tools/build-themes.sh --check
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

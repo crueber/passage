@@ -35,6 +35,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"Auth.BcryptCost", cfg.Auth.BcryptCost, 12},
 		{"Log.Level", cfg.Log.Level, "info"},
 		{"Log.Format", cfg.Log.Format, "json"},
+		{"UI.Theme", cfg.UI.Theme, "slate"},
 	}
 
 	for _, tt := range tests {
@@ -488,6 +489,83 @@ func TestLoad_RateLimitEnvOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.got != tt.want {
 				t.Errorf("got %v; want %v", tt.got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTheme covers the ui.theme default, file value, validation, and env
+// override. Env mutation means the subtests run serially (no t.Parallel).
+func TestTheme(t *testing.T) {
+	writeConfig := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "passage.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		return path
+	}
+
+	tests := []struct {
+		name    string
+		yaml    string
+		env     string // PASSAGE_UI_THEME; empty means unset
+		want    string
+		wantErr []string // substrings that must appear in Validate()'s error
+	}{
+		{
+			name: "default applies",
+			want: "slate",
+		},
+		{
+			name: "valid name accepted",
+			yaml: "ui:\n  theme: nord\n",
+			want: "nord",
+		},
+		{
+			name:    "unknown name rejected",
+			yaml:    "ui:\n  theme: smoky-green\n",
+			want:    "smoky-green",
+			wantErr: []string{"ui.theme", `"smoky-green"`, "valid:", "slate", "nord", "paper"},
+		},
+		{
+			name: "env override wins",
+			yaml: "ui:\n  theme: nord\n",
+			env:  "gruvbox",
+			want: "gruvbox",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("PASSAGE_UI_THEME", tt.env)
+
+			var path string
+			if tt.yaml != "" {
+				path = writeConfig(t, tt.yaml)
+			}
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.UI.Theme != tt.want {
+				t.Errorf("UI.Theme = %q; want %q", cfg.UI.Theme, tt.want)
+			}
+
+			err = cfg.Validate()
+			if len(tt.wantErr) == 0 {
+				if err != nil {
+					t.Fatalf("Validate: unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate: expected an error, got nil")
+			}
+			for _, want := range tt.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Validate error %q does not mention %q", err, want)
+				}
 			}
 		})
 	}

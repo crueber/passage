@@ -31,55 +31,55 @@
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  /* Brand — deep forest green, evolved from the original palette (#2e6b4f). */
-  --color-brand-50: #f2f7f4;
-  --color-brand-100: #e3efe8;
-  --color-brand-200: #c6e0d3;
-  --color-brand-300: #9dc9b1;
-  --color-brand-400: #6faa8a;
-  --color-brand-500: #4d8c6c;
-  --color-brand-600: #357254;
-  --color-brand-700: #2e6b4f;
-  --color-brand-800: #265741;
-  --color-brand-900: #1f4736;
-  --color-brand-950: #122719;
+  /* Brand — neutral cool slate (steel blue-gray, hue ~215, low saturation). */
+  --color-brand-50: #f4f6f9;
+  --color-brand-100: #e8ecf1;
+  --color-brand-200: #d2dae4;
+  --color-brand-300: #b0bdcd;
+  --color-brand-400: #8598b0;
+  --color-brand-500: #63799a;
+  --color-brand-600: #4c6080;
+  --color-brand-700: #3e4e69;
+  --color-brand-800: #364257;
+  --color-brand-900: #313a4a;
+  --color-brand-950: #1e242e;
 
   /* Semantic surface + text tokens (light values; dark overrides below). */
-  --color-canvas: #f3f6f3;
+  --color-canvas: #f6f7f9;
   --color-surface: #ffffff;
-  --color-raised: #eef3ef;
-  --color-line: #dbe4dd;
-  --color-ink: #1a211d;
-  --color-muted: #5c6a61;
-  --color-faint: #8b978e;
+  --color-raised: #eef1f5;
+  --color-line: #dce1e8;
+  --color-ink: #171c24;
+  --color-muted: #4f5b6b;
+  --color-faint: #6f7c8d;
 
   /* Primary actions. */
-  --color-primary: #2e6b4f;
-  --color-primary-hover: #265c43;
+  --color-primary: #334e68;
+  --color-primary-hover: #2b4157;
   --color-on-primary: #ffffff;
-  --color-primary-soft: #e3efe8;
-  --color-primary-soft-hover: #d6e8dd;
-  --color-on-primary-soft: #24513c;
+  --color-primary-soft: #e9eff5;
+  --color-primary-soft-hover: #dbe5ee;
+  --color-on-primary-soft: #2b4055;
 
   /* Status. */
-  --color-success: #1e7a46;
-  --color-success-soft: #e0f2e7;
-  --color-on-success-soft: #175c34;
-  --color-danger: #b0362e;
-  --color-danger-hover: #962c25;
-  --color-danger-soft: #fbeae8;
-  --color-on-danger-soft: #8c2b24;
-  --color-warn: #9a5b10;
-  --color-warn-soft: #fdf0dc;
-  --color-on-warn-soft: #7c4810;
+  --color-success: #1f7a4d;
+  --color-success-soft: #e2f2e9;
+  --color-on-success-soft: #16603c;
+  --color-danger: #b23a2f;
+  --color-danger-hover: #9a3128;
+  --color-danger-soft: #fbe9e7;
+  --color-on-danger-soft: #8c2b23;
+  --color-warn: #96601a;
+  --color-warn-soft: #fdf1dd;
+  --color-on-warn-soft: #7a4c12;
   /* Accent used sparingly (logo dot, focus highlights). */
-  --color-glow: #7fc79e;
+  --color-glow: #6f93bd;
 
   /* Elevation. */
-  --shadow-card: 0 1px 2px 0 rgb(18 39 25 / 0.05),
-    0 4px 14px -4px rgb(18 39 25 / 0.1);
-  --shadow-pop: 0 4px 10px -2px rgb(18 39 25 / 0.12),
-    0 16px 40px -12px rgb(18 39 25 / 0.25);
+  --shadow-card: 0 1px 2px 0 rgb(23 28 36 / 0.05),
+    0 4px 14px -4px rgb(23 28 36 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(23 28 36 / 0.12),
+    0 16px 40px -12px rgb(23 28 36 / 0.25);
 
   /* Radii — one consistent family. */
   --radius-md: 0.5rem;
@@ -94,20 +94,20 @@
 @layer base {
   @media (prefers-color-scheme: dark) {
     :root {
-      --color-canvas: #0e1512;
-      --color-surface: #17201b;
-      --color-raised: #1e2a23;
-      --color-line: #2c3a32;
-      --color-ink: #e3ebe6;
-      --color-muted: #a2b3a8;
-      --color-faint: #6f7f75;
+      --color-canvas: #0d1117;
+      --color-surface: #141a22;
+      --color-raised: #1b232e;
+      --color-line: #2a3442;
+      --color-ink: #e6ebf2;
+      --color-muted: #a7b3c2;
+      --color-faint: #7d8b9c;
 
-      --color-primary: #4d9a74;
-      --color-primary-hover: #5cad83;
-      --color-on-primary: #0b1710;
-      --color-primary-soft: #1e3328;
-      --color-primary-soft-hover: #26402f;
-      --color-on-primary-soft: #a9d8bf;
+      --color-primary: #7fa3cc;
+      --color-primary-hover: #93b2d6;
+      --color-on-primary: #0b1118;
+      --color-primary-soft: #1d2a3a;
+      --color-primary-soft-hover: #24344a;
+      --color-on-primary-soft: #b8cde4;
 
       --color-success: #4fae7a;
       --color-success-soft: #16301f;
@@ -119,6 +119,8 @@
       --color-warn: #d9a04a;
       --color-warn-soft: #35270f;
       --color-on-warn-soft: #ecc789;
+
+      --color-glow: #8fb2d8;
     }
   }
 
@@ -170,7 +172,18 @@
     @apply bg-danger-soft text-on-danger-soft;
   }
   .btn-danger:hover {
-    @apply bg-danger text-white;
+    /* text-on-primary is the "on a saturated accent" token: white in light
+       mode, near-black in dark mode. Every dark palette's danger colour is a
+       light red, where hard-coded white text would fall to ~2.8:1. */
+    @apply bg-danger text-on-primary;
+  }
+  @media (prefers-color-scheme: dark) {
+    .btn-danger:hover {
+      /* A solid light-red fill would shout (and need near-black text); a tint
+         wash with the soft danger text keeps the destructive affordance
+         readable in dark mode. */
+      @apply bg-danger/20 text-on-danger-soft;
+    }
   }
   .btn-warn {
     @apply bg-warn-soft text-on-warn-soft;

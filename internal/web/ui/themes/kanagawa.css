@@ -1,0 +1,103 @@
+/* kanagawa — Ink-wash sumi: wave blue with a sparing dragon-red accent. */
+:root[data-theme="kanagawa"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #eef1f6;
+  --color-brand-100: #dde4ee;
+  --color-brand-200: #c2cddf;
+  --color-brand-300: #a1b2cb;
+  --color-brand-400: #7e93b6;
+  --color-brand-500: #5f78a2;
+  --color-brand-600: #4d699b;
+  --color-brand-700: #415784;
+  --color-brand-800: #37496c;
+  --color-brand-900: #2e3d59;
+  --color-brand-950: #1b2334;
+
+  /* surfaces + text */
+  --color-canvas: #f4efcd;
+  --color-surface: #fffdf0;
+  --color-raised: #e7dba0;
+  --color-line: #d5c9a0;
+  --color-ink: #545464;
+  --color-muted: #62604f;
+  --color-faint: #7c7a6a;
+
+  /* primary actions */
+  --color-primary: #4d699b;
+  --color-primary-hover: #415784;
+  --color-on-primary: #fbf8e8;
+  --color-primary-soft: #e3e7ee;
+  --color-primary-soft-hover: #d6dde9;
+  --color-on-primary-soft: #3a5182;
+
+  /* status */
+  --color-success: #5f7a41;
+  --color-success-soft: #e3e8cd;
+  --color-on-success-soft: #40582c;
+  --color-danger: #a94a44;
+  --color-danger-hover: #913d38;
+  --color-danger-soft: #f6e2dd;
+  --color-on-danger-soft: #7e322d;
+  --color-warn: #8a6414;
+  --color-warn-soft: #f7e8c8;
+  --color-on-warn-soft: #6d4c0c;
+
+  /* accent */
+  --color-glow: #63948a;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(84 84 100 / 0.07), 0 4px 14px -4px rgb(84 84 100 / 0.14);
+  --shadow-pop: 0 4px 10px -2px rgb(84 84 100 / 0.16), 0 16px 40px -12px rgb(84 84 100 / 0.28);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="kanagawa"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #2b3145;
+    --color-brand-100: #282d40;
+    --color-brand-200: #25293b;
+    --color-brand-300: #212536;
+    --color-brand-400: #1e2231;
+    --color-brand-500: #1a1e2b;
+    --color-brand-600: #171a25;
+    --color-brand-700: #141620;
+    --color-brand-800: #11131b;
+    --color-brand-900: #0f1017;
+    --color-brand-950: #0c0d12;
+
+    /* surfaces + text */
+    --color-canvas: #16161d;
+    --color-surface: #1f1f28;
+    --color-raised: #2a2a37;
+    --color-line: #363646;
+    --color-ink: #dcd7ba;
+    --color-muted: #c8c093;
+    --color-faint: #7f7d73;
+
+    /* primary actions */
+    --color-primary: #7e9cd8;
+    --color-primary-hover: #93b0e4;
+    --color-on-primary: #131319;
+    --color-primary-soft: #232a3d;
+    --color-primary-soft-hover: #2c344a;
+    --color-on-primary-soft: #b8c9e9;
+
+    /* status */
+    --color-success: #76946a;
+    --color-success-soft: #1c2418;
+    --color-on-success-soft: #a9c396;
+    --color-danger: #e46876;
+    --color-danger-hover: #f07f8c;
+    --color-danger-soft: #331c20;
+    --color-on-danger-soft: #f4b0b8;
+    --color-warn: #e6c384;
+    --color-warn-soft: #2f2717;
+    --color-on-warn-soft: #eed7a8;
+
+    /* accent */
+    --color-glow: #7aa89f;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 4px 14px -4px rgb(0 0 0 / 0.45);
+    --shadow-pop: 0 4px 10px -2px rgb(0 0 0 / 0.5), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  }
+}

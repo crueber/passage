@@ -121,14 +121,19 @@ func run() error {
 		return fmt.Errorf("create email sender: %w", err)
 	}
 
-	// Parse HTML templates, providing the csrfField template function.
+	// Parse HTML templates, providing the csrfField and theme template functions.
 	// csrfField renders a hidden <input> carrying the CSRF token for POST forms.
 	// template.HTML is safe here: the value is a base64url-encoded HMAC token
 	// with no HTML-special characters, produced entirely by our csrf package.
+	//
+	// theme renders the configured default theme slug into every page's
+	// <html data-theme="...">. html/template escapes it as an attribute value;
+	// a per-browser override is applied client-side by static/theme.js.
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(token string) template.HTML {
 			return template.HTML(`<input type="hidden" name="` + csrfpkg.FieldName + `" value="` + token + `">`)
 		},
+		"theme": func() string { return cfg.UI.Theme },
 	})
 	if err != nil {
 		return fmt.Errorf("parse templates: %w", err)

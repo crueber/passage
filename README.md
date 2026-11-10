@@ -286,6 +286,17 @@ make css
 
 CI fails if the committed `passage.css` doesn't match a fresh build, so always commit the rebuilt file together with your `input.css` change. Never hand-edit `passage.css`.
 
+### Themes
+
+Colour themes are plain CSS custom-property overrides, one file per theme in `internal/web/ui/themes/`. They are concatenated into `internal/web/static/themes.css` — no Tailwind involvement — and loaded after `passage.css` so the selected theme wins the cascade.
+
+```bash
+make themes    # rebuild static/themes.css from internal/web/ui/themes/*.css
+make assets    # both: Tailwind stylesheet + themes
+```
+
+CI also runs `./tools/build-themes.sh --check` and fails if the committed `themes.css` is stale. See [docs/theming.md](docs/theming.md) for the token contract, contrast gate, and how to add a theme.
+
 ### Test
 
 ```bash

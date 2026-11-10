@@ -48,10 +48,10 @@ passage/
     ratelimit/          # in-memory sliding-window limiter + chi Middleware
     web/
       templates/        # html/template files, embedded via embed.FS (user pages at top level, admin pages in admin/)
-      static/           # passage.css (generated: compiled+minified Tailwind output), htmx.min.js, passkey.js
-      ui/               # input.css — Tailwind v4 source (@theme tokens + @layer components); rebuild with `make css`
+      static/           # passage.css + themes.css (both generated), theme.js, htmx.min.js, passkey.js
+      ui/               # input.css (Tailwind v4 source; rebuild with `make css`) + themes/<name>.css (plain CSS)
     testutil/           # NewTestDB(t) — in-memory SQLite with migrations, for tests
-  docs/                 # nginx/traefik config examples, security.md, forward-auth.md
+  docs/                 # nginx/traefik config examples, security.md, forward-auth.md, theming.md, auth0-vs-passage.md
   tools/                # tailwindcss standalone CLI binary (gitignored — fetch the v4.x release to rebuild CSS)
   Makefile              # css / build / vet / test targets
   Dockerfile            # multi-stage build; runtime mounts /data volume for SQLite
@@ -116,7 +116,7 @@ Route groups in `run.go`; when adding routes, pick the right group:
 
 ## Deployment & CI
 
-- **CI** (`.github/workflows/ci.yml`): on every push/PR runs `go mod verify`, `go vet ./...`, `go test -race ./...`, and a **CSS drift check** — rebuilds `internal/web/static/passage.css` from `input.css` with the pinned tailwindcss CLI (sha256-verified) and fails if the committed output differs, so `input.css` edits always ship with a fresh `make css` run. On push to `main` or `v*` tags builds a multi-arch (amd64/arm64) image and publishes to `ghcr.io/crueber/passage` with version injected via build args.
+- **CI** (`.github/workflows/ci.yml`): on every push/PR runs `go mod verify`, `go vet ./...`, `go test -race ./...`, and a **CSS drift check** — rebuilds `internal/web/static/passage.css` from `input.css` with the pinned tailwindcss CLI (sha256-verified) and fails if the committed output differs, so `input.css` edits always ship with a fresh `make css` run. A second drift step runs `./tools/build-themes.sh --check` for `themes.css`. On push to `main` or `v*` tags builds a multi-arch (amd64/arm64) image and publishes to `ghcr.io/crueber/passage` with version injected via build args.
 
 ---
 
@@ -230,6 +230,17 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 - Dark mode is automatic via `@media (prefers-color-scheme: dark)` — one semantic token-override block in `input.css` redefines colours and every component flips with it. Do not hardcode colours in templates.
 - Every page must have a unique, descriptive `<title>`.
 - Accessibility: WCAG AA contrast, `:focus-visible` rings, semantic HTML, `aria-` attributes where needed.
+
+### Theming
+
+- Colour themes are plain CSS custom-property overrides, one file per theme in `internal/web/ui/themes/<name>.css`. They are **not** Tailwind sources — never `@import` them into `input.css`, and never wrap them in `@layer` (unlayered + `:root[data-theme="x"]` is what makes them beat `passage.css`).
+- `internal/web/static/themes.css` is **generated** by `tools/build-themes.sh` (`make themes`) — never hand-edit it, and commit it with the source change. CI runs `./tools/build-themes.sh --check`.
+- Registry of record is `internal/theme` (`All`, `Names`, `Lookup`, `Default`). Filename, `data-theme` value, `ui.theme` value, and registry `Name` are the same slug.
+- Token contract: every theme file must define the full token set in **both** its light `:root[data-theme="x"]` block and its dark `@media (prefers-color-scheme: dark)` block. Colour tokens are 6-digit hex; only `--shadow-*` use `rgb(… / α)`. Full list in `docs/theming.md`.
+- The contrast test (`internal/theme/theme_test.go`) is the gate: WCAG AA pairs per block (4.5:1 text, 3:1 `faint`). Never lower a threshold to make a palette pass — retune the palette.
+- `TestThemeFiles_BrandRamp` pins the two load-bearing ends of the ramp: it must descend `50` → `950` in both blocks, and `brand-950` must be darker than `canvas` because it is the drawer scrim (`bg-brand-950/40`). Do not invert the ramp for dark mode.
+- Full-page templates must carry `<html lang="en" data-theme="{{theme}}">`, `<link rel="stylesheet" href="/static/themes.css">` after `passage.css`, and the non-deferred `<script src="/static/theme.js"></script>` before any deferred scripts. `TestTemplates_ThemeWiring` enforces all three.
+- The admin Appearance picker is per-browser (`localStorage`) and cosmetic: it must never be part of a POST form or the settings store, and pages must render correctly with no JavaScript.
 
 ---
 

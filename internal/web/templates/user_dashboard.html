@@ -1,11 +1,13 @@
 {{define "user-dashboard"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{theme}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Apps — Passage</title>
   <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
 </head>
 <body class="flex min-h-dvh flex-col">
 {{template "topnav-apps" .}}

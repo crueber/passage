@@ -1,11 +1,13 @@
 {{define "admin-user-form"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{theme}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{if .IsNew}}New User{{else}}Edit User{{end}} — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>

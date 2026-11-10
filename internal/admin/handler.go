@@ -21,6 +21,7 @@ import (
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/session"
+	"github.com/crueber/passage/internal/theme"
 	"github.com/crueber/passage/internal/user"
 )
 
@@ -1532,6 +1533,10 @@ type settingsData struct {
 	AllowRegistration    string
 	SessionDurationHours string
 	SMTPFrom             string
+	// Themes is the registry shown in the per-browser appearance picker.
+	// It is presentation-only data: selecting a theme is client-side and does
+	// not touch the settings store.
+	Themes []theme.Theme
 	// Auth method flags
 	AuthPasswordEnabled  string
 	AuthPasskeyEnabled   string
@@ -1577,6 +1582,7 @@ func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base
 		AllowRegistration:    all["allow_registration"],
 		SessionDurationHours: all["session_duration_hours"],
 		SMTPFrom:             all["smtp_from"],
+		Themes:               theme.All,
 		AuthPasswordEnabled:  authPassword,
 		AuthPasskeyEnabled:   authPasskey,
 		AuthMagicLinkEnabled: authMagicLink,
@@ -1622,6 +1628,7 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 				AllowRegistration:    allowRegistration,
 				SessionDurationHours: durationStr,
 				SMTPFrom:             strings.TrimSpace(r.FormValue("smtp_from")),
+				Themes:               theme.All,
 			})
 			return
 		}
