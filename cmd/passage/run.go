@@ -112,7 +112,28 @@ func run() error {
 	// Authentication event log. Recording is best-effort: a write failure is
 	// logged and never fails the auth flow.
 	authStore := authlog.NewStore(database)
-	authRecorder := authlog.NewRecorder(authStore, logger)
+
+	// Optional security webhook: a second sink on the recorder. An empty URL
+	// disables it entirely. The worker runs on the run context; Close stops it
+	// deterministically without depending on the parent context being
+	// cancelled (early returns, for example).
+	var authNotifier authlog.Notifier
+	if cfg.Security.WebhookURL != "" {
+		notifier, err := authlog.NewWebhookNotifier(
+			cfg.Security.WebhookURL,
+			cfg.Security.WebhookSecret,
+			time.Duration(cfg.Security.WebhookTimeoutSeconds)*time.Second,
+			logger,
+		)
+		if err != nil {
+			return fmt.Errorf("configure security webhook: %w", err)
+		}
+		notifier.Start(ctx)
+		defer notifier.Close()
+		authNotifier = notifier
+	}
+
+	authRecorder := authlog.NewRecorder(authStore, authNotifier, logger)
 
 	// Build the settings store early so sessionSvc can consult it for
 	// the session_duration_hours setting on every new session.

@@ -96,7 +96,7 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	appStore := app.NewStore(db)
 	appSvc := app.NewService(appStore, appStore, logger)
 	authStore := authlog.NewStore(db)
-	authRecorder := authlog.NewRecorder(authStore, logger)
+	authRecorder := authlog.NewRecorder(authStore, nil, logger)
 	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, authRecorder, tmpl, cfg, logger)
 
 	return &handlerFixture{

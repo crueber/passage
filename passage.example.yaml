@@ -27,6 +27,17 @@ auth:
   allow_registration: true
   bcrypt_cost: 12
 
+security:
+  # POST every authentication event to this endpoint as JSON.
+  # Empty disables the webhook. Delivery is asynchronous and at-most-once:
+  # a slow or dead endpoint never delays or fails a login.
+  webhook_url: ""
+  # Optional. When set, each request body is signed with HMAC-SHA256 and the
+  # digest is sent as X-Passage-Signature: sha256=<hex>.
+  webhook_secret: ""
+  # Per-request delivery timeout in seconds (1–60).
+  webhook_timeout_seconds: 5
+
 log:
   level: "info"
   format: "json"

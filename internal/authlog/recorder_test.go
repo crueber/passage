@@ -29,7 +29,7 @@ func TestRecorder_FailingStoreIsNonFatal(t *testing.T) {
 
 	store := &failingAppender{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	recorder := NewRecorder(store, logger)
+	recorder := NewRecorder(store, nil, logger)
 
 	// Record has no return value; the assertion is that this returns instead
 	// of panicking and that it did attempt the write.
@@ -47,7 +47,7 @@ func TestRecorder_FillsIDAndCreatedAt(t *testing.T) {
 	t.Parallel()
 	database := testutil.NewTestDB(t)
 	store := NewStore(database)
-	recorder := NewRecorder(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	recorder := NewRecorder(store, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	before := time.Now().UTC()
 	recorder.Record(context.Background(), Event{
@@ -76,7 +76,7 @@ func TestRecorder_TruncatesFields(t *testing.T) {
 	t.Parallel()
 	database := testutil.NewTestDB(t)
 	store := NewStore(database)
-	recorder := NewRecorder(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	recorder := NewRecorder(store, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	recorder.Record(context.Background(), Event{
 		Event:     EventLoginFailure,
@@ -118,7 +118,7 @@ func TestRecorder_EmptyEventNameIsRejected(t *testing.T) {
 	t.Parallel()
 
 	store := &failingAppender{}
-	recorder := NewRecorder(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	recorder := NewRecorder(store, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	recorder.Record(context.Background(), Event{Outcome: OutcomeFailure})
 
 	if store.calls != 0 {
