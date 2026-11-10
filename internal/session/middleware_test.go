@@ -70,6 +70,15 @@ func TestRequireSession_PassesWithValidSession(t *testing.T) {
 			http.Error(w, "no user", http.StatusInternalServerError)
 			return
 		}
+		ctxSess, ok := session.SessionFromContext(r.Context())
+		if !ok || ctxSess == nil {
+			t.Error("SessionFromContext: expected session in context, got none")
+			http.Error(w, "no session", http.StatusInternalServerError)
+			return
+		}
+		if ctxSess.ID != sess.ID {
+			t.Errorf("SessionFromContext: got session %q, want %q", ctxSess.ID, sess.ID)
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("REACHED " + ctxUser.Username))
 	})
@@ -144,6 +153,17 @@ func TestRequireSession_RedirectsWithExpiredSession(t *testing.T) {
 	loc := rr.Header().Get("Location")
 	if !strings.Contains(loc, "/login") {
 		t.Errorf("Location %q does not contain /login", loc)
+	}
+
+	// The dead cookie must be cleared so the browser stops replaying it.
+	cleared := false
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == cfg.Session.EffectiveCookieName() && c.Value == "" && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("expired session cookie was not cleared on the redirect")
 	}
 }
 

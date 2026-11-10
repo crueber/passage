@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -94,9 +95,23 @@ type DatabaseConfig struct {
 
 // SessionConfig holds session settings.
 type SessionConfig struct {
-	DurationHours int    `yaml:"duration_hours"`
-	CookieName    string `yaml:"cookie_name"`
-	CookieSecure  bool   `yaml:"cookie_secure"`
+	DurationHours int `yaml:"duration_hours"`
+	// IdleTimeoutMinutes closes a session that has not been used for this many
+	// minutes, independent of the absolute DurationHours. Zero (the default)
+	// disables the idle timeout.
+	// Env: PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES.
+	IdleTimeoutMinutes int    `yaml:"idle_timeout_minutes"`
+	CookieName         string `yaml:"cookie_name"`
+	CookieSecure       bool   `yaml:"cookie_secure"`
+}
+
+// IdleTimeout returns the configured idle window as a duration. A zero or
+// negative value means the idle timeout is disabled.
+func (s SessionConfig) IdleTimeout() time.Duration {
+	if s.IdleTimeoutMinutes <= 0 {
+		return 0
+	}
+	return time.Duration(s.IdleTimeoutMinutes) * time.Minute
 }
 
 // EffectiveCookieName returns the session cookie name, applying the __Host-
@@ -145,9 +160,10 @@ func defaults() *Config {
 			Path: "passage.db",
 		},
 		Session: SessionConfig{
-			DurationHours: 24,
-			CookieName:    "passage_session",
-			CookieSecure:  true,
+			DurationHours:      24,
+			IdleTimeoutMinutes: 0,
+			CookieName:         "passage_session",
+			CookieSecure:       true,
 		},
 		SMTP: SMTPConfig{
 			Port: 587,
@@ -216,6 +232,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Session.DurationHours <= 0 {
 		errs = append(errs, fmt.Errorf("session.duration_hours must be positive, got %d", c.Session.DurationHours))
+	}
+	if c.Session.IdleTimeoutMinutes < 0 {
+		errs = append(errs, fmt.Errorf("session.idle_timeout_minutes must be zero or positive, got %d", c.Session.IdleTimeoutMinutes))
 	}
 	if c.Auth.BcryptCost < 10 || c.Auth.BcryptCost > 31 {
 		errs = append(errs, fmt.Errorf("auth.bcrypt_cost must be between 10 and 31, got %d", c.Auth.BcryptCost))
@@ -318,6 +337,13 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("PASSAGE_SESSION_COOKIE_NAME"); v != "" {
 		cfg.Session.CookieName = v
+	}
+	if v := os.Getenv("PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Session.IdleTimeoutMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES", v, err)
+		}
 	}
 	if v := os.Getenv("PASSAGE_SESSION_COOKIE_SECURE"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {

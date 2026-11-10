@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/crueber/passage/internal/config"
 )
@@ -27,6 +28,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"Server.BaseURL", cfg.Server.BaseURL, ""},
 		{"Database.Path", cfg.Database.Path, "passage.db"},
 		{"Session.DurationHours", cfg.Session.DurationHours, 24},
+		{"Session.IdleTimeoutMinutes", cfg.Session.IdleTimeoutMinutes, 0},
 		{"Session.CookieName", cfg.Session.CookieName, "passage_session"},
 		{"Session.CookieSecure", cfg.Session.CookieSecure, true},
 		{"SMTP.Port", cfg.SMTP.Port, 587},
@@ -55,13 +57,14 @@ func TestLoad_EnvOverride(t *testing.T) {
 
 	// Set a few env vars and verify they override defaults.
 	envVars := map[string]string{
-		"PASSAGE_SERVER_HOST":           "127.0.0.1",
-		"PASSAGE_SERVER_PORT":           "9090",
-		"PASSAGE_DATABASE_PATH":         "/tmp/test.db",
-		"PASSAGE_LOG_LEVEL":             "debug",
-		"PASSAGE_LOG_FORMAT":            "text",
-		"PASSAGE_AUTH_BCRYPT_COST":      "14",
-		"PASSAGE_SESSION_COOKIE_SECURE": "false",
+		"PASSAGE_SERVER_HOST":                  "127.0.0.1",
+		"PASSAGE_SERVER_PORT":                  "9090",
+		"PASSAGE_DATABASE_PATH":                "/tmp/test.db",
+		"PASSAGE_LOG_LEVEL":                    "debug",
+		"PASSAGE_LOG_FORMAT":                   "text",
+		"PASSAGE_AUTH_BCRYPT_COST":             "14",
+		"PASSAGE_SESSION_COOKIE_SECURE":        "false",
+		"PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES": "45",
 	}
 
 	// Set env vars and restore them after the test.
@@ -86,6 +89,7 @@ func TestLoad_EnvOverride(t *testing.T) {
 		{"Log.Format", cfg.Log.Format, "text"},
 		{"Auth.BcryptCost", cfg.Auth.BcryptCost, 14},
 		{"Session.CookieSecure", cfg.Session.CookieSecure, false},
+		{"Session.IdleTimeoutMinutes", cfg.Session.IdleTimeoutMinutes, 45},
 	}
 
 	for _, tt := range tests {
@@ -231,6 +235,21 @@ func TestValidate(t *testing.T) {
 		{
 			name:    "duration_hours negative fails",
 			mutate:  func(c *config.Config) { c.Session.DurationHours = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "idle_timeout_minutes zero is valid (disabled)",
+			mutate:  func(c *config.Config) { c.Session.IdleTimeoutMinutes = 0 },
+			wantErr: false,
+		},
+		{
+			name:    "idle_timeout_minutes positive is valid",
+			mutate:  func(c *config.Config) { c.Session.IdleTimeoutMinutes = 30 },
+			wantErr: false,
+		},
+		{
+			name:    "idle_timeout_minutes negative fails",
+			mutate:  func(c *config.Config) { c.Session.IdleTimeoutMinutes = -1 },
 			wantErr: true,
 		},
 		{
@@ -566,6 +585,36 @@ func TestTheme(t *testing.T) {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("Validate error %q does not mention %q", err, want)
 				}
+			}
+		})
+	}
+}
+
+// TestSessionIdleTimeout verifies the minutes→duration conversion and that a
+// zero (or negative) value means "disabled".
+func TestSessionIdleTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		minutes  int
+		wantZero bool
+		wantDur  time.Duration
+	}{
+		{name: "zero disables", minutes: 0, wantZero: true},
+		{name: "negative disables", minutes: -5, wantZero: true},
+		{name: "minutes converted", minutes: 90, wantDur: 90 * time.Minute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := config.SessionConfig{IdleTimeoutMinutes: tt.minutes}.IdleTimeout()
+			if tt.wantZero && got != 0 {
+				t.Errorf("IdleTimeout() = %v, want 0 (disabled)", got)
+			}
+			if !tt.wantZero && got != tt.wantDur {
+				t.Errorf("IdleTimeout() = %v, want %v", got, tt.wantDur)
 			}
 		})
 	}

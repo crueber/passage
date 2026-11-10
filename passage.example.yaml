@@ -12,6 +12,10 @@ database:
 
 session:
   duration_hours: 24
+  # Optional idle timeout. A session that has not been used for this many
+  # minutes is closed even if duration_hours has not elapsed. 0 disables it.
+  # "Used" is refreshed at most once every five minutes per session.
+  idle_timeout_minutes: 0
   cookie_name: "passage_session"
   cookie_secure: true
 
