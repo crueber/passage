@@ -507,6 +507,11 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a Passage session for the authenticated user.
+	//
+	// appID is always nil here: this endpoint is a JSON call from the login
+	// page and receives no return target, so the app the user came from is
+	// unknowable. The session therefore gets the global duration. Flows that
+	// can name an app resolve it in user.Handler.appIDFromReturnTarget.
 	userID := string(waUser.WebAuthnID())
 	username := waUser.WebAuthnName()
 	ip := r.RemoteAddr

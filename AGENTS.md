@@ -38,7 +38,7 @@ passage/
       migrations/       # *.sql embedded migration files (001_*.sql … 010_*.sql)
     user/               # model, store, service, handler, magic links, setup tokens
     app/                # model, store, service (host pattern matching, per-app session duration, auth method flags)
-    session/            # model, store, service, middleware (RequireSession)
+    session/            # model, store, service, middleware (RequireSession), user sessions page
     forwardauth/        # /auth/nginx, /auth/traefik, /auth/start, /auth/sign_out
     admin/              # admin UI handlers, RequireAdmin middleware, settings store, audit log
     email/              # go-mail wrapper + embedded templates
@@ -100,7 +100,7 @@ Route groups in `run.go`; when adding routes, pick the right group:
 | Global | `RequestID`, `RealIP`, `Logger`, `Recoverer`, `web.SecurityHeaders()` | everything |
 | Public JSON | none | `/healthz`, passkey auth routes, `/.well-known/*`, `/oauth/*` |
 | Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/register`, `/reset`, `/login/magic`, `/setup` |
-| Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, passkey profile routes |
+| Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, `/sessions` (+ revoke), passkey profile routes |
 | Admin | `admin.RequireAdmin` + `csrf.ProtectAuthenticated` | `/admin/*` |
 
 - Rate limiting: `ratelimit.Middleware(limiter)` applied per-route (`/login`, `/reset`, `/oauth/token`, `/setup`). Limiters are in-memory sliding-window, configured in the `ratelimit` config section. Read-only OAuth endpoints (discovery, JWKS, userinfo) are deliberately NOT rate-limited.

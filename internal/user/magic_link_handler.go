@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/csrf"
@@ -51,7 +52,7 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 	// Open-redirect guard: only accept relative paths starting with "/" but not
 	// "//" and containing no "\" (browsers normalize "\" to "/", so "/\evil.com"
 	// is equivalent to "//evil.com").
-	if rd != "" && !(strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\")) {
+	if !safeReturnPath(rd) {
 		rd = ""
 	}
 
@@ -180,7 +181,21 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 
 	ip := r.RemoteAddr
 	ua := r.Header.Get("User-Agent")
-	sessionToken, expiresAt, err := h.sessions.CreateSession(ctx, u.ID, nil, ip, ua)
+
+	// Resolve the return target before creating the session: an OAuth
+	// authorization request names the app, and that app may override the
+	// session duration (see Handler.appIDFromReturnTarget).
+	rd := r.URL.Query().Get("rd")
+	clearReturnCookie := false
+	if rdCookie, err := r.Cookie("passage_rd"); err == nil && rdCookie.Value != "" && rd == "" {
+		rd = rdCookie.Value
+		clearReturnCookie = true
+	}
+	if !safeReturnPath(rd) {
+		rd = ""
+	}
+
+	sessionToken, expiresAt, err := h.sessions.CreateSession(ctx, u.ID, h.appIDFromReturnTarget(ctx, rd), ip, ua)
 	if err != nil {
 		h.logger.Error("magic link: create session", "user_id", u.ID, "error", err)
 		h.record(r, authlog.Event{
@@ -203,16 +218,22 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 		Detail:   "magic link",
 	})
 
-	// Redirect: passage_rd cookie → rd query param → /admin for admins → /.
-	// Open-redirect guard: only redirect to paths that start with "/" but not
-	// "//" and contain no "\" (see PostMagicLinkRequest).
-	rd := r.URL.Query().Get("rd")
-	if rdCookie, err := r.Cookie("passage_rd"); err == nil && rdCookie.Value != "" && rd == "" {
-		rd = rdCookie.Value
-		// Clear the cookie.
-		http.SetCookie(w, &http.Cookie{Name: "passage_rd", Value: "", MaxAge: -1, Path: "/"})
+	if clearReturnCookie {
+		// Clear the passage_rd cookie now that we've consumed it.
+		http.SetCookie(w, &http.Cookie{
+			Name:     "passage_rd",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
+			HttpOnly: true,
+			Secure:   h.cfg.Session.CookieSecure,
+			SameSite: http.SameSiteLaxMode,
+		})
 	}
-	if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\") {
+
+	// Redirect: rd → /admin for admins → /.
+	if rd != "" {
 		http.Redirect(w, r, rd, http.StatusFound)
 		return
 	}

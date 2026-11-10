@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -42,10 +43,13 @@ type settingsReader interface {
 	Get(ctx context.Context, key string) (string, error)
 }
 
-// AppLister provides the list of apps a user can access, for the dashboard.
-// Defined at the consumer boundary; backed by *app.Service in run.go.
+// AppLister provides the app lookups the handler needs: the apps a user can
+// access (dashboard) and the app that owns an OAuth client_id (used to resolve
+// a per-app session duration from an OAuth login return target). Defined at
+// the consumer boundary; backed by *app.Service in run.go.
 type AppLister interface {
 	ListAppsForUser(ctx context.Context, userID string) ([]*app.App, error)
+	GetByClientID(ctx context.Context, clientID string) (*app.App, error)
 }
 
 // userContextReader extracts the authenticated user from the request context.
@@ -126,6 +130,50 @@ func (h *Handler) registrationAllowed(ctx context.Context) bool {
 		return h.cfg.Auth.AllowRegistration
 	}
 	return val == "true"
+}
+
+// safeReturnPath reports whether rd is a same-site absolute path that is safe
+// to redirect to.
+//
+// It must start with "/" but not "//" (protocol-relative URLs such as
+// //evil.example.com are treated as absolute by browsers) and must not contain
+// "\" (browsers normalise "\" to "/" in special-scheme URLs, so
+// "/\evil.example.com" is equivalent to "//evil.example.com").
+func safeReturnPath(rd string) bool {
+	return rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\")
+}
+
+// appIDFromReturnTarget returns the app a sign-in is for, when the return
+// target identifies one, or nil when it does not.
+//
+// Only one login flow knows the app: an OAuth client that bounces an
+// unauthenticated user to /auth/start (and then /login) sets
+// rd=/oauth/authorize?client_id=…, and the client_id names the app exactly.
+// Every other flow — a bare /login visit, registration, initial setup, a
+// forward-auth bounce (which passes only a path on the Passage host), and
+// passkey login (a JSON call with no return target) — carries no app identity,
+// so the session gets the global duration. Threading an app hint through
+// forward-auth would require changing the proxy contract and is deliberately
+// not invented here.
+func (h *Handler) appIDFromReturnTarget(ctx context.Context, rd string) *string {
+	if rd == "" {
+		return nil
+	}
+	parsed, err := url.Parse(rd)
+	if err != nil || parsed.Path != "/oauth/authorize" {
+		return nil
+	}
+	clientID := parsed.Query().Get("client_id")
+	if clientID == "" {
+		return nil
+	}
+	a, err := h.apps.GetByClientID(ctx, clientID)
+	if err != nil || a == nil {
+		// Unknown client (or a DB error): fall back to the global duration
+		// rather than failing the login.
+		return nil
+	}
+	return &a.ID
 }
 
 // loginData is the template data for the login page.
@@ -255,7 +303,26 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, nil, r.RemoteAddr, r.UserAgent())
+	// Resolve the return target first: an OAuth authorization request names the
+	// app, and that app may override the session duration. See
+	// appIDFromReturnTarget for which flows can and cannot know the app.
+	returnTarget := ""
+	dest := "/"
+	clearReturnCookie := false
+	if rdCookie, err := r.Cookie("passage_rd"); err == nil && safeReturnPath(rdCookie.Value) {
+		returnTarget = rdCookie.Value
+		dest = returnTarget
+		clearReturnCookie = true
+	} else if safeReturnPath(rd) {
+		returnTarget = rd
+		dest = rd
+	} else if u.IsAdmin {
+		// No explicit redirect destination: send admins directly to the admin
+		// dashboard rather than the homepage.
+		dest = "/admin"
+	}
+
+	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, h.appIDFromReturnTarget(r.Context(), returnTarget), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		h.logger.Error("create session", "error", err)
 		h.record(r, authlog.Event{
@@ -278,11 +345,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		Detail:   "password",
 	})
 
-	// Check for passage_rd cookie first (set by /auth/start), then fall back
-	// to the rd form field, then default to / (or /admin for admin users).
-	dest := "/"
-	if rdCookie, err := r.Cookie("passage_rd"); err == nil && strings.HasPrefix(rdCookie.Value, "/") && !strings.HasPrefix(rdCookie.Value, "//") && !strings.Contains(rdCookie.Value, "\\") {
-		dest = rdCookie.Value
+	if clearReturnCookie {
 		// Clear the passage_rd cookie now that we've consumed it.
 		http.SetCookie(w, &http.Cookie{
 			Name:     "passage_rd",
@@ -294,12 +357,6 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			Secure:   h.cfg.Session.CookieSecure,
 			SameSite: http.SameSiteLaxMode,
 		})
-	} else if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\") {
-		dest = rd
-	} else if u.IsAdmin {
-		// No explicit redirect destination: send admins directly to the admin
-		// dashboard rather than the homepage.
-		dest = "/admin"
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
 }

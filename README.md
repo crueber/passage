@@ -140,6 +140,7 @@ database:
 
 session:
   duration_hours: 24    # how long sessions stay valid
+  idle_timeout_minutes: 0  # optional: close a session after N minutes unused (0 = off)
   cookie_name: "passage_session"
   cookie_secure: true   # set false only for local HTTP development
 
@@ -186,6 +187,7 @@ Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → 
 | `PASSAGE_SERVER_BASE_URL` | `server.base_url` |
 | `PASSAGE_DATABASE_PATH` | `database.path` |
 | `PASSAGE_SESSION_DURATION_HOURS` | `session.duration_hours` |
+| `PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES` | `session.idle_timeout_minutes` |
 | `PASSAGE_SESSION_COOKIE_SECURE` | `session.cookie_secure` |
 | `PASSAGE_SMTP_HOST` | `smtp.host` |
 | `PASSAGE_SMTP_PASSWORD` | `smtp.password` |

@@ -177,6 +177,9 @@ func run() error {
 
 	// Start session cleanup background goroutine.
 	// Deletes expired sessions every hour; exits on context cancellation.
+	// When an idle timeout is configured, sessions that have gone idle are
+	// swept as well so the admin session list does not keep advertising
+	// sessions that validation already rejects.
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -187,6 +190,11 @@ func run() error {
 			case <-ticker.C:
 				if err := sessionStore.DeleteExpired(ctx); err != nil {
 					logger.Error("session cleanup failed", "error", err)
+				}
+				if idle := cfg.Session.IdleTimeout(); idle > 0 {
+					if err := sessionStore.DeleteIdleBefore(ctx, time.Now().UTC().Add(-idle)); err != nil {
+						logger.Error("idle session cleanup failed", "error", err)
+					}
 				}
 			}
 		}
@@ -279,6 +287,9 @@ func run() error {
 
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, tmpl, cfg, logger)
+
+	// Build the user-facing sessions page handler (self-service revoke).
+	userSessionsHandler := session.NewHandler(sessionSvc, tmpl, cfg, logger)
 
 	// If no admin user exists, generate a one-time setup token so the operator
 	// can bootstrap the first admin account via /setup. The token is logged to
@@ -411,6 +422,10 @@ func run() error {
 		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.EffectiveCookieName()))
 		r.Get("/", userHandler.GetDashboard)
 		r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/verify-email/resend", userHandler.PostVerifyEmailResend)
+
+		// Self-service session management (list, revoke one, sign out
+		// everywhere). All routes are scoped to the current user.
+		userSessionsHandler.Routes(r)
 
 		// Passkey management routes (require session).
 		passkeyHandler.ProfileRoutes(r)

@@ -1,0 +1,84 @@
+{{define "sessions.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sessions — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="flex min-h-dvh flex-col">
+{{template "topnav-sessions" .}}
+
+<main class="content w-full">
+  <div class="mx-auto max-w-3xl">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Sessions</h1>
+        <p class="page-sub">Devices signed in to your account. Revoking a session signs it out immediately.</p>
+      </div>
+      {{if .Sessions}}
+      <form method="POST" action="/sessions/revoke-all">
+        {{csrfField .CSRFToken}}
+        <button type="submit" class="btn btn-danger btn-sm"
+                data-confirm="Sign out of every device, including this one?">Sign out everywhere</button>
+      </form>
+      {{end}}
+    </div>
+    {{template "flash" .}}
+
+    {{if .Sessions}}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Device</th>
+            <th scope="col">IP address</th>
+            <th scope="col">Created</th>
+            <th scope="col">Last active</th>
+            <th scope="col" class="text-right"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Sessions}}
+          <tr>
+            <td>
+              <div class="font-medium">
+                {{.Device}}
+                {{if .Current}}<span class="badge badge-green">This device</span>{{end}}
+              </div>
+              <div class="td-muted max-w-xs truncate text-xs" title="{{.UserAgent}}">{{.UserAgent}}</div>
+            </td>
+            <td class="td-mono">{{if .IPAddress}}{{.IPAddress}}{{else}}<span class="text-faint">Unknown</span>{{end}}</td>
+            <td class="td-mono">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td class="td-mono">{{if .LastUsedAt.IsZero}}<span class="text-faint">Unknown</span>{{else}}{{.LastUsedAt.Format "2006-01-02 15:04"}}{{end}}</td>
+            <td class="text-right">
+              <form method="POST" action="/sessions/revoke">
+                {{csrfField $.CSRFToken}}
+                <input type="hidden" name="public_id" value="{{.PublicID}}">
+                <button type="submit" class="btn btn-danger btn-sm"
+                        {{if .Current}}data-confirm="This is your current session. Sign out?"{{else}}data-confirm="Revoke this session?"{{end}}>Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty">
+      {{template "ic-devices"}}
+      <p class="empty-title">No active sessions</p>
+      <p class="empty-sub">Sign in again to see this device listed here.</p>
+    </div>
+    {{end}}
+  </div>
+</main>
+
+{{template "app-footer" .}}
+</body>
+</html>
+{{end}}

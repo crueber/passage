@@ -1197,6 +1197,10 @@ func (failingAppLister) ListAppsForUser(_ context.Context, _ string) ([]*app.App
 	return nil, errors.New("lister boom")
 }
 
+func (failingAppLister) GetByClientID(_ context.Context, _ string) (*app.App, error) {
+	return nil, errors.New("lister boom")
+}
+
 // TestHandler_GetDashboard_EmptyState verifies the dashboard renders 200 for a
 // non-admin user with no apps (this branch does not reach the flash partial;
 // see TestHandler_GetDashboard_AppsWithFlash for the .Flash regression pin).
