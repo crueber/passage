@@ -16,6 +16,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
@@ -48,6 +49,12 @@ type passkeySettingsReader interface {
 	Get(ctx context.Context, key string) (string, error)
 }
 
+// authEventRecorder records passkey authentication events for the admin
+// security log. Defined at the consumer boundary; backed by *authlog.Recorder.
+type authEventRecorder interface {
+	Record(ctx context.Context, e authlog.Event)
+}
+
 // Handler handles all WebAuthn/passkey HTTP endpoints.
 type Handler struct {
 	wa         webAuthnCeremony
@@ -59,6 +66,7 @@ type Handler struct {
 	tmpl       *template.Template
 	logger     *slog.Logger
 	settings   passkeySettingsReader
+	authEvents authEventRecorder
 }
 
 // sessionConfig provides cookie configuration for setting the session after passkey login.
@@ -79,6 +87,7 @@ func NewHandler(
 	tmpl *template.Template,
 	logger *slog.Logger,
 	settings passkeySettingsReader,
+	authEvents authEventRecorder,
 ) *Handler {
 	return &Handler{
 		wa:         wa,
@@ -90,10 +99,22 @@ func NewHandler(
 			CookieName:   cookieName,
 			CookieSecure: cookieSecure,
 		},
-		tmpl:     tmpl,
-		logger:   logger,
-		settings: settings,
+		tmpl:       tmpl,
+		logger:     logger,
+		settings:   settings,
+		authEvents: authEvents,
 	}
+}
+
+// record emits an authentication event for r, filling in the client address
+// and user agent. It is a no-op when no recorder is wired.
+func (h *Handler) record(r *http.Request, e authlog.Event) {
+	if h.authEvents == nil {
+		return
+	}
+	e.IP = authlog.ClientIP(r)
+	e.UserAgent = r.UserAgent()
+	h.authEvents.Record(r.Context(), e)
 }
 
 // passkeyEnabled duplicates the isAuthMethodEnabled check for passkeys.
@@ -398,6 +419,11 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 
 	sessionData, err := h.challenges.GetAuthentication(cookie.Value)
 	if err != nil {
+		h.record(r, authlog.Event{
+			Event:   authlog.EventPasskeyFailure,
+			Outcome: authlog.OutcomeFailure,
+			Detail:  "challenge expired or not found",
+		})
 		jsonError(w, "auth session expired or not found", http.StatusBadRequest)
 		return
 	}
@@ -444,6 +470,16 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 	waUser, credential, err := h.wa.FinishPasskeyLogin(handler, sessionData, r)
 	if err != nil {
 		h.logger.Warn("webauthn: finish login failed", "error", err)
+		e := authlog.Event{
+			Event:   authlog.EventPasskeyFailure,
+			Outcome: authlog.OutcomeFailure,
+			Detail:  "authentication failed",
+		}
+		if waUser != nil {
+			e.UserID = string(waUser.WebAuthnID())
+			e.Username = waUser.WebAuthnName()
+		}
+		h.record(r, e)
 		jsonError(w, "passkey authentication failed", http.StatusUnauthorized)
 		return
 	}
@@ -452,6 +488,13 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 	if credential.Authenticator.CloneWarning {
 		h.logger.Warn("webauthn: possible cloned authenticator detected",
 			"credential_id", base64.RawURLEncoding.EncodeToString(credential.ID))
+		h.record(r, authlog.Event{
+			Event:    authlog.EventPasskeyFailure,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   string(waUser.WebAuthnID()),
+			Username: waUser.WebAuthnName(),
+			Detail:   "possible cloned authenticator",
+		})
 		jsonError(w, "passkey authentication failed", http.StatusUnauthorized)
 		return
 	}
@@ -465,12 +508,20 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Create a Passage session for the authenticated user.
 	userID := string(waUser.WebAuthnID())
+	username := waUser.WebAuthnName()
 	ip := r.RemoteAddr
 	ua := r.Header.Get("User-Agent")
 
 	token, expiresAt, err := h.sessions.CreateSession(ctx, userID, nil, ip, ua)
 	if err != nil {
 		h.logger.Error("webauthn: create session after passkey login", "user_id", userID, "error", err)
+		h.record(r, authlog.Event{
+			Event:    authlog.EventPasskeyFailure,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   userID,
+			Username: username,
+			Detail:   "session create failed",
+		})
 		jsonError(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
@@ -486,6 +537,13 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.logger.Info("webauthn: passkey login succeeded", "user_id", userID)
+	h.record(r, authlog.Event{
+		Event:    authlog.EventPasskeyLogin,
+		Outcome:  authlog.OutcomeSuccess,
+		UserID:   userID,
+		Username: username,
+		Detail:   "passkey",
+	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "redirect": "/"})
 }

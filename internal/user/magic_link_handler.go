@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/csrf"
 )
 
@@ -126,6 +127,22 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.users.ConsumeMagicLinkToken(ctx, token)
 	if err != nil {
+		detail := "invalid token"
+		switch {
+		case errors.Is(err, ErrMagicLinkTokenExpired):
+			detail = "expired token"
+		case errors.Is(err, ErrMagicLinkTokenUsed):
+			detail = "token already used"
+		case errors.Is(err, ErrMagicLinkTokenNotFound):
+			detail = "unknown token"
+		default:
+			detail = "internal error"
+		}
+		h.record(r, authlog.Event{
+			Event:   authlog.EventMagicLinkFailure,
+			Outcome: authlog.OutcomeFailure,
+			Detail:  detail,
+		})
 		switch {
 		case errors.Is(err, ErrMagicLinkTokenExpired):
 			http.Redirect(w, r, "/login/magic?flash=link-expired", http.StatusFound)
@@ -141,6 +158,13 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !u.IsActive {
+		h.record(r, authlog.Event{
+			Event:    authlog.EventMagicLinkFailure,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   u.ID,
+			Username: u.Username,
+			Detail:   "account inactive",
+		})
 		http.Redirect(w, r, "/login?flash=account-inactive", http.StatusFound)
 		return
 	}
@@ -150,11 +174,25 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	sessionToken, expiresAt, err := h.sessions.CreateSession(ctx, u.ID, nil, ip, ua)
 	if err != nil {
 		h.logger.Error("magic link: create session", "user_id", u.ID, "error", err)
+		h.record(r, authlog.Event{
+			Event:    authlog.EventMagicLinkFailure,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   u.ID,
+			Username: u.Username,
+			Detail:   "session create failed",
+		})
 		http.Redirect(w, r, "/login?flash=error", http.StatusFound)
 		return
 	}
 
 	setSessionCookie(w, sessionToken, expiresAt, h.cfg)
+	h.record(r, authlog.Event{
+		Event:    authlog.EventMagicLinkLogin,
+		Outcome:  authlog.OutcomeSuccess,
+		UserID:   u.ID,
+		Username: u.Username,
+		Detail:   "magic link",
+	})
 
 	// Redirect: passage_rd cookie → rd query param → /admin for admins → /.
 	// Open-redirect guard: only redirect to paths that start with "/" but not

@@ -2,6 +2,7 @@ package webauthn_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -27,6 +28,7 @@ import (
 )
 
 type handlerFixture struct {
+	db           *sql.DB
 	userStore    *user.SQLiteStore
 	userSvc      *user.Service
 	sessionStore *session.SQLiteStore
@@ -72,9 +74,10 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 	}
 
 	h := webauthn.NewHandler(wa, credStore, challenges, userStore, sessionSvc,
-		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil)
+		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil, nil)
 
 	return &handlerFixture{
+		db:           db,
 		userStore:    userStore,
 		userSvc:      userSvc,
 		sessionStore: sessionStore,
@@ -532,6 +535,7 @@ func TestPostFinishRegistration_Name(t *testing.T) {
 				tmpl,
 				logger,
 				nil,
+				nil,
 			)
 
 			router := chi.NewRouter()
@@ -599,7 +603,7 @@ func TestGetBeginLogin_PasskeyDisabled(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	challenges := webauthn.NewChallengeStore()
 	h := webauthn.NewHandler(wa, f.credStore, challenges, f.userStore, f.sessionSvc,
-		f.cfg.Session.CookieName, f.cfg.Session.CookieSecure, tmpl, logger, disabledPasskeySettings{})
+		f.cfg.Session.CookieName, f.cfg.Session.CookieSecure, tmpl, logger, disabledPasskeySettings{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/login/passkey/begin", nil)
 	rec := httptest.NewRecorder()

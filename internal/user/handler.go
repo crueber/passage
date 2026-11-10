@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
@@ -52,17 +53,25 @@ type AppLister interface {
 // run.go wires session.UserFromContext in.
 type userContextReader func(ctx context.Context) (*User, bool)
 
+// authEventRecorder records authentication events for the admin security log.
+// Defined at the consumer boundary; backed by *authlog.Recorder in run.go.
+// Recording is best-effort: the Recorder never returns an error.
+type authEventRecorder interface {
+	Record(ctx context.Context, e authlog.Event)
+}
+
 // Handler handles user-facing HTTP flows: login, register, password reset, logout.
 type Handler struct {
-	users    *Service
-	apps     AppLister
-	sessions sessionCreator
-	settings settingsReader
-	mailer   email.Sender
-	userCtx  userContextReader
-	tmpl     *template.Template
-	cfg      *config.Config
-	logger   *slog.Logger
+	users      *Service
+	apps       AppLister
+	sessions   sessionCreator
+	settings   settingsReader
+	mailer     email.Sender
+	userCtx    userContextReader
+	authEvents authEventRecorder
+	tmpl       *template.Template
+	cfg        *config.Config
+	logger     *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
@@ -73,21 +82,35 @@ func NewHandler(
 	settings settingsReader,
 	mailer email.Sender,
 	userCtx userContextReader,
+	authEvents authEventRecorder,
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
-		users:    users,
-		apps:     apps,
-		sessions: sessions,
-		settings: settings,
-		mailer:   mailer,
-		userCtx:  userCtx,
-		tmpl:     tmpl,
-		cfg:      cfg,
-		logger:   logger,
+		users:      users,
+		apps:       apps,
+		sessions:   sessions,
+		settings:   settings,
+		mailer:     mailer,
+		userCtx:    userCtx,
+		authEvents: authEvents,
+		tmpl:       tmpl,
+		cfg:        cfg,
+		logger:     logger,
 	}
+}
+
+// record emits an authentication event for r, filling in the client address
+// and user agent. It is a no-op when no recorder is wired (tests that do not
+// exercise the security log).
+func (h *Handler) record(r *http.Request, e authlog.Event) {
+	if h.authEvents == nil {
+		return
+	}
+	e.IP = authlog.ClientIP(r)
+	e.UserAgent = r.UserAgent()
+	h.authEvents.Record(r.Context(), e)
 }
 
 // registrationAllowed checks the DB setting first, falling back to the static config.
@@ -206,10 +229,26 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	u, err := h.users.Authenticate(r.Context(), username, password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) || errors.Is(err, ErrUserInactive) {
+			detail := "invalid credentials"
+			if errors.Is(err, ErrUserInactive) {
+				detail = "account inactive"
+			}
+			h.record(r, authlog.Event{
+				Event:    authlog.EventLoginFailure,
+				Outcome:  authlog.OutcomeFailure,
+				Username: username,
+				Detail:   detail,
+			})
 			h.renderLoginError(w, r, "Invalid username or password.", rd, username)
 			return
 		}
 		h.logger.Error("authenticate user", "error", err)
+		h.record(r, authlog.Event{
+			Event:    authlog.EventLoginFailure,
+			Outcome:  authlog.OutcomeFailure,
+			Username: username,
+			Detail:   "internal error",
+		})
 		h.renderLoginError(w, r, "An error occurred. Please try again.", rd, username)
 		return
 	}
@@ -217,11 +256,25 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, nil, r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		h.logger.Error("create session", "error", err)
+		h.record(r, authlog.Event{
+			Event:    authlog.EventLoginFailure,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   u.ID,
+			Username: u.Username,
+			Detail:   "session create failed",
+		})
 		h.renderLoginError(w, r, "An error occurred. Please try again.", rd, username)
 		return
 	}
 
 	setSessionCookie(w, token, expiresAt, h.cfg)
+	h.record(r, authlog.Event{
+		Event:    authlog.EventLoginSuccess,
+		Outcome:  authlog.OutcomeSuccess,
+		UserID:   u.ID,
+		Username: u.Username,
+		Detail:   "password",
+	})
 
 	// Check for passage_rd cookie first (set by /auth/start), then fall back
 	// to the rd form field, then default to / (or /admin for admin users).
@@ -303,6 +356,12 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auto-login after registration.
+	h.record(r, authlog.Event{
+		Event:    authlog.EventRegisterSuccess,
+		Outcome:  authlog.OutcomeSuccess,
+		UserID:   u.ID,
+		Username: u.Username,
+	})
 	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, nil, r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		h.logger.Error("create session after register", "error", err)
@@ -439,9 +498,18 @@ func (h *Handler) PostResetConfirm(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetLogout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName())
 	if err == nil {
+		outcome := authlog.OutcomeSuccess
+		detail := ""
 		if err := h.sessions.RevokeSession(r.Context(), cookie.Value); err != nil {
 			h.logger.Warn("revoke session on logout", "error", err)
+			outcome = authlog.OutcomeFailure
+			detail = "session revoke failed"
 		}
+		h.record(r, authlog.Event{
+			Event:   authlog.EventLogout,
+			Outcome: outcome,
+			Detail:  detail,
+		})
 	}
 	clearSessionCookie(w, h.cfg)
 	http.Redirect(w, r, "/login", http.StatusFound)
