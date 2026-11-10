@@ -145,6 +145,15 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Using the link proves control of the mailbox, so an unverified account
+	// becomes verified. Failures are logged only — verification never gates
+	// sign-in.
+	if !u.EmailVerified {
+		if err := h.users.MarkEmailVerified(ctx, u.ID); err != nil {
+			h.logger.Warn("magic link: mark email verified", "user_id", u.ID, "error", err)
+		}
+	}
+
 	ip := r.RemoteAddr
 	ua := r.Header.Get("User-Agent")
 	sessionToken, expiresAt, err := h.sessions.CreateSession(ctx, u.ID, nil, ip, ua)

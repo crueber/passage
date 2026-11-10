@@ -22,6 +22,7 @@ var templateFS embed.FS
 type Sender interface {
 	SendPasswordReset(ctx context.Context, toEmail, toName, resetURL string) error
 	SendMagicLink(ctx context.Context, toEmail, toName, magicURL string) error
+	SendVerifyEmail(ctx context.Context, toEmail, toName, verifyURL string) error
 }
 
 // resetData holds the data passed to password reset email templates.
@@ -36,6 +37,12 @@ type magicLinkData struct {
 	MagicURL string
 }
 
+// verifyEmailData holds the data passed to email verification templates.
+type verifyEmailData struct {
+	Name      string
+	VerifyURL string
+}
+
 // SMTPSender sends emails via SMTP using go-mail.
 type SMTPSender struct {
 	cfg               *config.Config
@@ -44,6 +51,8 @@ type SMTPSender struct {
 	textTmpl          *ttext.Template
 	magicLinkHTMLTmpl *template.Template
 	magicLinkTextTmpl *ttext.Template
+	verifyHTMLTmpl    *template.Template
+	verifyTextTmpl    *ttext.Template
 }
 
 // NewSMTPSender creates a new SMTPSender. Templates are parsed at construction time.
@@ -64,6 +73,14 @@ func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error)
 	if err != nil {
 		return nil, fmt.Errorf("email: parse magic link text template: %w", err)
 	}
+	verifyHTMLTmpl, err := template.ParseFS(templateFS, "templates/verify_email.html")
+	if err != nil {
+		return nil, fmt.Errorf("email: parse verify email html template: %w", err)
+	}
+	verifyTextTmpl, err := ttext.ParseFS(templateFS, "templates/verify_email.txt")
+	if err != nil {
+		return nil, fmt.Errorf("email: parse verify email text template: %w", err)
+	}
 	return &SMTPSender{
 		cfg:               cfg,
 		logger:            logger,
@@ -71,6 +88,8 @@ func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error)
 		textTmpl:          textTmpl,
 		magicLinkHTMLTmpl: magicLinkHTMLTmpl,
 		magicLinkTextTmpl: magicLinkTextTmpl,
+		verifyHTMLTmpl:    verifyHTMLTmpl,
+		verifyTextTmpl:    verifyTextTmpl,
 	}, nil
 }
 
@@ -182,6 +201,63 @@ func (s *SMTPSender) SendMagicLink(ctx context.Context, toEmail, toName, magicUR
 
 	if err := client.DialAndSendWithContext(ctx, msg); err != nil {
 		return fmt.Errorf("email: send magic link: %w", err)
+	}
+	return nil
+}
+
+// SendVerifyEmail sends an email address verification link to the recipient.
+// If SMTP is not usable, an error is returned and the caller must keep the
+// account usable (unverified) rather than failing the registration.
+func (s *SMTPSender) SendVerifyEmail(ctx context.Context, toEmail, toName, verifyURL string) error {
+	if s.cfg.SMTP.Host == "" || s.cfg.SMTP.From == "" {
+		s.logger.Warn("SMTP not configured: cannot send verification email", "to", toEmail)
+		return fmt.Errorf("email: SMTP host or from address is not configured")
+	}
+
+	data := verifyEmailData{Name: toName, VerifyURL: verifyURL}
+
+	var htmlBuf, textBuf bytes.Buffer
+	if err := s.verifyHTMLTmpl.Execute(&htmlBuf, data); err != nil {
+		return fmt.Errorf("email: render verify email html template: %w", err)
+	}
+	if err := s.verifyTextTmpl.Execute(&textBuf, data); err != nil {
+		return fmt.Errorf("email: render verify email text template: %w", err)
+	}
+
+	// Build the go-mail client options.
+	opts := []mail.Option{
+		mail.WithPort(s.cfg.SMTP.Port),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithUsername(s.cfg.SMTP.Username),
+		mail.WithPassword(s.cfg.SMTP.Password),
+	}
+	switch s.cfg.SMTP.TLS {
+	case "tls":
+		opts = append(opts, mail.WithSSL())
+	case "none":
+		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
+	default: // "starttls" and anything else
+		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
+	}
+
+	client, err := mail.NewClient(s.cfg.SMTP.Host, opts...)
+	if err != nil {
+		return fmt.Errorf("email: create smtp client: %w", err)
+	}
+
+	msg := mail.NewMsg()
+	if err := msg.From(s.cfg.SMTP.From); err != nil {
+		return fmt.Errorf("email: set from: %w", err)
+	}
+	if err := msg.AddToFormat(toName, toEmail); err != nil {
+		return fmt.Errorf("email: set to: %w", err)
+	}
+	msg.Subject("Verify your Passage email address")
+	msg.SetBodyString(mail.TypeTextPlain, textBuf.String())
+	msg.AddAlternativeString(mail.TypeTextHTML, htmlBuf.String())
+
+	if err := client.DialAndSendWithContext(ctx, msg); err != nil {
+		return fmt.Errorf("email: send verification email: %w", err)
 	}
 	return nil
 }

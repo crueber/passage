@@ -1,0 +1,7 @@
+{{if .Name}}Hi {{.Name}},
+
+{{end}}Confirm this email address for your Passage account. The link can only be used once and expires in 24 hours.
+
+Verify: {{.VerifyURL}}
+
+Your account works either way. If you did not create this account, you can ignore this email.

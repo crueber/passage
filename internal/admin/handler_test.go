@@ -29,6 +29,7 @@ type noopMailer struct{}
 
 func (noopMailer) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
 func (noopMailer) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
+func (noopMailer) SendVerifyEmail(_ context.Context, _, _, _ string) error   { return nil }
 
 // noopCredentialCounter satisfies the credentialCounter interface with a zero-returning implementation.
 type noopCredentialCounter struct{}

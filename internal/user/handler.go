@@ -140,9 +140,10 @@ type resetConfirmData struct {
 
 // dashboardData is the template data for the "My Apps" page.
 type dashboardData struct {
-	User  *User
-	Apps  []*app.App
-	Flash *Flash
+	User      *User
+	Apps      []*app.App
+	Flash     *Flash
+	CSRFToken string
 }
 
 // GetLogin renders the login form.
@@ -181,9 +182,10 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "user-dashboard", dashboardData{
-		User:  u,
-		Apps:  apps,
-		Flash: flashFromCode(r.URL.Query().Get("flash")),
+		User:      u,
+		Apps:      apps,
+		Flash:     flashFromCode(r.URL.Query().Get("flash")),
+		CSRFToken: csrf.TokenFromContext(r.Context()),
 	})
 }
 
@@ -300,6 +302,16 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 		return
+	}
+
+	// When SMTP is configured the new account starts unverified and gets a
+	// link. A send failure is logged, not fatal: the account is usable either
+	// way and can request another link from the dashboard. Sent before the
+	// session is created so a login hiccup cannot swallow the only email.
+	if !u.EmailVerified {
+		if err := h.sendVerificationEmail(r.Context(), r, u); err != nil {
+			h.logger.Warn("register: send verification email", "user_id", u.ID, "error", err)
+		}
 	}
 
 	// Auto-login after registration.
@@ -519,6 +531,20 @@ func flashFromCode(code string) *Flash {
 		return &Flash{Type: "error", Message: "This sign-in link is invalid. Please request a new one."}
 	case "account-inactive":
 		return &Flash{Type: "error", Message: "Your account is inactive. Please contact an administrator."}
+	case "email-verified":
+		return &Flash{Type: "success", Message: "Your email address has been verified."}
+	case "email-already-verified":
+		return &Flash{Type: "info", Message: "Your email address is already verified."}
+	case "verify-resent":
+		return &Flash{Type: "success", Message: "Verification email sent. Check your inbox."}
+	case "verify-send-failed":
+		return &Flash{Type: "error", Message: "Could not send the verification email. Please try again later."}
+	case "verify-link-invalid":
+		return &Flash{Type: "error", Message: "This verification link is invalid or has expired."}
+	case "verify-link-expired":
+		return &Flash{Type: "error", Message: "This verification link has expired. Sign in to request a new one."}
+	case "verify-link-used":
+		return &Flash{Type: "error", Message: "This verification link has already been used."}
 	default:
 		return nil
 	}

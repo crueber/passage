@@ -18,6 +18,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/theme"
@@ -30,6 +31,7 @@ type noopSender struct{}
 
 func (noopSender) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
 func (noopSender) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
+func (noopSender) SendVerifyEmail(_ context.Context, _, _, _ string) error   { return nil }
 
 // noopSettings satisfies the settingsReader interface with a no-op implementation.
 // Always returns an error so the handler falls back to the static config.
@@ -41,11 +43,13 @@ func (noopSettings) Get(_ context.Context, _ string) (string, error) {
 
 // handlerFixture holds all wired dependencies for user handler tests.
 type handlerFixture struct {
-	db      *sql.DB
-	handler *user.Handler
-	userSvc *user.Service
-	appSvc  *app.Service
-	cfg     *config.Config
+	db         *sql.DB
+	handler    *user.Handler
+	userSvc    *user.Service
+	appSvc     *app.Service
+	sessionSvc *session.Service
+	cfg        *config.Config
+	mailer     email.Sender
 }
 
 // newHandlerFixture builds a Handler wired to a real in-memory DB.
@@ -59,6 +63,13 @@ func newHandlerFixture(t *testing.T, allowRegistration bool) (*user.Handler, *co
 // newFullHandlerFixture builds all dependencies and returns a fixture struct
 // so tests can access the DB and service for setup and assertions.
 func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture {
+	t.Helper()
+	return newFullHandlerFixtureWith(t, allowRegistration, nil, noopSender{})
+}
+
+// newFullHandlerFixtureWith is newFullHandlerFixture with a hook to adjust the
+// config (SMTP, base URL) and an alternative mailer before the handler is built.
+func newFullHandlerFixtureWith(t *testing.T, allowRegistration bool, mutate func(*config.Config), mailer email.Sender) *handlerFixture {
 	t.Helper()
 
 	db := testutil.NewTestDB(t)
@@ -74,6 +85,9 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 			CookieName:    "passage_session",
 			CookieSecure:  false,
 		},
+	}
+	if mutate != nil {
+		mutate(cfg)
 	}
 
 	userSvc := user.NewService(userStore, userStore, nil, cfg)
@@ -92,14 +106,16 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
 	appSvc := app.NewService(appStore, appStore, logger)
-	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, mailer, session.UserFromContext, tmpl, cfg, logger)
 
 	return &handlerFixture{
-		db:      db,
-		handler: h,
-		userSvc: userSvc,
-		appSvc:  appSvc,
-		cfg:     cfg,
+		db:         db,
+		handler:    h,
+		userSvc:    userSvc,
+		appSvc:     appSvc,
+		sessionSvc: sessionSvc,
+		cfg:        cfg,
+		mailer:     mailer,
 	}
 }
 
