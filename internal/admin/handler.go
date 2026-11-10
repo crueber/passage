@@ -117,6 +117,7 @@ type Handler struct {
 	settings    SettingsStore
 	credentials credentialCounter
 	audit       auditLogger
+	authEvents  authLogReader
 	mailer      email.Sender
 	tmpl        *template.Template
 	cfg         *config.Config
@@ -136,6 +137,7 @@ func NewHandler(
 	cfg *config.Config,
 	logger *slog.Logger,
 	audit auditLogger,
+	authEvents authLogReader,
 ) *Handler {
 	return &Handler{
 		userStore:   userStore,
@@ -145,6 +147,7 @@ func NewHandler(
 		settings:    settings,
 		credentials: credentials,
 		audit:       audit,
+		authEvents:  authEvents,
 		mailer:      mailer,
 		tmpl:        tmpl,
 		cfg:         cfg,
@@ -207,6 +210,9 @@ func (h *Handler) Routes(r chi.Router) {
 
 	// Audit log
 	r.Get("/audit-log", h.GetAuditLog)
+
+	// Authentication events (logins, logouts, passkey, magic link)
+	r.Get("/security-log", h.GetSecurityLog)
 }
 
 // ─── base page data ──────────────────────────────────────────────────────────

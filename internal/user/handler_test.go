@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	"github.com/go-chi/chi/v5"
 
@@ -41,11 +42,13 @@ func (noopSettings) Get(_ context.Context, _ string) (string, error) {
 
 // handlerFixture holds all wired dependencies for user handler tests.
 type handlerFixture struct {
-	db      *sql.DB
-	handler *user.Handler
-	userSvc *user.Service
-	appSvc  *app.Service
-	cfg     *config.Config
+	db        *sql.DB
+	handler   *user.Handler
+	userSvc   *user.Service
+	userStore *user.SQLiteStore
+	appSvc    *app.Service
+	cfg       *config.Config
+	authStore *authlog.Store
 }
 
 // newHandlerFixture builds a Handler wired to a real in-memory DB.
@@ -92,14 +95,18 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
 	appSvc := app.NewService(appStore, appStore, logger)
-	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	authStore := authlog.NewStore(db)
+	authRecorder := authlog.NewRecorder(authStore, logger)
+	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, authRecorder, tmpl, cfg, logger)
 
 	return &handlerFixture{
-		db:      db,
-		handler: h,
-		userSvc: userSvc,
-		appSvc:  appSvc,
-		cfg:     cfg,
+		db:        db,
+		handler:   h,
+		userSvc:   userSvc,
+		userStore: userStore,
+		appSvc:    appSvc,
+		cfg:       cfg,
+		authStore: authStore,
 	}
 }
 
@@ -183,7 +190,7 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "loginuser")
@@ -238,7 +245,7 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "rduser")
@@ -1150,7 +1157,7 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "pwuser")
@@ -1270,7 +1277,7 @@ func TestHandler_GetDashboard_ListerError(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(session.WithUser(req.Context(), u))

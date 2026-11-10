@@ -25,6 +25,7 @@ import (
 
 	"github.com/crueber/passage/internal/admin"
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	csrfpkg "github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/db"
@@ -40,6 +41,11 @@ import (
 
 // version is set at build time via -ldflags "-X main.version=1.0.0".
 var version = "dev"
+
+// authLogRetention is how long authentication events are kept. It is a
+// constant by design: the admin page offers 7/30/90-day windows and nothing
+// needs a shorter history.
+const authLogRetention = 90 * 24 * time.Hour
 
 // appDurationAdapter adapts the app store to session.appDurationReader.
 // It is unexported and lives at the wiring layer to avoid cross-package coupling.
@@ -102,6 +108,11 @@ func run() error {
 	// Build stores and services. The session service is built before the user
 	// service so password changes can revoke the user's sessions.
 	userStore := user.NewStore(database)
+
+	// Authentication event log. Recording is best-effort: a write failure is
+	// logged and never fails the auth flow.
+	authStore := authlog.NewStore(database)
+	authRecorder := authlog.NewRecorder(authStore, logger)
 
 	// Build the settings store early so sessionSvc can consult it for
 	// the session_duration_hours setting on every new session.
@@ -215,6 +226,23 @@ func run() error {
 		}
 	}()
 
+	// Start authentication event retention goroutine.
+	// Removes events older than authLogRetention once a day.
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := authStore.PurgeBefore(ctx, time.Now().Add(-authLogRetention)); err != nil {
+					logger.Error("auth event retention failed", "error", err)
+				}
+			}
+		}
+	}()
+
 	// Rate limiters — in-memory sliding-window, no external dependencies.
 	// Limits and window durations are driven by configuration (ratelimit section).
 	rl := cfg.RateLimit
@@ -244,13 +272,13 @@ func run() error {
 	// Build admin handler.
 	auditStore := admin.NewSQLiteAuditStore(database)
 	auditSvc := admin.NewAuditService(auditStore, logger)
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger, auditSvc)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger, auditSvc, authStore)
 
 	// Build forward-auth handler.
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
 
 	// Build user handler.
-	userHandler := user.NewHandler(userSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, tmpl, cfg, logger)
+	userHandler := user.NewHandler(userSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, tmpl, cfg, logger)
 
 	// If no admin user exists, generate a one-time setup token so the operator
 	// can bootstrap the first admin account via /setup. The token is logged to
@@ -291,6 +319,7 @@ func run() error {
 		tmpl,
 		logger,
 		settingsStore,
+		authRecorder,
 	)
 
 	// Prepare static file server from embedded FS.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/crueber/passage/internal/admin"
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
@@ -61,6 +62,7 @@ type fixture struct {
 	handler      *admin.Handler
 	cfg          *config.Config
 	audit        *recordingAuditLogger
+	authStore    *authlog.Store
 }
 
 // newFixture builds all dependencies wired to an in-memory SQLite database.
@@ -105,7 +107,8 @@ func newFixture(t *testing.T) *fixture {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	auditLog := &recordingAuditLogger{}
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, auditLog)
+	authStore := authlog.NewStore(database)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, auditLog, authStore)
 
 	return &fixture{
 		db:           database,
@@ -119,6 +122,7 @@ func newFixture(t *testing.T) *fixture {
 		handler:      h,
 		cfg:          cfg,
 		audit:        auditLog,
+		authStore:    authStore,
 	}
 }
 
