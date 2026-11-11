@@ -73,3 +73,26 @@ ui:
   # Valid: slate, nord, gruvbox, solarized, catppuccin, tokyo-night,
   #        rose-pine, everforest, kanagawa, paper
   theme: "slate"
+
+csrf:
+  # Optional server-side CSRF signing secret: 64+ hex characters
+  # (`openssl rand -hex 32`). When set, CSRF tokens are bound to it in addition
+  # to the per-browser cookie. Leave empty to generate an ephemeral key at
+  # startup — fine for one instance, but set it if you run more than one or want
+  # anonymous forms to survive a restart.
+  key: ""
+
+rate_limit:
+  # In-memory sliding-window limits per client IP. Cleared on restart.
+  login_requests: 10
+  login_window_minutes: 15
+  reset_requests: 5
+  reset_window_minutes: 60
+  register_requests: 5
+  register_window_minutes: 60
+  magic_link_requests: 5
+  magic_link_window_minutes: 60
+  oauth_token_requests: 20
+  oauth_token_window_minutes: 1
+  setup_requests: 5
+  setup_window_minutes: 60

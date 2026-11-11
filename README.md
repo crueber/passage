@@ -7,11 +7,14 @@ A self-hosted authentication service for home labs. Passage provides a single fr
 ## Screenshots
 
 <p align="center">
-  <a href="screenshots/01-sign-in.png"><img src="screenshots/01-sign-in.png" alt="Sign in" width="19%" /></a>
-  <a href="screenshots/02-my-apps.png"><img src="screenshots/02-my-apps.png" alt="My apps" width="19%" /></a>
-  <a href="screenshots/03-dashboard.png"><img src="screenshots/03-dashboard.png" alt="Admin dashboard" width="19%" /></a>
-  <a href="screenshots/04-apps.png"><img src="screenshots/04-apps.png" alt="Admin apps" width="19%" /></a>
-  <a href="screenshots/05-settings.png"><img src="screenshots/05-settings.png" alt="Admin settings" width="19%" /></a>
+  <a href="screenshots/01-sign-in.png"><img src="screenshots/01-sign-in.png" alt="Sign in" width="31%" /></a>
+  <a href="screenshots/02-my-apps.png"><img src="screenshots/02-my-apps.png" alt="My apps" width="31%" /></a>
+  <a href="screenshots/03-security.png"><img src="screenshots/03-security.png" alt="Passkeys and two-factor authentication" width="31%" /></a>
+</p>
+<p align="center">
+  <a href="screenshots/04-dashboard.png"><img src="screenshots/04-dashboard.png" alt="Admin dashboard with recent sign-ins" width="31%" /></a>
+  <a href="screenshots/05-apps.png"><img src="screenshots/05-apps.png" alt="Applications" width="31%" /></a>
+  <a href="screenshots/06-logs.png"><img src="screenshots/06-logs.png" alt="Authentication and admin logs" width="31%" /></a>
 </p>
 
 ---
@@ -36,17 +39,23 @@ Passage also supports the **forward-auth pattern** for reverse proxies (Nginx, T
 
 The single biggest, most important feature: **simplicity**. Passage is built for homelabs, not enterprise deployment. It is not meant to have dozens of auth scopes, brandable screens, or complex policy engines. It is the front door — one place to log in, one place to manage who has access to what.
 
-- **OAuth 2.0 / OIDC Provider** — act as an OpenID Connect identity provider for downstream apps; standard authorization code flow with `openid profile email` scopes
+- **OAuth 2.0 / OIDC Provider** — authorization code flow with PKCE (S256), rotating refresh tokens, discovery, JWKS, userinfo, RP-initiated logout, and token revocation/introspection
 - **Username + password login** — bcrypt-hashed credentials stored in SQLite (cost configurable, default 12)
-- **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and log in without a password
-- **Two-factor authentication** — TOTP authenticator apps plus single-use recovery codes, enforced on password sign-in; optionally mandatory for every account
-- **Per-app access control** — grant or revoke each user's access to each registered application independently
-- **Admin web UI** — manage users, apps, sessions, and settings without touching config files
-- **Self-registration** — optionally let users create their own accounts (togglable by admin at runtime)
-- **Email password reset** — single-use tokens, 1-hour expiry, sent via configurable SMTP
-- **Session management** — DB-backed sessions with configurable duration; admin can revoke any session instantly
+- **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and sign in without a password; a passkey can also complete a password sign-in as its second factor
+- **Two-factor authentication** — TOTP authenticator apps (enrol by QR code) plus single-use recovery codes; enforced on password sign-in, and optionally mandatory for every account
+- **Per-account lockout** — after N invalid passwords the account is locked for a configurable window; an admin can unlock it, and the same counter bounds second-factor guessing
+- **Per-app access control** — grant or revoke each user's access to each application independently, with app-scoped roles and groups
+- **Self-service sessions** — users see their devices, can revoke one or sign out everywhere; optional idle timeout
+- **Authentication log** — every sign-in, failure, lockout, passkey and magic-link use, MFA and OAuth event, filterable in the admin UI with 90-day retention
+- **Security webhook** — POST every authentication event as JSON, optionally HMAC-signed
+- **Admin web UI** — manage users, apps, sessions, settings and logs without touching config files
+- **Email** — optional self-registration with address verification, password reset, and magic-link sign-in
+- **Secrets encrypted at rest** — TOTP secrets are sealed with AES-256-GCM; the key comes from config or a `0600` file beside the database
+- **Ten colour themes** — slate, nord, gruvbox, solarized, catppuccin, tokyo-night, rose-pine, everforest, kanagawa, paper
 - **Single static binary** — no runtime dependencies, no CGo, no Docker required to run
 - **SQLite backing store** — a single `.db` file; no separate database server
+
+The security model, storage guarantees, and operational notes live in [docs/security.md](docs/security.md).
 
 ---
 
@@ -156,26 +165,41 @@ smtp:
 auth:
   allow_registration: true  # allow users to self-register; togglable in admin UI at runtime
   bcrypt_cost: 12           # password hashing cost; 10–14 recommended
+  max_login_failures: 5     # per-account lockout threshold (0 disables)
+  lockout_minutes: 15       # how long a locked account stays locked
+  require_mfa: false        # default for "require two-factor authentication"; the admin checkbox overrides it
+
+security:
+  encryption_key: ""        # AES-256-GCM key for TOTP secrets: 64 hex chars or base64 of 32 bytes
+                            # empty = a 0600 key file beside the database, created on first use
+  webhook_url: ""           # POST every authentication event here as JSON (empty = off)
+  webhook_secret: ""        # optional; signs the body with HMAC-SHA256 (X-Passage-Signature)
+  webhook_timeout_seconds: 5
+
+ui:
+  theme: "slate"            # slate | nord | gruvbox | solarized | catppuccin |
+                            # tokyo-night | rose-pine | everforest | kanagawa | paper
 
 log:
   level: "info"    # "debug" | "info" | "warn" | "error"
   format: "json"   # "json" | "text"
 
 csrf:
-  key: ""          # optional server-side CSRF signing secret; must be 64+ hex chars (32+ random bytes)
-                   # when set, CSRF tokens are bound to this secret in addition to the per-session cookie
-                   # generate with: openssl rand -hex 32
-                   # if unset, the double-submit cookie pattern is used (secure, but not server-bound)
+  key: ""          # optional server-side CSRF signing secret (64+ hex chars); empty = ephemeral key
 
 rate_limit:
   login_requests: 10          # max login attempts per IP per window
-  login_window_minutes: 15    # window duration for login limiter
-  reset_requests: 5           # max password-reset requests per IP per window
-  reset_window_minutes: 60    # window duration for reset limiter
-  oauth_token_requests: 20    # max /oauth/token requests per IP per window
-  oauth_token_window_minutes: 1  # window duration for oauth token limiter
-  setup_requests: 5           # max /setup requests per IP per window
-  setup_window_minutes: 60    # window duration for setup limiter
+  login_window_minutes: 15
+  reset_requests: 5
+  reset_window_minutes: 60
+  register_requests: 5
+  register_window_minutes: 60
+  magic_link_requests: 5
+  magic_link_window_minutes: 60
+  oauth_token_requests: 20
+  oauth_token_window_minutes: 1
+  setup_requests: 5
+  setup_window_minutes: 60
 ```
 
 ### Environment variable overrides
@@ -195,12 +219,22 @@ Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → 
 | `PASSAGE_SMTP_TLS` | `smtp.tls` |
 | `PASSAGE_AUTH_ALLOW_REGISTRATION` | `auth.allow_registration` |
 | `PASSAGE_AUTH_BCRYPT_COST` | `auth.bcrypt_cost` |
+| `PASSAGE_AUTH_MAX_LOGIN_FAILURES` | `auth.max_login_failures` |
+| `PASSAGE_AUTH_LOCKOUT_MINUTES` | `auth.lockout_minutes` |
+| `PASSAGE_AUTH_REQUIRE_MFA` | `auth.require_mfa` (the saved admin setting wins) |
+| `PASSAGE_SECURITY_ENCRYPTION_KEY` | `security.encryption_key` — AES-256-GCM key for TOTP secrets |
+| `PASSAGE_SECURITY_WEBHOOK_URL` | `security.webhook_url` |
+| `PASSAGE_SECURITY_WEBHOOK_SECRET` | `security.webhook_secret` |
+| `PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS` | `security.webhook_timeout_seconds` |
+| `PASSAGE_UI_THEME` | `ui.theme` |
 | `PASSAGE_LOG_LEVEL` | `log.level` |
 | `PASSAGE_LOG_FORMAT` | `log.format` |
 | `PASSAGE_CSRF_KEY` | `csrf.key` — optional CSRF signing secret (64+ hex chars); strengthens CSRF protection by binding tokens to a server-side secret |
 | `PASSAGE_RATELIMIT_LOGIN_REQUESTS` | `rate_limit.login_requests` |
 | `PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES` | `rate_limit.login_window_minutes` |
 | `PASSAGE_RATELIMIT_RESET_REQUESTS` | `rate_limit.reset_requests` |
+| `PASSAGE_RATELIMIT_REGISTER_REQUESTS` | `rate_limit.register_requests` |
+| `PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS` | `rate_limit.magic_link_requests` |
 | `PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES` | `rate_limit.reset_window_minutes` |
 | `PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS` | `rate_limit.oauth_token_requests` |
 | `PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES` | `rate_limit.oauth_token_window_minutes` |
@@ -224,6 +258,9 @@ Passage acts as an OpenID Connect identity provider for downstream applications 
 | `/oauth/authorize` | `GET` | Authorization endpoint — redirects to login if no session |
 | `/oauth/token` | `POST` | Token endpoint — `authorization_code` and `refresh_token` grants |
 | `/oauth/userinfo` | `GET` | UserInfo endpoint — requires `Bearer` access token |
+| `/oauth/logout` | `GET`/`POST` | RP-initiated logout — verifies `id_token_hint`, revokes the SSO session |
+| `/oauth/revoke` | `POST` | RFC 7009 token revocation (access or refresh token) |
+| `/oauth/introspect` | `POST` | RFC 7662 token introspection |
 
 The RSA signing key is auto-generated on first start and stored in the database — no manual key management is required.
 
