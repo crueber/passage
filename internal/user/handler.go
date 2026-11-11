@@ -19,6 +19,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/ratelimit"
 )
 
@@ -78,22 +79,26 @@ type loginThrottle interface {
 
 // Handler handles user-facing HTTP flows: login, register, password reset, logout.
 type Handler struct {
-	users      *Service
-	apps       AppLister
-	sessions   sessionCreator
-	settings   settingsReader
-	mailer     email.Sender
-	userCtx    userContextReader
+	users    *Service
+	mfa      *mfa.Service
+	apps     AppLister
+	sessions sessionCreator
+	settings settingsReader
+	mailer   email.Sender
+	userCtx  userContextReader
+	// authEvents records authentication events. May be nil (tests).
 	authEvents authEventRecorder
-	throttle   loginThrottle
-	tmpl       *template.Template
-	cfg        *config.Config
-	logger     *slog.Logger
+	// throttle is the per-account password-login throttle. May be nil.
+	throttle loginThrottle
+	tmpl     *template.Template
+	cfg      *config.Config
+	logger   *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
 func NewHandler(
 	users *Service,
+	mfaSvc *mfa.Service,
 	apps AppLister,
 	sessions sessionCreator,
 	settings settingsReader,
@@ -107,6 +112,7 @@ func NewHandler(
 ) *Handler {
 	return &Handler{
 		users:      users,
+		mfa:        mfaSvc,
 		apps:       apps,
 		sessions:   sessions,
 		settings:   settings,
@@ -189,6 +195,28 @@ func (h *Handler) appIDFromReturnTarget(ctx context.Context, rd string) *string 
 		return nil
 	}
 	return &a.ID
+}
+
+// resolveReturnDestination returns where a successful password login should
+// send the user, and whether the passage_rd cookie supplied it (so the caller
+// can clear the consumed cookie).
+//
+// Precedence is unchanged from the original inline logic: a safe passage_rd
+// cookie wins over the submitted rd field (forward-auth bounces set the cookie
+// before the form ever renders), then the rd field, then /admin for admins.
+func (h *Handler) resolveReturnDestination(r *http.Request, u *User, rd string) (dest string, clearRDCookie bool) {
+	if rdCookie, err := r.Cookie("passage_rd"); err == nil && safeReturnPath(rdCookie.Value) {
+		return rdCookie.Value, true
+	}
+	if safeReturnPath(rd) {
+		return rd, false
+	}
+	if u.IsAdmin {
+		// No explicit redirect destination: send admins directly to the admin
+		// dashboard rather than the homepage.
+		return "/admin", false
+	}
+	return "/", false
 }
 
 // loginData is the template data for the login page.
@@ -358,23 +386,41 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	// Resolve the return target first: an OAuth authorization request names the
 	// app, and that app may override the session duration. See
 	// appIDFromReturnTarget for which flows can and cannot know the app.
-	returnTarget := ""
-	dest := "/"
-	clearReturnCookie := false
-	if rdCookie, err := r.Cookie("passage_rd"); err == nil && safeReturnPath(rdCookie.Value) {
-		returnTarget = rdCookie.Value
-		dest = returnTarget
-		clearReturnCookie = true
-	} else if safeReturnPath(rd) {
-		returnTarget = rd
-		dest = rd
-	} else if u.IsAdmin {
-		// No explicit redirect destination: send admins directly to the admin
-		// dashboard rather than the homepage.
-		dest = "/admin"
+	dest, clearReturnCookie := h.resolveReturnDestination(r, u, rd)
+
+	// ── Second factor ───────────────────────────────────────────────────────
+	// Enforcement lives here, on the password flow only. Passkeys and magic
+	// links deliberately do not get a second step: a WebAuthn assertion proves
+	// possession of the authenticator itself, and a magic link proves control
+	// of the mailbox. Do not add an MFA check to those paths.
+	//
+	// Note what has NOT happened yet: no session exists. The challenge below is
+	// a separate table and a separate cookie that RequireSession never reads,
+	// so a correct password alone can never yield a usable session for an
+	// account with MFA enabled.
+	if h.mfa != nil {
+		enabled, mfaErr := h.mfa.Enabled(r.Context(), u.ID)
+		if mfaErr != nil {
+			// Fail closed: if we cannot tell whether the account has a second
+			// factor, do not hand out a session that might skip it.
+			h.logger.Error("mfa: check enrollment", "user_id", u.ID, "error", mfaErr)
+			h.record(r, authlog.Event{
+				Event:    authlog.EventLoginFailure,
+				Outcome:  authlog.OutcomeFailure,
+				UserID:   u.ID,
+				Username: u.Username,
+				Detail:   "mfa lookup failed",
+			})
+			h.renderLoginError(w, r, "An error occurred. Please try again.", rd, username)
+			return
+		}
+		if enabled {
+			h.startMFAChallenge(w, r, u, dest)
+			return
+		}
 	}
 
-	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, h.appIDFromReturnTarget(r.Context(), returnTarget), r.RemoteAddr, r.UserAgent())
+	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, h.appIDFromReturnTarget(r.Context(), dest), r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		h.logger.Error("create session", "error", err)
 		h.record(r, authlog.Event{
@@ -399,16 +445,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 
 	if clearReturnCookie {
 		// Clear the passage_rd cookie now that we've consumed it.
-		http.SetCookie(w, &http.Cookie{
-			Name:     "passage_rd",
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			Expires:  time.Unix(0, 0),
-			HttpOnly: true,
-			Secure:   h.cfg.Session.CookieSecure,
-			SameSite: http.SameSiteLaxMode,
-		})
+		clearReturnCookieIfPresent(w, r, h.cfg)
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
 }
@@ -704,6 +741,8 @@ func clearSessionCookie(w http.ResponseWriter, cfg *config.Config) {
 // flashFromCode converts a flash query param code into a Flash message.
 func flashFromCode(code string) *Flash {
 	switch code {
+	case "mfa-expired":
+		return &Flash{Type: "error", Message: "Your sign-in attempt expired. Please sign in again."}
 	case "password-reset":
 		return &Flash{Type: "success", Message: "Your password has been reset. Please sign in."}
 	case "registration-disabled":

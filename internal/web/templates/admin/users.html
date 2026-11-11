@@ -46,7 +46,8 @@
             {{if .IsAdmin}}<span class="badge badge-green">Admin</span>{{end}}
             {{if not .IsActive}}<span class="badge badge-red">Inactive</span>{{end}}
             {{if $.IsLocked .Username}}<span class="badge badge-red">Locked</span>{{end}}
-            {{if and (not .IsAdmin) .IsActive (not ($.IsLocked .Username))}}<span class="text-faint">&mdash;</span>{{end}}
+            {{if $.MFAEnabled .ID}}<span class="badge badge-amber">MFA</span>{{end}}
+            {{if and (not .IsAdmin) .IsActive (not ($.IsLocked .Username)) (not ($.MFAEnabled .ID))}}<span class="text-faint">&mdash;</span>{{end}}
           </td>
           <td>
             <div class="flex justify-end gap-1.5">
@@ -57,6 +58,12 @@
               </form>
               {{end}}
               <a class="btn btn-outline btn-sm" href="/admin/users/{{.ID}}/apps">{{template "ic-apps"}}Access</a>
+              {{if $.MFAEnabled .ID}}
+              <form method="POST" action="/admin/users/{{.ID}}/reset-mfa">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-outline btn-sm" data-confirm="Reset two-factor authentication for this user? Their authenticator and recovery codes will stop working.">Reset MFA</button>
+              </form>
+              {{end}}
               <form method="POST" action="/admin/users/{{.ID}}/reset-password">
                 {{csrfField $.CSRFToken}}
                 <button type="submit" class="btn btn-ghost btn-sm">Send reset</button>

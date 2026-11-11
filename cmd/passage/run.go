@@ -31,6 +31,7 @@ import (
 	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/forwardauth"
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/oauth"
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
@@ -147,6 +148,11 @@ func run() error {
 
 	userSvc := user.NewService(userStore, userStore, sessionSvc, cfg)
 
+	// Two-factor authentication: TOTP secrets, recovery codes, and pending
+	// login challenges. Built here so the user handler, the security page, and
+	// the admin reset all share one service (and one clock).
+	mfaSvc := mfa.NewService(mfa.NewStore(database), "Passage", nil)
+
 	// Build email sender.
 	mailer, err := email.NewSMTPSender(cfg, logger)
 	if err != nil {
@@ -238,6 +244,24 @@ func run() error {
 		}
 	}()
 
+	// Start MFA challenge cleanup goroutine.
+	// Removes expired second-factor challenges every 10 minutes. Expiry is
+	// enforced on read too, so this is housekeeping, not the security boundary.
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := mfaSvc.DeleteExpiredChallenges(ctx); err != nil {
+					logger.Error("mfa challenge cleanup failed", "error", err)
+				}
+			}
+		}
+	}()
+
 	// Start OAuth token/code cleanup goroutine.
 	// Removes expired authorization codes, access tokens, and refresh tokens every hour.
 	go func() {
@@ -310,13 +334,13 @@ func run() error {
 	// Build admin handler.
 	auditStore := admin.NewSQLiteAuditStore(database)
 	auditSvc := admin.NewAuditService(auditStore, logger)
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger, auditSvc, authStore, accountThrottle)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle)
 
 	// Build forward-auth handler.
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
 
 	// Build user handler.
-	userHandler := user.NewHandler(userSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
+	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
 
 	// Build the user-facing sessions page handler (self-service revoke).
 	userSessionsHandler := session.NewHandler(sessionSvc, tmpl, cfg, logger)
@@ -361,6 +385,7 @@ func run() error {
 		logger,
 		settingsStore,
 		authRecorder,
+		mfaSvc,
 	)
 
 	// Prepare static file server from embedded FS.
@@ -421,6 +446,10 @@ func run() error {
 		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset", userHandler.PostResetRequest)
 		r.Get("/reset/{token}", userHandler.GetResetConfirm)
 		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset/{token}", userHandler.PostResetConfirm)
+		// Second factor for a password sign-in. The pending challenge is a
+		// separate cookie and a separate table — never a session.
+		r.Get("/login/mfa", userHandler.GetMFALogin)
+		r.With(ratelimit.Middleware(loginLimiter)).Post("/login/mfa", userHandler.PostMFALogin)
 		r.Get("/login/magic", userHandler.GetMagicLinkRequest)
 		r.Get("/login/magic/verify", userHandler.GetMagicLinkVerify)
 		r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/login/magic", userHandler.PostMagicLinkRequest)
@@ -456,21 +485,33 @@ func run() error {
 	r.Group(func(r chi.Router) {
 		r.Use(session.RequireSession(sessionSvc, cfg))
 		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.EffectiveCookieName()))
-		r.Get("/", userHandler.GetDashboard)
-		r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/verify-email/resend", userHandler.PostVerifyEmailResend)
 
-		// Self-service session management (list, revoke one, sign out
-		// everywhere). All routes are scoped to the current user.
-		userSessionsHandler.Routes(r)
-
-		// Passkey management routes (require session).
+		// MFA enrollment/management and the Security page are reachable even
+		// while the global "require MFA" policy is on: they are the routes a
+		// user needs in order to satisfy it. /logout and /static/* are outside
+		// this group entirely.
+		userHandler.MFARoutes(r, loginLimiter)
 		passkeyHandler.ProfileRoutes(r)
+
+		// Everything else is behind the policy gate.
+		r.Group(func(r chi.Router) {
+			r.Use(userHandler.RequireMFA)
+			r.Get("/", userHandler.GetDashboard)
+			r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/verify-email/resend", userHandler.PostVerifyEmailResend)
+
+			// Self-service session management (list, revoke one, sign out
+			// everywhere). All routes are scoped to the current user.
+			userSessionsHandler.Routes(r)
+		})
 	})
 
 	// Admin routes — protected by RequireAdmin middleware.
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(admin.RequireAdmin(sessionSvc, cfg))
 		r.Use(csrfpkg.ProtectAuthenticated(cfg.Session.EffectiveCookieName()))
+		// The global MFA policy applies to the admin UI too. An admin who has
+		// not enrolled is sent to /mfa/setup, which lives outside /admin.
+		r.Use(userHandler.RequireMFA)
 		adminHandler.Routes(r)
 	})
 

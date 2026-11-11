@@ -15,6 +15,7 @@ import (
 
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/theme"
@@ -42,6 +43,8 @@ type loginFixture struct {
 	db      *sql.DB
 	handler *user.Handler
 	appSvc  *app.Service
+	mfaSvc  *mfa.Service
+	clock   *testClock
 	cfg     *config.Config
 	user    *user.User
 }
@@ -75,14 +78,16 @@ func newLoginFixture(t *testing.T) *loginFixture {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	handler := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
+	clock := newTestClock()
+	mfaSvc := mfa.NewService(mfa.NewStore(db), "Passage", clock.Now)
+	handler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	u, err := userSvc.Register(context.Background(), "login_user", "login@example.com", "password123")
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
-	return &loginFixture{db: db, handler: handler, appSvc: appSvc, cfg: cfg, user: u}
+	return &loginFixture{db: db, handler: handler, appSvc: appSvc, mfaSvc: mfaSvc, clock: clock, cfg: cfg, user: u}
 }
 
 // createOAuthApp inserts an app with OAuth credentials and an optional session
@@ -246,5 +251,86 @@ func TestPostLogin_WithoutAppUsesGlobalDuration(t *testing.T) {
 				t.Errorf("session expiry = %v, want ~24h from now (%v)", expiresAt, want)
 			}
 		})
+	}
+}
+
+// TestMFALogin_ResolvesPerAppSessionDuration proves the challenge carries the
+// return target, so the session created after the second factor gets the same
+// per-app duration the password flow would have applied.
+func TestMFALogin_ResolvesPerAppSessionDuration(t *testing.T) {
+	t.Parallel()
+
+	f := newLoginFixture(t)
+	a := f.createOAuthApp(t, "client-mfa", 1) // 1-hour override vs 24h global
+
+	// Enrol, then move to a fresh TOTP step.
+	ctx := context.Background()
+	enr, err := f.mfaSvc.BeginEnrollment(ctx, f.user.ID, f.user.Username)
+	if err != nil {
+		t.Fatalf("BeginEnrollment: %v", err)
+	}
+	if _, err := f.mfaSvc.ConfirmEnrollment(ctx, f.user.ID, totpAt(t, enr.Secret, f.clock.Now())); err != nil {
+		t.Fatalf("ConfirmEnrollment: %v", err)
+	}
+	f.clock.Advance(mfa.Period)
+
+	authorizePath := "/oauth/authorize?client_id=client-mfa&response_type=code&redirect_uri=" +
+		url.QueryEscape("https://app.example.com/callback")
+
+	form := url.Values{}
+	form.Set("username", "login_user")
+	form.Set("password", "password123")
+	form.Set("rd", authorizePath)
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	f.handler.PostLogin(rec, req)
+
+	if loc := rec.Result().Header.Get("Location"); loc != "/login/mfa" {
+		t.Fatalf("PostLogin Location = %q; want /login/mfa", loc)
+	}
+	var challenge *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == user.MFACookieName && c.Value != "" {
+			challenge = c
+		}
+	}
+	if challenge == nil {
+		t.Fatal("no pending challenge cookie")
+	}
+
+	// The challenge must carry the full return target, client_id included.
+	ch, err := f.mfaSvc.Challenge(ctx, challenge.Value)
+	if err != nil {
+		t.Fatalf("Challenge: %v", err)
+	}
+	if ch.ReturnTo != authorizePath {
+		t.Fatalf("challenge return target = %q; want %q", ch.ReturnTo, authorizePath)
+	}
+
+	mfaForm := url.Values{}
+	mfaForm.Set("code", totpAt(t, enr.Secret, f.clock.Now()))
+	mreq := httptest.NewRequest(http.MethodPost, "/login/mfa", strings.NewReader(mfaForm.Encode()))
+	mreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	mreq.AddCookie(challenge)
+	mrec := httptest.NewRecorder()
+	f.handler.PostMFALogin(mrec, mreq)
+
+	res := mrec.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("PostMFALogin status = %d; want 302", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != authorizePath {
+		t.Errorf("redirect target = %q; want %q", loc, authorizePath)
+	}
+
+	token := newSessionID(t, res, f.cfg.Session.EffectiveCookieName())
+	appID, expiresAt := storedSession(t, f.db, token)
+	if !appID.Valid || appID.String != a.ID {
+		t.Errorf("session app_id = %v; want %q", appID, a.ID)
+	}
+	want := time.Now().Add(time.Hour)
+	if diff := expiresAt.Sub(want); diff < -5*time.Minute || diff > 5*time.Minute {
+		t.Errorf("session expiry = %v; want ~1h from now (%v)", expiresAt, want)
 	}
 }

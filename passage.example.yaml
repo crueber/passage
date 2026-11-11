@@ -37,6 +37,12 @@ auth:
   # unaffected.
   max_login_failures: 5
   lockout_minutes: 15
+  # Default for the "Require two-factor authentication" policy. When on, every
+  # signed-in user must enrol an authenticator app (TOTP) before they can use
+  # Passage; password sign-ins then ask for a 6-digit code. Passkeys and magic
+  # links are not affected. The admin checkbox in Settings → Authentication
+  # methods overrides this value once saved.
+  require_mfa: false
 
 security:
   # POST every authentication event to this endpoint as JSON.

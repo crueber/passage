@@ -1,0 +1,52 @@
+{{define "login_mfa.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Two-factor authentication — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body>
+<main class="auth-shell">
+  <a href="/" class="wordmark text-xl">{{template "logo"}}<span>passage</span></a>
+
+  <div class="w-full max-w-md">{{template "flash" .}}</div>
+
+  <div class="auth-card">
+    <h1 class="auth-title">Two-factor authentication</h1>
+    <p class="auth-sub">
+      {{if .Username}}Enter the code for <strong>{{.Username}}</strong>.
+      {{else}}Enter your second factor.{{end}}
+    </p>
+
+    <form method="POST" action="/login/mfa" class="mt-5 space-y-4">
+      {{csrfField .CSRFToken}}
+
+      <div>
+        <label class="label" for="code">Authentication or recovery code</label>
+        <input class="input td-mono" type="text" id="code" name="code"
+               inputmode="text" autocomplete="one-time-code" autocapitalize="characters"
+               spellcheck="false" required autofocus placeholder="123456 or xxxxx-xxxxx">
+        <p class="help">
+          A 6-digit code from your authenticator app, or one of the recovery
+          codes you saved when you enabled two-factor authentication.
+        </p>
+      </div>
+
+      <button type="submit" class="btn btn-primary w-full">Verify and sign in</button>
+    </form>
+
+    <p class="auth-alt">
+      Lost your device? <a href="/login">Start over</a> and use a recovery code,
+      or ask an administrator to reset your two-factor authentication.
+    </p>
+  </div>
+
+  <p class="mt-8 text-xs text-faint">Self-hosted authentication for your home lab</p>
+</main>
+</body>
+</html>
+{{end}}

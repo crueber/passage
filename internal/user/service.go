@@ -146,6 +146,15 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 	return u, nil
 }
 
+// GetByID returns the user with the given ID.
+func (s *Service) GetByID(ctx context.Context, id string) (*User, error) {
+	u, err := s.store.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("user: get by id: %w", err)
+	}
+	return u, nil
+}
+
 // GeneratePasswordReset looks up the user by email and creates a reset token.
 // If the email is not found, nil is returned for both values to avoid email
 // enumeration.

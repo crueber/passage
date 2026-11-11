@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/email"
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/theme"
@@ -43,6 +44,18 @@ func (noopSettings) Get(_ context.Context, _ string) (string, error) {
 	return "", errors.New("not found")
 }
 
+// fixtureSettings is a settingsReader backed by a map. A missing key returns an
+// error, so handlers fall back to their config default exactly as they do in
+// production when a setting has never been saved.
+type fixtureSettings struct{ values map[string]string }
+
+func (s *fixtureSettings) Get(_ context.Context, key string) (string, error) {
+	if v, ok := s.values[key]; ok {
+		return v, nil
+	}
+	return "", errors.New("not found")
+}
+
 // handlerFixture holds all wired dependencies for user handler tests.
 type handlerFixture struct {
 	db            *sql.DB
@@ -51,6 +64,8 @@ type handlerFixture struct {
 	userStore     *user.SQLiteStore
 	appSvc        *app.Service
 	sessionSvc    *session.Service
+	mfaSvc        *mfa.Service
+	settings      *fixtureSettings
 	cfg           *config.Config
 	mailer        email.Sender
 	authStore     *authlog.Store
@@ -149,7 +164,9 @@ func newFullHandlerFixtureAll(t *testing.T, allowRegistration bool, maxFailures,
 		MaxFailures: maxFailures,
 		Lockout:     time.Duration(lockoutMinutes) * time.Minute,
 	}, clock.Now)
-	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, mailer, session.UserFromContext, authRecorder, throttle, tmpl, cfg, logger)
+	mfaSvc := mfa.NewService(mfa.NewStore(db), "Passage", clock.Now)
+	settings := &fixtureSettings{values: map[string]string{}}
+	h := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settings, mailer, session.UserFromContext, authRecorder, throttle, tmpl, cfg, logger)
 
 	return &handlerFixture{
 		db:            db,
@@ -158,6 +175,8 @@ func newFullHandlerFixtureAll(t *testing.T, allowRegistration bool, maxFailures,
 		userStore:     userStore,
 		appSvc:        appSvc,
 		sessionSvc:    sessionSvc,
+		mfaSvc:        mfaSvc,
+		settings:      settings,
 		cfg:           cfg,
 		mailer:        mailer,
 		authStore:     authStore,
@@ -247,7 +266,7 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, nil, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "loginuser")
@@ -302,7 +321,7 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, nil, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "rduser")
@@ -1214,7 +1233,7 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, nil, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "pwuser")
@@ -1338,7 +1357,7 @@ func TestHandler_GetDashboard_ListerError(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, nil, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(session.WithUser(req.Context(), u))

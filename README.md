@@ -39,6 +39,7 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **OAuth 2.0 / OIDC Provider** — act as an OpenID Connect identity provider for downstream apps; standard authorization code flow with `openid profile email` scopes
 - **Username + password login** — bcrypt-hashed credentials stored in SQLite (cost configurable, default 12)
 - **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and log in without a password
+- **Two-factor authentication** — TOTP authenticator apps plus single-use recovery codes, enforced on password sign-in; optionally mandatory for every account
 - **Per-app access control** — grant or revoke each user's access to each registered application independently
 - **Admin web UI** — manage users, apps, sessions, and settings without touching config files
 - **Self-registration** — optionally let users create their own accounts (togglable by admin at runtime)

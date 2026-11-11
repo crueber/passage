@@ -1,0 +1,92 @@
+{{define "mfa_setup.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Set up two-factor authentication — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="flex min-h-dvh flex-col">
+{{template "topnav-passkeys" .}}
+
+<main class="content w-full">
+  <div class="mx-auto max-w-3xl">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Set up two-factor authentication</h1>
+        <p class="page-sub">Add a second step to every password sign-in.</p>
+      </div>
+    </div>
+    {{template "flash" .}}
+
+    {{if .Required}}
+    <div class="note note-warn mb-5" role="status">
+      An administrator requires two-factor authentication on this instance.
+      Finish setting it up to continue using Passage.
+    </div>
+    {{end}}
+
+    <section class="card p-5 sm:p-6" aria-labelledby="secret-heading">
+      <h2 id="secret-heading" class="font-semibold text-ink">1. Add the account to your authenticator app</h2>
+      <p class="mt-1 text-sm text-muted">
+        Open your authenticator app (1Password, Bitwarden, Aegis, Google
+        Authenticator, …) and add an account manually with the key below.
+        Choose “time-based” if you are asked.
+      </p>
+
+      <div class="mt-4 space-y-4">
+        <div>
+          <p class="label">Setup key</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <code id="mfa-secret" class="td-mono rounded-md border border-line bg-surface px-3 py-2 text-sm">{{.Display}}</code>
+            <button type="button" class="btn btn-outline btn-sm" data-copy="#mfa-secret">Copy</button>
+          </div>
+          <p class="help">The key is base32 and is shown once. Treat it like a password.</p>
+        </div>
+
+        <div>
+          <p class="label">Provisioning URI</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <code id="mfa-uri" class="td-mono max-w-full truncate rounded-md border border-line bg-surface px-3 py-2 text-xs">{{.URI}}</code>
+            <button type="button" class="btn btn-outline btn-sm" data-copy="#mfa-uri">Copy</button>
+          </div>
+          <p class="help">Paste this into an app that accepts <code>otpauth://</code> links.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card mt-6 p-5 sm:p-6" aria-labelledby="verify-heading">
+      <h2 id="verify-heading" class="font-semibold text-ink">2. Enter the code your app shows</h2>
+      <p class="mt-1 text-sm text-muted">
+        Two-factor authentication turns on once a code is accepted. You will get
+        10 single-use recovery codes on the next screen.
+      </p>
+
+      <form method="POST" action="/mfa/setup" class="mt-4 space-y-4">
+        {{csrfField .CSRFToken}}
+        <input type="hidden" name="required" value="{{if .Required}}1{{else}}0{{end}}">
+
+        <div>
+          <label class="label" for="code">6-digit code</label>
+          <input class="input td-mono sm:max-w-xs" type="text" id="code" name="code"
+                 inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*"
+                 spellcheck="false" required autofocus placeholder="123456">
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="submit" class="btn btn-primary">Enable two-factor authentication</button>
+          <a class="btn btn-ghost" href="/passkeys">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+</main>
+
+{{template "app-footer" .}}
+</body>
+</html>
+{{end}}

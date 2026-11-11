@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"context"
+	"database/sql"
 	"html/template"
 	"io"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
@@ -54,7 +56,7 @@ func (l *recordingAuditLogger) List(_ context.Context, _ admin.AuditFilter) ([]*
 
 // fixture holds the full dependency graph for admin handler tests.
 type fixture struct {
-	db            interface{ Close() error }
+	db            *sql.DB
 	userStore     *user.SQLiteStore
 	userSvc       *user.Service
 	sessionStore  *session.SQLiteStore
@@ -62,6 +64,7 @@ type fixture struct {
 	appStore      *app.SQLiteStore
 	appSvc        *app.Service
 	settings      admin.SettingsStore
+	mfaSvc        *mfa.Service
 	handler       *admin.Handler
 	cfg           *config.Config
 	audit         *recordingAuditLogger
@@ -118,7 +121,8 @@ func newFixture(t *testing.T) *fixture {
 		MaxFailures: 5,
 		Lockout:     15 * time.Minute,
 	}, time.Now)
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, throttle)
+	mfaSvc := mfa.NewService(mfa.NewStore(database), "Passage", nil)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle)
 
 	return &fixture{
 		db:            database,
@@ -129,6 +133,7 @@ func newFixture(t *testing.T) *fixture {
 		appStore:      appStore,
 		appSvc:        appSvc,
 		settings:      settings,
+		mfaSvc:        mfaSvc,
 		handler:       h,
 		cfg:           cfg,
 		audit:         auditLog,

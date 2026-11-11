@@ -106,11 +106,13 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		AuthPasswordEnabled  string
 		AuthPasskeyEnabled   string
 		AuthMagicLinkEnabled string
+		AuthRequireMFA       string
 		SMTPConfigured       bool
 	}{
 		Themes:              theme.All,
 		AuthPasswordEnabled: "true",
 		AuthPasskeyEnabled:  "true",
+		AuthRequireMFA:      "false",
 	}
 
 	tests := []struct {

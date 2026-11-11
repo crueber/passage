@@ -29,7 +29,7 @@
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
       {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
-      <a href="/passkeys" class="toplink">Passkeys</a>
+      <a href="/passkeys" class="toplink">Security</a>
       <a href="/sessions" class="toplink">Sessions</a>
       <a href="/logout" class="toplink">Sign out</a>
     </nav>
@@ -37,7 +37,7 @@
 </header>
 {{end}}
 
-{{/* Top navigation for the passkeys page ("Passkeys" active). */}}
+{{/* Top navigation for the security page ("Security" active). */}}
 {{define "topnav-passkeys"}}
 <header class="topbar">
   <div class="topbar-inner">
@@ -46,7 +46,7 @@
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
       {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
-      <a href="/passkeys" class="toplink toplink-active" aria-current="page">{{template "ic-key"}}Passkeys</a>
+      <a href="/passkeys" class="toplink toplink-active" aria-current="page">{{template "ic-shield"}}Security</a>
       <a href="/sessions" class="toplink">Sessions</a>
       <a href="/logout" class="toplink">Sign out</a>
     </nav>
@@ -63,7 +63,7 @@
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
       {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
-      <a href="/passkeys" class="toplink">Passkeys</a>
+      <a href="/passkeys" class="toplink">Security</a>
       <a href="/sessions" class="toplink toplink-active" aria-current="page">{{template "ic-devices"}}Sessions</a>
       <a href="/logout" class="toplink">Sign out</a>
     </nav>
