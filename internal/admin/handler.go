@@ -242,7 +242,6 @@ func (h *Handler) Routes(r chi.Router) {
 	// Settings
 	r.Get("/settings", h.GetSettings)
 	r.Post("/settings", h.PostSettings)
-	r.Post("/settings/auth-methods", h.PostAuthMethodSettings)
 
 	// Audit log
 	r.Get("/audit-log", h.redirectLogs(logTabAdmin))
@@ -1802,112 +1801,77 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	values := h.settingsFromForm(r)
 
-	// allow_registration: checkbox — present means "true", absent means "false"
-	allowRegistration := "false"
-	if r.FormValue("allow_registration") == "on" {
-		allowRegistration = "true"
-	}
-
-	// Validate session_duration_hours before writing anything.
-	durationStr := strings.TrimSpace(r.FormValue("session_duration_hours"))
-	if durationStr != "" {
-		n, err := strconv.Atoi(durationStr)
+	// Validate everything before writing anything, so a rejected form leaves the
+	// stored settings untouched and re-renders with the values the operator just
+	// typed.
+	if d := values["session_duration_hours"]; d != "" {
+		n, err := strconv.Atoi(d)
 		if err != nil || n <= 0 {
-			h.render(w, r, "admin-settings", settingsData{
-				basePage:             h.baseFlash(r, "settings", &Flash{Type: "error", Message: "Session duration must be a positive number."}),
-				AllowRegistration:    allowRegistration,
-				SessionDurationHours: durationStr,
-				SMTPFrom:             strings.TrimSpace(r.FormValue("smtp_from")),
-				Themes:               theme.All,
-			})
+			h.renderSettingsForm(w, r, values, "Session duration must be a positive number.")
 			return
 		}
 	}
-
-	// All validation passed — write settings.
-	if err := h.settings.Set(ctx, "allow_registration", allowRegistration); err != nil {
-		h.logger.Error("admin: set allow_registration", "error", err)
+	if values["auth_password_enabled"] == "false" &&
+		values["auth_passkey_enabled"] == "false" &&
+		values["auth_magic_link_enabled"] == "false" {
+		h.renderSettingsForm(w, r, values, "At least one authentication method must be enabled.")
+		return
+	}
+	if values["auth_magic_link_enabled"] == "true" && h.cfg.SMTP.Host == "" {
+		h.renderSettingsForm(w, r, values, "Magic link requires SMTP to be configured.")
+		return
 	}
 
-	if durationStr != "" {
-		if err := h.settings.Set(ctx, "session_duration_hours", durationStr); err != nil {
-			h.logger.Error("admin: set session_duration_hours", "error", err)
+	keys := []string{
+		"allow_registration", "session_duration_hours", "smtp_from",
+		"auth_password_enabled", "auth_passkey_enabled", "auth_magic_link_enabled", "auth_require_mfa",
+	}
+	for _, key := range keys {
+		// An empty duration is "leave the current value alone"; everything else
+		// (including empty smtp_from) is an explicit value.
+		if key == "session_duration_hours" && values[key] == "" {
+			continue
 		}
-	}
-
-	smtpFrom := strings.TrimSpace(r.FormValue("smtp_from"))
-	if err := h.settings.Set(ctx, "smtp_from", smtpFrom); err != nil {
-		h.logger.Error("admin: set smtp_from", "error", err)
+		if err := h.settings.Set(ctx, key, values[key]); err != nil {
+			h.logger.Error("admin: set setting", "key", key, "error", err)
+			h.renderSettingsForm(w, r, values, "Failed to save settings. Please try again.")
+			return
+		}
 	}
 
 	h.logAudit(r, AuditActionSettingsUpdate, "settings", "", "")
 	http.Redirect(w, r, "/admin/settings?flash=updated", http.StatusFound)
 }
 
-// PostAuthMethodSettings saves the authentication method feature flags.
-// Guards against locking out all authentication methods and requires SMTP
-// to be configured before enabling magic link.
-func (h *Handler) PostAuthMethodSettings(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/admin/settings", http.StatusFound)
-		return
+// settingsFromForm reads the single settings form into the same key/value shape
+// the store uses. Checkboxes post "on" when checked and nothing when not, so
+// their absence is an explicit "false" — which is why the whole form must be
+// submitted together (there is no partial save to confuse it with).
+func (h *Handler) settingsFromForm(r *http.Request) map[string]string {
+	on := func(name string) string {
+		if r.FormValue(name) == "on" {
+			return "true"
+		}
+		return "false"
 	}
+	return map[string]string{
+		"allow_registration":      on("allow_registration"),
+		"session_duration_hours":  strings.TrimSpace(r.FormValue("session_duration_hours")),
+		"smtp_from":               strings.TrimSpace(r.FormValue("smtp_from")),
+		"auth_password_enabled":   on("auth_password_enabled"),
+		"auth_passkey_enabled":    on("auth_passkey_enabled"),
+		"auth_magic_link_enabled": on("auth_magic_link_enabled"),
+		"auth_require_mfa":        on("auth_require_mfa"),
+	}
+}
 
-	ctx := r.Context()
-
-	authPasswordEnabled := "false"
-	if r.FormValue("auth_password_enabled") == "on" {
-		authPasswordEnabled = "true"
-	}
-	authPasskeyEnabled := "false"
-	if r.FormValue("auth_passkey_enabled") == "on" {
-		authPasskeyEnabled = "true"
-	}
-	authMagicLinkEnabled := "false"
-	if r.FormValue("auth_magic_link_enabled") == "on" {
-		authMagicLinkEnabled = "true"
-	}
-	authRequireMFA := "false"
-	if r.FormValue("auth_require_mfa") == "on" {
-		authRequireMFA = "true"
-	}
-
-	// Lockout guard: at least one auth method must remain enabled.
-	if authPasswordEnabled == "false" && authPasskeyEnabled == "false" && authMagicLinkEnabled == "false" {
-		h.renderSettingsWithError(w, r, "At least one authentication method must be enabled.")
-		return
-	}
-
-	// SMTP guard: magic link requires SMTP to be configured.
-	if authMagicLinkEnabled == "true" && h.cfg.SMTP.Host == "" {
-		h.renderSettingsWithError(w, r, "Magic link requires SMTP to be configured.")
-		return
-	}
-
-	if err := h.settings.Set(ctx, "auth_password_enabled", authPasswordEnabled); err != nil {
-		h.logger.Error("admin: set auth_password_enabled", "error", err)
-		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
-		return
-	}
-	if err := h.settings.Set(ctx, "auth_passkey_enabled", authPasskeyEnabled); err != nil {
-		h.logger.Error("admin: set auth_passkey_enabled", "error", err)
-		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
-		return
-	}
-	if err := h.settings.Set(ctx, "auth_magic_link_enabled", authMagicLinkEnabled); err != nil {
-		h.logger.Error("admin: set auth_magic_link_enabled", "error", err)
-		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
-		return
-	}
-	if err := h.settings.Set(ctx, "auth_require_mfa", authRequireMFA); err != nil {
-		h.logger.Error("admin: set auth_require_mfa", "error", err)
-		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
-		return
-	}
-
-	h.logAudit(r, AuditActionAuthMethodUpdate, "settings", "", "")
-	http.Redirect(w, r, "/admin/settings?flash=updated", http.StatusFound)
+// renderSettingsForm re-renders the settings page with the submitted values and
+// an error flash, so nothing typed in a rejected form is lost.
+func (h *Handler) renderSettingsForm(w http.ResponseWriter, r *http.Request, values map[string]string, msg string) {
+	h.render(w, r, "admin-settings", h.buildSettingsData(r, values,
+		h.baseFlash(r, "settings", &Flash{Type: "error", Message: msg})))
 }
 
 // ─── Audit log ────────────────────────────────────────────────────────────────

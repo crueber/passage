@@ -1518,6 +1518,8 @@ func TestAdminSettings_Update(t *testing.T) {
 		form.Set("allow_registration", "on") // checkbox on = true
 		form.Set("session_duration_hours", "48")
 		form.Set("smtp_from", "admin@example.com")
+		form.Set("auth_password_enabled", "on")
+		form.Set("auth_passkey_enabled", "on")
 
 		rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
@@ -1549,6 +1551,8 @@ func TestAdminSettings_Update(t *testing.T) {
 		form := url.Values{}
 		// allow_registration checkbox absent = false
 		form.Set("session_duration_hours", "24")
+		form.Set("auth_password_enabled", "on")
+		form.Set("auth_passkey_enabled", "on")
 
 		rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
@@ -1569,6 +1573,8 @@ func TestAdminSettings_Update(t *testing.T) {
 		form := url.Values{}
 		form.Set("allow_registration", "on")
 		form.Set("session_duration_hours", "not-a-number")
+		form.Set("auth_password_enabled", "on")
+		form.Set("auth_passkey_enabled", "on")
 
 		rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
@@ -2539,7 +2545,7 @@ func TestPostAuthMethodSettings_LockoutGuard(t *testing.T) {
 
 	// Submit form with all methods unchecked (all absent → "false").
 	form := url.Values{}
-	rec := adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token, f.cfg.Session.CookieName,
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 
 	res := rec.Result()
@@ -2564,7 +2570,7 @@ func TestPostAuthMethodSettings_SMTPGuard(t *testing.T) {
 
 	form := url.Values{}
 	form.Set("auth_magic_link_enabled", "on")
-	rec := adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token, f.cfg.Session.CookieName,
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 
 	res := rec.Result()
@@ -2589,7 +2595,7 @@ func TestPostAuthMethodSettings_HappyPath(t *testing.T) {
 	// Enable only passkey (password and magic link off).
 	form := url.Values{}
 	form.Set("auth_passkey_enabled", "on")
-	rec := adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token, f.cfg.Session.CookieName,
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 
 	res := rec.Result()
@@ -2731,4 +2737,82 @@ func TestAdminUserApps_AccessWithAssignments(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestPostSettings_SingleSaveWritesBothSections pins the merged form: one
+// submission updates the general settings and the authentication methods.
+func TestPostSettings_SingleSaveWritesBothSections(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("allow_registration", "on")
+	form.Set("session_duration_hours", "12")
+	form.Set("smtp_from", "passage@example.com")
+	form.Set("auth_password_enabled", "on")
+	form.Set("auth_require_mfa", "on")
+	// passkey and magic link deliberately unchecked
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	if rec.Result().StatusCode != http.StatusFound {
+		t.Fatalf("status = %d; want 302 (%s)", rec.Result().StatusCode, rec.Body.String())
+	}
+
+	want := map[string]string{
+		"allow_registration":      "true",
+		"session_duration_hours":  "12",
+		"smtp_from":               "passage@example.com",
+		"auth_password_enabled":   "true",
+		"auth_passkey_enabled":    "false",
+		"auth_magic_link_enabled": "false",
+		"auth_require_mfa":        "true",
+	}
+	for key, wantVal := range want {
+		got, err := f.settings.Get(context.Background(), key)
+		if err != nil {
+			t.Errorf("%s: %v", key, err)
+			continue
+		}
+		if got != wantVal {
+			t.Errorf("%s = %q; want %q", key, got, wantVal)
+		}
+	}
+}
+
+// TestPostSettings_RejectedFormPreservesValues makes sure a validation error
+// does not silently discard everything the operator just typed.
+func TestPostSettings_RejectedFormPreservesValues(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	form := url.Values{}
+	form.Set("allow_registration", "on")
+	form.Set("session_duration_hours", "not-a-number")
+	form.Set("auth_password_enabled", "on")
+	form.Set("auth_passkey_enabled", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	if rec.Result().StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (re-render)", rec.Result().StatusCode)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "positive number") {
+		t.Error("missing validation message")
+	}
+	if !strings.Contains(body, `value="not-a-number"`) {
+		t.Error("submitted session duration was not preserved")
+	}
+	// Both checkboxes were on; at least one must come back checked.
+	if strings.Count(body, " checked") < 2 {
+		t.Errorf("submitted checkboxes were not preserved:\n%s", body)
+	}
 }

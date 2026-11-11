@@ -506,3 +506,67 @@
     outline-offset: 2px;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 5. Responsive admin tables.
+ * Below 40rem a table row becomes a card and each cell a label/value pair,
+ * so the row actions stay visible instead of hiding behind a horizontal
+ * scroll. Opt in with .table-wrap-cards on the .table-wrap element.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@media (width < 40rem) {
+  .table-wrap-cards {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+  .table-wrap-cards .table,
+  .table-wrap-cards tbody {
+    display: block;
+  }
+  .table-wrap-cards thead {
+    display: none;
+  }
+  .table-wrap-cards tr {
+    display: block;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    padding: 0.875rem 1rem;
+  }
+  .table-wrap-cards tr:hover {
+    background: var(--color-surface);
+  }
+  .table-wrap-cards td {
+    display: grid;
+    grid-template-columns: 6.5rem 1fr;
+    gap: 0.5rem;
+    align-items: baseline;
+    border: 0;
+    padding: 0.2rem 0;
+  }
+  .table-wrap-cards td::before {
+    content: attr(data-label);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+  .table-wrap-cards td[data-label=""] {
+    grid-template-columns: 1fr;
+  }
+  .table-wrap-cards td[data-label=""]::before {
+    content: none;
+  }
+  .table-wrap-cards td:first-child {
+    padding-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  /* The action row sits under the last field; give it a little breathing room. */
+  .table-wrap-cards td:last-child:not(:first-child) {
+    padding-top: 0.6rem;
+  }
+}

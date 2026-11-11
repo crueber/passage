@@ -44,7 +44,7 @@
 
   <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
     {{if and .User .User.IsAdmin}}
-    <div class="card card-hover flex flex-col">
+    <a href="/admin" class="card card-hover flex flex-col">
       <div class="flex items-start gap-3 p-5">
         <div class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-on-primary">
           {{template "ic-settings"}}
@@ -56,13 +56,19 @@
       </div>
       <div class="mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
         <span class="td-mono text-faint">Admin console</span>
-        <a href="/admin" class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</a>
+        <span class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</span>
       </div>
-    </div>
+    </a>
     {{end}}
 
     {{range .Apps}}
-    <div class="card card-hover flex flex-col">
+    {{/* The whole card is the link when the app has a launch URL, so there is no
+         small target to hunt for. An app without one is plain information. */}}
+    {{if .DefaultURL}}
+    <a href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer" class="card card-hover flex flex-col">
+    {{else}}
+    <div class="card flex flex-col">
+    {{end}}
       <div class="flex items-start gap-3 p-5">
         <div class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-soft font-semibold text-on-primary-soft uppercase" aria-hidden="true">
           {{slice .Name 0 1}}
@@ -77,12 +83,10 @@
       <div class="mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
         <span class="td-mono truncate text-faint" title="{{.HostPattern}}">{{.HostPattern}}</span>
         {{if .DefaultURL}}
-        <a href="{{.DefaultURL}}" class="card-link inline-flex shrink-0 items-center gap-1" target="_blank" rel="noopener noreferrer">
-          Open {{template "ic-arrow-up-right"}}
-        </a>
+        <span class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</span>
         {{end}}
       </div>
-    </div>
+    {{if .DefaultURL}}</a>{{else}}</div>{{end}}
     {{end}}
   </div>
   {{end}}

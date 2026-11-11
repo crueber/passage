@@ -223,7 +223,7 @@ func TestAdminSettings_RequireMFA(t *testing.T) {
 	form.Set("auth_password_enabled", "on")
 	form.Set("auth_passkey_enabled", "on")
 	form.Set("auth_require_mfa", "on")
-	rec = adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token,
+	rec = adminRequest(t, router, http.MethodPost, "/admin/settings", token,
 		f.cfg.Session.CookieName, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if rec.Code != http.StatusFound {
 		t.Fatalf("POST status = %d; want 302", rec.Code)
@@ -239,7 +239,7 @@ func TestAdminSettings_RequireMFA(t *testing.T) {
 
 	// Saving the form again without the checkbox turns it back off.
 	form.Del("auth_require_mfa")
-	rec = adminRequest(t, router, http.MethodPost, "/admin/settings/auth-methods", token,
+	rec = adminRequest(t, router, http.MethodPost, "/admin/settings", token,
 		f.cfg.Session.CookieName, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if rec.Code != http.StatusFound {
 		t.Fatalf("POST status = %d; want 302", rec.Code)

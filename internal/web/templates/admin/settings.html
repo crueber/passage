@@ -21,46 +21,91 @@
       <h1 class="page-title">Settings</h1>
       <p class="page-sub">Instance-wide configuration.</p>
     </div>
+    <button type="submit" form="settings-form" class="btn btn-primary">Save changes</button>
   </div>
 
-  <div class="max-w-2xl space-y-6">
-    <section class="card p-5 sm:p-6">
-      <h2 class="font-semibold text-ink">General</h2>
-      <form method="POST" action="/admin/settings" class="mt-4 space-y-4">
-        {{csrfField .CSRFToken}}
+  <div class="max-w-2xl">
+    {{/* One form, one Save (the button lives in the page header and targets this
+         form by id). Appearance is per-browser, has no name, and sits outside the
+         form because it is handled entirely by /static/theme.js. */}}
+    <form id="settings-form" method="POST" action="/admin/settings" class="space-y-6">
+      {{csrfField .CSRFToken}}
 
-        <label class="checkbox" for="allow_registration">
-          <input type="checkbox" id="allow_registration" name="allow_registration"
-                 {{if eq .AllowRegistration "true"}}checked{{end}}>
-          Allow public registration
-        </label>
+      <section class="card p-5 sm:p-6">
+        <h2 class="font-semibold text-ink">General</h2>
 
-        <div>
-          <label class="label" for="session_duration_hours">Session duration (hours)</label>
-          <input class="input sm:max-w-xs" type="number" id="session_duration_hours" name="session_duration_hours"
-                 min="1" max="8760" value="{{.SessionDurationHours}}">
-          <p class="help">
-            Global default for all apps. Takes effect immediately for new sessions.
-            Per-app overrides can be set on each app's edit page.
-          </p>
+        <div class="mt-4 space-y-4">
+          <label class="checkbox" for="allow_registration">
+            <input type="checkbox" id="allow_registration" name="allow_registration"
+                   {{if eq .AllowRegistration "true"}}checked{{end}}>
+            Allow public registration
+          </label>
+
+          <div>
+            <label class="label" for="session_duration_hours">Session duration (hours)</label>
+            <input class="input sm:max-w-xs" type="number" id="session_duration_hours" name="session_duration_hours"
+                   min="1" max="8760" value="{{.SessionDurationHours}}">
+            <p class="help">
+              Global default for all apps. Takes effect immediately for new sessions.
+              Per-app overrides can be set on each app's edit page.
+            </p>
+          </div>
+
+          <div>
+            <label class="label" for="smtp_from">SMTP from address</label>
+            <input class="input sm:max-w-xs" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
+                   value="{{.SMTPFrom}}">
+            <p class="help">Requires restart to take effect. Leave empty to use config file value.</p>
+          </div>
         </div>
+      </section>
 
-        <div>
-          <label class="label" for="smtp_from">SMTP from address</label>
-          <input class="input sm:max-w-xs" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
-                 value="{{.SMTPFrom}}">
-          <p class="help">Requires restart to take effect. Leave empty to use config file value.</p>
+      <section class="card p-5 sm:p-6">
+        <h2 class="font-semibold text-ink">Authentication methods</h2>
+
+        <div class="mt-4 space-y-3">
+          <label class="checkbox" for="auth_password_enabled">
+            <input type="checkbox" id="auth_password_enabled" name="auth_password_enabled"
+                   {{if eq .AuthPasswordEnabled "true"}}checked{{end}}>
+            Enable password authentication
+          </label>
+
+          <label class="checkbox" for="auth_passkey_enabled">
+            <input type="checkbox" id="auth_passkey_enabled" name="auth_passkey_enabled"
+                   {{if eq .AuthPasskeyEnabled "true"}}checked{{end}}>
+            Enable passkey (WebAuthn) authentication
+          </label>
+
+          <div>
+            <label class="checkbox" for="auth_magic_link_enabled">
+              <input type="checkbox" id="auth_magic_link_enabled" name="auth_magic_link_enabled"
+                     {{if eq .AuthMagicLinkEnabled "true"}}checked{{end}}
+                     {{if not .SMTPConfigured}}disabled{{end}}>
+              Enable magic link authentication
+            </label>
+            {{if not .SMTPConfigured}}
+            <p class="help">Requires SMTP to be configured.</p>
+            {{end}}
+          </div>
+
+          <div>
+            <label class="checkbox" for="auth_require_mfa">
+              <input type="checkbox" id="auth_require_mfa" name="auth_require_mfa"
+                     {{if eq .AuthRequireMFA "true"}}checked{{end}}>
+              Require two-factor authentication
+            </label>
+            <p class="help">
+              Every user must enrol an authenticator app (TOTP) before they can use
+              Passage. Password sign-ins then ask for a code. Passkeys and magic
+              links are not affected. An administrator can reset a user's
+              two-factor authentication from the Users page.
+            </p>
+          </div>
         </div>
+      </section>
+    </form>
 
-        <div><button type="submit" class="btn btn-primary">Save general</button></div>
-      </form>
-    </section>
-
-    {{/* Appearance is a per-browser preference stored in localStorage by
-         /static/theme.js. It is deliberately NOT part of the settings POST form
-         and has no server handler — ui.theme (config) stays authoritative, and
-         this page works unchanged without JavaScript. */}}
-    <section class="card p-5 sm:p-6">
+    <section class="card mt-6 p-5 sm:p-6">
       <h2 class="font-semibold text-ink">Appearance</h2>
       <div class="mt-4">
         <label class="label" for="theme-select">Theme</label>
@@ -75,51 +120,6 @@
           instance theme configured by the operator.
         </p>
       </div>
-    </section>
-
-    <section class="card p-5 sm:p-6">
-      <h2 class="font-semibold text-ink">Authentication methods</h2>
-      <form method="POST" action="/admin/settings/auth-methods" class="mt-4 space-y-4">
-        {{csrfField .CSRFToken}}
-
-        <label class="checkbox" for="auth_password_enabled">
-          <input type="checkbox" id="auth_password_enabled" name="auth_password_enabled"
-                 {{if eq .AuthPasswordEnabled "true"}}checked{{end}}>
-          Enable password authentication
-        </label>
-
-        <label class="checkbox" for="auth_passkey_enabled">
-          <input type="checkbox" id="auth_passkey_enabled" name="auth_passkey_enabled"
-                 {{if eq .AuthPasskeyEnabled "true"}}checked{{end}}>
-          Enable passkey (WebAuthn) authentication
-        </label>
-
-        <label class="checkbox" for="auth_magic_link_enabled">
-          <input type="checkbox" id="auth_magic_link_enabled" name="auth_magic_link_enabled"
-                 {{if eq .AuthMagicLinkEnabled "true"}}checked{{end}}
-                 {{if not .SMTPConfigured}}disabled{{end}}>
-          Enable magic link authentication
-        </label>
-        {{if not .SMTPConfigured}}
-        <p class="help -mt-2">Requires SMTP to be configured.</p>
-        {{end}}
-
-        <div>
-          <label class="checkbox" for="auth_require_mfa">
-            <input type="checkbox" id="auth_require_mfa" name="auth_require_mfa"
-                   {{if eq .AuthRequireMFA "true"}}checked{{end}}>
-            Require two-factor authentication
-          </label>
-          <p class="help">
-            Every user must enrol an authenticator app (TOTP) before they can use
-            Passage. Password sign-ins then ask for a code. Passkeys and magic
-            links are not affected. An administrator can reset a user's
-            two-factor authentication from the Users page.
-          </p>
-        </div>
-
-        <div><button type="submit" class="btn btn-primary">Save authentication</button></div>
-      </form>
     </section>
   </div>
 </main>

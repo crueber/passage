@@ -25,7 +25,7 @@
   </div>
 
   {{if .Apps}}
-  <div class="table-wrap">
+  <div class="table-wrap table-wrap-cards">
     <table class="table">
       <thead>
         <tr>
@@ -40,19 +40,19 @@
       <tbody>
         {{range .Apps}}
         <tr>
-          <td><a class="font-medium link" href="/admin/apps/{{.ID}}">{{.Name}}</a></td>
-          <td class="td-mono text-muted">{{.Slug}}</td>
-          <td><code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.HostPattern}}</code></td>
-          <td>
+          <td data-label=""><a class="font-medium link" href="/admin/apps/{{.ID}}">{{.Name}}</a></td>
+          <td class="td-mono text-muted" data-label="Slug">{{.Slug}}</td>
+          <td data-label="Host"><code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.HostPattern}}</code></td>
+          <td data-label="URL">
             {{if .DefaultURL}}
             <a class="link td-mono" href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer">{{.DefaultURL}}</a>
             {{else}}
             <span class="text-faint">&mdash;</span>
             {{end}}
           </td>
-          <td>{{if .IsActive}}<span class="badge badge-green">Active</span>{{else}}<span class="badge badge-gray">Inactive</span>{{end}}</td>
-          <td>
-            <div class="flex justify-end gap-1.5">
+          <td data-label="Status">{{if .IsActive}}<span class="badge badge-green">Active</span>{{else}}<span class="badge badge-gray">Inactive</span>{{end}}</td>
+          <td data-label="">
+            <div class="flex flex-wrap justify-start gap-1.5 sm:justify-end">
               <a class="btn btn-outline btn-sm" href="/admin/apps/{{.ID}}/access">Access</a>
               <form method="POST" action="/admin/apps/{{.ID}}/delete">
                 {{csrfField $.CSRFToken}}
