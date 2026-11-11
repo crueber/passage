@@ -21,6 +21,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
+	"github.com/crueber/passage/internal/policy"
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/theme"
@@ -1079,6 +1080,26 @@ func (h *Handler) GetNewApp(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// applyAppPolicy copies the nested access-policy inputs from the submitted app
+// form onto a. Values are trimmed but not validated here; callers run
+// policy.Validate so a malformed rule re-renders the form instead of being
+// saved (Evaluate also fails closed if one ever slips through).
+func applyAppPolicy(r *http.Request, a *app.App) {
+	a.RequiredGroup = strings.TrimSpace(r.FormValue("required_group"))
+	a.RequiredRole = strings.TrimSpace(r.FormValue("required_role"))
+	a.AllowedCIDRs = strings.TrimSpace(r.FormValue("allowed_cidrs"))
+	a.AdminOnly = r.FormValue("admin_only") == "on"
+	a.AllowedHours = strings.TrimSpace(r.FormValue("allowed_hours"))
+	a.AllowedDays = strings.TrimSpace(r.FormValue("allowed_days"))
+}
+
+// policyFlashMessage turns a joined policy validation error into one line for
+// the form's error flash (errors.Join separates with newlines).
+func policyFlashMessage(err error) string {
+	msg := strings.TrimPrefix(err.Error(), "policy: ")
+	return "Access policy: " + strings.ReplaceAll(msg, "\npolicy: ", "; ")
+}
+
 // PostCreateApp handles app creation.
 func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
@@ -1097,6 +1118,7 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		DefaultURL:  strings.TrimSpace(r.FormValue("default_url")),
 		IsActive:    r.FormValue("is_active") == "on",
 	}
+	applyAppPolicy(r, a)
 
 	// Parse optional per-app session duration override.
 	var appSessionDuration int
@@ -1137,6 +1159,15 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		// path.Match only returns an error for syntactically malformed patterns.
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
+			EditApp:  a,
+			IsNew:    true,
+		})
+		return
+	}
+
+	if err := policy.Validate(a.Policy()); err != nil {
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: policyFlashMessage(err)}),
 			EditApp:  a,
 			IsNew:    true,
 		})
@@ -1236,6 +1267,7 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	a.HostPattern = strings.TrimSpace(r.FormValue("host_pattern"))
 	a.DefaultURL = strings.TrimSpace(r.FormValue("default_url"))
 	a.IsActive = r.FormValue("is_active") == "on"
+	applyAppPolicy(r, a)
 
 	// Parse optional per-app session duration override.
 	var appSessionDuration int
@@ -1290,6 +1322,16 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 		// path.Match only returns an error for syntactically malformed patterns.
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
+			appTabs:  appTabs{App: a, ActiveTab: "details"},
+			EditApp:  a,
+			IsNew:    false,
+		})
+		return
+	}
+
+	if err := policy.Validate(a.Policy()); err != nil {
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: policyFlashMessage(err)}),
 			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
