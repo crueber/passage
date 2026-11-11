@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/rsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -268,17 +267,20 @@ func run() error {
 	// Build app service.
 	appSvc := app.NewService(appStore, appStore, logger)
 
-	// Load or generate the OIDC RSA signing key.
+	// OIDC signing keys with kid history. EnsureSigningKeys imports the legacy
+	// single key from oidc_config on first start (leaving that row in place for
+	// a rollback) or generates a key when there is none. The service then loads
+	// the keyring; rotation, retirement, and deletion go through it so the
+	// JWKS and verification always use the same snapshot.
 	oauthStore := oauth.NewStore(database)
-	oauthKeyPEM, oauthKID, err := oauthStore.GetOrCreateRSAKey(ctx)
-	if err != nil {
-		return fmt.Errorf("init oauth signing key: %w", err)
+	if err := oauthStore.EnsureSigningKeys(ctx); err != nil {
+		return fmt.Errorf("init oauth signing keys: %w", err)
 	}
-	oauthSvc, err := oauth.NewService(oauthStore, appSvc, userStore, oauthKeyPEM, oauthKID, cfg.Server.BaseURL, logger)
+	oauthSvc, err := oauth.NewService(ctx, oauthStore, appSvc, userStore, cfg.Server.BaseURL, logger)
 	if err != nil {
 		return fmt.Errorf("init oauth service: %w", err)
 	}
-	oauthHandler := oauth.NewHandler(oauthSvc, sessionSvc, oauthSvc.PrivateKey().Public().(*rsa.PublicKey), oauthSvc.KeyID(), cfg.Server.BaseURL, authRecorder, cfg, logger)
+	oauthHandler := oauth.NewHandler(oauthSvc, sessionSvc, cfg.Server.BaseURL, authRecorder, cfg, logger)
 
 	// Build WebAuthn credential store and challenge store.
 	credStore := webauthn.NewSQLiteCredentialStore(database)
@@ -428,7 +430,7 @@ func run() error {
 	apiTokenSvc := adminapi.NewService(adminapi.NewStore(database), logger)
 	apiHandler := adminapi.NewHandler(userStore, appStore, sessionStore, &auditAPIAdapter{svc: auditSvc}, logger)
 
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle, apiTokenSvc)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle, apiTokenSvc, oauthSvc)
 
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)

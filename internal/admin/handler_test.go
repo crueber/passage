@@ -22,6 +22,7 @@ import (
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/mfa"
+	"github.com/crueber/passage/internal/oauth"
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
@@ -73,6 +74,7 @@ type fixture struct {
 	throttle      *ratelimit.AccountService
 	throttleStore *ratelimit.AccountStore
 	apiTokens     *adminapi.Service
+	oauthSvc      *oauth.Service
 }
 
 // newFixture builds all dependencies wired to an in-memory SQLite database.
@@ -125,7 +127,11 @@ func newFixture(t *testing.T) *fixture {
 	}, time.Now)
 	mfaSvc := mfa.NewService(mfa.NewStore(database, nil), "Passage", nil)
 	apiTokens := adminapi.NewService(adminapi.NewStore(database), logger)
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle, apiTokens)
+	oauthSvc, err := oauth.NewService(context.Background(), oauth.NewStore(database), appSvc, userStore, cfg.Server.BaseURL, logger)
+	if err != nil {
+		t.Fatalf("build oauth service: %v", err)
+	}
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle, apiTokens, oauthSvc)
 
 	return &fixture{
 		db:            database,
@@ -144,6 +150,7 @@ func newFixture(t *testing.T) *fixture {
 		throttle:      throttle,
 		throttleStore: throttleStore,
 		apiTokens:     apiTokens,
+		oauthSvc:      oauthSvc,
 	}
 }
 

@@ -2,7 +2,11 @@ package oauth_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"log/slog"
@@ -413,85 +417,224 @@ func TestSQLiteStore_DeleteExpired(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_GetOrCreateRSAKey(t *testing.T) {
+func TestSQLiteStore_EnsureSigningKeys_GeneratesWhenEmpty(t *testing.T) {
 	ctx := context.Background()
-	db := testutil.NewTestDB(t)
-	store := oauth.NewStore(db)
+	database := testutil.NewTestDB(t)
+	store := oauth.NewStore(database)
 
-	// First call: creates and stores the key.
-	pem1, kid1, err := store.GetOrCreateRSAKey(ctx)
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys: %v", err)
+	}
+
+	keys, err := store.ListSigningKeys(ctx)
 	if err != nil {
-		t.Fatalf("GetOrCreateRSAKey first call: %v", err)
+		t.Fatalf("ListSigningKeys: %v", err)
 	}
-	if len(pem1) == 0 {
-		t.Fatal("GetOrCreateRSAKey: returned empty PEM")
+	if len(keys) != 1 {
+		t.Fatalf("signing keys = %d, want 1", len(keys))
 	}
-	if kid1 == "" {
-		t.Fatal("GetOrCreateRSAKey: returned empty kid")
+	key := keys[0]
+	if key.KID == "" {
+		t.Fatal("generated key has an empty kid")
+	}
+	if key.Retired() {
+		t.Error("generated key is retired")
+	}
+	if key.PublicKey() == nil || key.PublicKey().N.BitLen() != 2048 {
+		t.Errorf("generated key modulus = %v bits, want 2048", key.PublicKey().N.BitLen())
 	}
 
-	// Second call: returns the same key (idempotent).
-	pem2, kid2, err := store.GetOrCreateRSAKey(ctx)
+	// A second call is a no-op: still exactly one key, same kid.
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys second call: %v", err)
+	}
+	again, err := store.ListSigningKeys(ctx)
 	if err != nil {
-		t.Fatalf("GetOrCreateRSAKey second call: %v", err)
+		t.Fatalf("ListSigningKeys second call: %v", err)
 	}
-	if string(pem1) != string(pem2) {
-		t.Error("GetOrCreateRSAKey: second call returned different PEM than first")
-	}
-	if kid1 != kid2 {
-		t.Error("GetOrCreateRSAKey: second call returned different kid than first")
+	if len(again) != 1 || again[0].KID != key.KID {
+		t.Fatalf("second EnsureSigningKeys changed the ring: got %d keys", len(again))
 	}
 
-	// The PEM should be parseable as an RSA private key.
-	block, _ := pem.Decode(pem1)
-	if block == nil {
-		t.Fatal("GetOrCreateRSAKey: PEM decode returned nil block")
+	// Generation must not touch oidc_config: new keys live only in the table.
+	var legacy int
+	if err := database.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM oidc_config WHERE key = 'rsa_private_key'`).Scan(&legacy); err != nil {
+		t.Fatalf("count legacy key: %v", err)
 	}
-	if _, err := x509.ParsePKCS1PrivateKey(block.Bytes); err != nil {
-		t.Errorf("GetOrCreateRSAKey: PEM is not a valid RSA private key: %v", err)
+	if legacy != 0 {
+		t.Errorf("oidc_config legacy rows = %d, want 0", legacy)
 	}
 }
 
-// TestSQLiteStore_GetOrCreateRSAKey_Persistence verifies that the RSA key
-// survives a simulated service restart (new db.Open on the same file).
-func TestSQLiteStore_GetOrCreateRSAKey_Persistence(t *testing.T) {
+// TestSQLiteStore_EnsureSigningKeys_ImportsLegacyKey proves the upgrade path:
+// the single key in oidc_config is imported once with its derived kid, the
+// legacy row is left untouched for a rollback, and a second start is a no-op.
+func TestSQLiteStore_EnsureSigningKeys_ImportsLegacyKey(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
+	database := testutil.NewTestDB(t)
+	store := oauth.NewStore(database)
 
-	// Open the database for the first time and generate the RSA key.
+	legacyPEM, wantKID := newLegacySigningKey(t)
+	if _, err := database.ExecContext(ctx,
+		`INSERT INTO oidc_config (key, value, created_at, updated_at) VALUES ('rsa_private_key', ?, ?, ?)`,
+		string(legacyPEM), time.Now().UTC().Add(-48*time.Hour), time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("insert legacy key: %v", err)
+	}
+
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys: %v", err)
+	}
+
+	keys, err := store.ListSigningKeys(ctx)
+	if err != nil {
+		t.Fatalf("ListSigningKeys: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("signing keys after import = %d, want 1", len(keys))
+	}
+	if keys[0].KID != wantKID {
+		t.Errorf("imported kid = %q, want derived %q", keys[0].KID, wantKID)
+	}
+	if keys[0].PublicKey().N.Cmp(legacyPublicKey(t, legacyPEM).N) != 0 {
+		t.Error("imported key is not the legacy key")
+	}
+
+	// The legacy row is the rollback path; it must still be there, unchanged.
+	var stored string
+	if err := database.QueryRowContext(ctx,
+		`SELECT value FROM oidc_config WHERE key = 'rsa_private_key'`).Scan(&stored); err != nil {
+		t.Fatalf("read legacy key after import: %v", err)
+	}
+	if stored != string(legacyPEM) {
+		t.Error("legacy oidc_config row was modified by the import")
+	}
+
+	// Idempotent on a second start.
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys second call: %v", err)
+	}
+	again, err := store.ListSigningKeys(ctx)
+	if err != nil {
+		t.Fatalf("ListSigningKeys second call: %v", err)
+	}
+	if len(again) != 1 || again[0].KID != wantKID {
+		t.Fatalf("second start changed the ring: got %d keys", len(again))
+	}
+}
+
+// TestSQLiteStore_EnsureSigningKeys_AllRetiredRecovers proves startup still
+// produces a usable keyring when every stored key was retired by direct SQL
+// (the API refuses to retire the last one).
+func TestSQLiteStore_EnsureSigningKeys_AllRetiredRecovers(t *testing.T) {
+	ctx := context.Background()
+	database := testutil.NewTestDB(t)
+	store := oauth.NewStore(database)
+
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys: %v", err)
+	}
+	if _, err := database.ExecContext(ctx,
+		`UPDATE oauth_signing_keys SET retired_at = ?`, time.Now().UTC()); err != nil {
+		t.Fatalf("retire all keys: %v", err)
+	}
+
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys after all keys were retired: %v", err)
+	}
+	keys, err := store.ListSigningKeys(ctx)
+	if err != nil {
+		t.Fatalf("ListSigningKeys: %v", err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("keys after recovery = %d, want 2 (retired history + a new key)", len(keys))
+	}
+	if keys[0].Retired() {
+		t.Error("the newest key is retired; the issuer still cannot sign")
+	}
+}
+
+// TestSQLiteStore_EnsureSigningKeys_Persistence verifies the imported key
+// survives a real restart (a new db.Open on the same file) and is imported
+// only once.
+func TestSQLiteStore_EnsureSigningKeys_Persistence(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
 	db1, err := db.Open(ctx, dbPath, slog.Default())
 	if err != nil {
 		t.Fatalf("db.Open (first): %v", err)
 	}
 	store1 := oauth.NewStore(db1)
-	pem1, kid1, err := store1.GetOrCreateRSAKey(ctx)
+	if err := store1.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys (first): %v", err)
+	}
+	first, err := store1.ListSigningKeys(ctx)
 	if err != nil {
-		t.Fatalf("GetOrCreateRSAKey (first): %v", err)
+		t.Fatalf("ListSigningKeys (first): %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("signing keys (first) = %d, want 1", len(first))
 	}
 	if err := db1.Close(); err != nil {
 		t.Fatalf("db1.Close: %v", err)
 	}
 
-	// Re-open the same file — simulates a process restart.
 	db2, err := db.Open(ctx, dbPath, slog.Default())
 	if err != nil {
 		t.Fatalf("db.Open (second): %v", err)
 	}
+	defer db2.Close()
 	store2 := oauth.NewStore(db2)
-	pem2, kid2, err := store2.GetOrCreateRSAKey(ctx)
+	if err := store2.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("EnsureSigningKeys (second): %v", err)
+	}
+	second, err := store2.ListSigningKeys(ctx)
 	if err != nil {
-		t.Fatalf("GetOrCreateRSAKey (second): %v", err)
+		t.Fatalf("ListSigningKeys (second): %v", err)
 	}
-	if err := db2.Close(); err != nil {
-		t.Fatalf("db2.Close: %v", err)
+	if len(second) != 1 || second[0].KID != first[0].KID {
+		t.Fatalf("key changed across a restart: %d keys, first kid %q", len(second), first[0].KID)
 	}
+}
 
-	// The key must be identical across restarts.
-	if string(pem1) != string(pem2) {
-		t.Error("GetOrCreateRSAKey persistence: PEM differs after re-open")
+// newLegacySigningKey returns a PKCS#1 PEM and the kid derived from it the way
+// Passage has always derived it (base64url SHA-256 of the PKIX public key DER).
+func newLegacySigningKey(t *testing.T) ([]byte, string) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate legacy key: %v", err)
 	}
-	if kid1 != kid2 {
-		t.Errorf("GetOrCreateRSAKey persistence: kid differs: first=%q, second=%q", kid1, kid2)
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+	return pemBytes, derivedKID(t, &privateKey.PublicKey)
+}
+
+// derivedKID computes the kid exactly as the production derivation does.
+func derivedKID(t *testing.T, pub *rsa.PublicKey) string {
+	t.Helper()
+	pubDER, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
 	}
+	sum := sha256.Sum256(pubDER)
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// legacyPublicKey parses a legacy PEM into its public key for comparison.
+func legacyPublicKey(t *testing.T, pemBytes []byte) *rsa.PublicKey {
+	t.Helper()
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		t.Fatal("legacy PEM decode failed")
+	}
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse legacy key: %v", err)
+	}
+	return &privateKey.PublicKey
 }

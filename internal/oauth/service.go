@@ -2,15 +2,13 @@ package oauth
 
 import (
 	"context"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
-	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	jwtlib "github.com/golang-jwt/jwt/v5"
@@ -51,49 +49,124 @@ const (
 
 // Service implements the OAuth2/OIDC business logic.
 type Service struct {
-	store      Store
-	apps       appClient
-	users      userReader
-	privateKey *rsa.PrivateKey
-	keyID      string // kid for id_token header and JWKS
-	baseURL    string
-	logger     *slog.Logger
+	store   Store
+	apps    appClient
+	users   userReader
+	baseURL string
+	logger  *slog.Logger
+
+	// keys holds an immutable keyring snapshot. Rotation installs a new
+	// snapshot atomically, so a request never observes a half-built ring.
+	keys atomic.Pointer[Keyring]
 }
 
-// NewService constructs a Service, parsing the RSA private key PEM.
-// Returns an error if the PEM cannot be decoded or parsed.
-func NewService(store Store, apps appClient, users userReader, privateKeyPEM []byte, kid, baseURL string, logger *slog.Logger) (*Service, error) {
-	block, _ := pem.Decode(privateKeyPEM)
-	if block == nil {
-		return nil, fmt.Errorf("oauth service: failed to decode RSA PEM block")
+// NewService constructs a Service and loads the OIDC signing keyring.
+//
+// It ensures at least one signing key exists (importing the legacy single key
+// on first start), so a Service is never constructed without a usable key.
+func NewService(ctx context.Context, store Store, apps appClient, users userReader, baseURL string, logger *slog.Logger) (*Service, error) {
+	s := &Service{
+		store:   store,
+		apps:    apps,
+		users:   users,
+		baseURL: baseURL,
+		logger:  logger,
 	}
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		return nil, fmt.Errorf("oauth service: ensure signing keys: %w", err)
+	}
+	if err := s.ReloadSigningKeys(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 
-	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+// ReloadSigningKeys rebuilds the keyring from the store and installs it.
+// Called at startup and after every rotation, retirement, or deletion.
+func (s *Service) ReloadSigningKeys(ctx context.Context) error {
+	keys, err := s.store.ListSigningKeys(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("oauth service: parse RSA private key: %w", err)
+		return fmt.Errorf("oauth service: list signing keys: %w", err)
 	}
-
-	return &Service{
-		store:      store,
-		apps:       apps,
-		users:      users,
-		privateKey: privateKey,
-		keyID:      kid,
-		baseURL:    baseURL,
-		logger:     logger,
-	}, nil
+	ring, err := newKeyring(keys)
+	if err != nil {
+		return fmt.Errorf("oauth service: build keyring: %w", err)
+	}
+	s.keys.Store(ring)
+	return nil
 }
 
-// PrivateKey returns the RSA private key. Used by the handler to expose the
-// public key in the JWKS endpoint.
-func (s *Service) PrivateKey() *rsa.PrivateKey {
-	return s.privateKey
+// keyring returns the current snapshot, or nil before the first load.
+func (s *Service) keyring() *Keyring {
+	return s.keys.Load()
 }
 
-// KeyID returns the kid (key ID) for the RSA key. Used by the handler to
-// include the kid in the JWKS endpoint and id_token header.
-func (s *Service) KeyID() string {
-	return s.keyID
+// ActiveSigningKeys returns the non-retired keys, newest first. These are
+// served by the JWKS endpoint and accepted for verification.
+func (s *Service) ActiveSigningKeys() []*SigningKey {
+	return s.keyring().Active()
+}
+
+// CurrentSigningKey returns the key that signs new id_tokens: the newest
+// non-retired key.
+func (s *Service) CurrentSigningKey() (*SigningKey, error) {
+	key := s.keyring().Current()
+	if key == nil {
+		return nil, ErrNoSigningKey
+	}
+	return key, nil
+}
+
+// ListSigningKeys returns the full key history for the admin UI, newest first.
+func (s *Service) ListSigningKeys(ctx context.Context) ([]*SigningKey, error) {
+	keys, err := s.store.ListSigningKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("oauth service: list signing keys: %w", err)
+	}
+	return keys, nil
+}
+
+// RotateSigningKey generates a new 2048-bit RSA key and makes it current. The
+// previous key is left active so every id_token it signed keeps verifying
+// until it expires; retiring it is a separate, explicit action.
+func (s *Service) RotateSigningKey(ctx context.Context) (*SigningKey, error) {
+	key, err := generateSigningKey()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.CreateSigningKey(ctx, key); err != nil {
+		return nil, fmt.Errorf("oauth service: rotate signing key: %w", err)
+	}
+	if err := s.ReloadSigningKeys(ctx); err != nil {
+		return nil, err
+	}
+	s.logger.Info("oauth signing key rotated", "kid", key.KID)
+	return key, nil
+}
+
+// RetireSigningKey stops a key being served and accepted. The last active key
+// cannot be retired.
+func (s *Service) RetireSigningKey(ctx context.Context, kid string) error {
+	if err := s.store.RetireSigningKey(ctx, kid); err != nil {
+		return fmt.Errorf("oauth service: retire signing key: %w", err)
+	}
+	if err := s.ReloadSigningKeys(ctx); err != nil {
+		return err
+	}
+	s.logger.Info("oauth signing key retired", "kid", kid)
+	return nil
+}
+
+// DeleteSigningKey removes a retired key permanently.
+func (s *Service) DeleteSigningKey(ctx context.Context, kid string) error {
+	if err := s.store.DeleteSigningKey(ctx, kid); err != nil {
+		return fmt.Errorf("oauth service: delete signing key: %w", err)
+	}
+	if err := s.ReloadSigningKeys(ctx); err != nil {
+		return err
+	}
+	s.logger.Info("oauth signing key deleted", "kid", kid)
+	return nil
 }
 
 // Authorize validates an authorization request and creates a code. clientIP is
@@ -488,18 +561,22 @@ func (s *Service) authenticateClient(ctx context.Context, clientID, clientSecret
 
 // ClientForIDTokenHint verifies that idTokenHint was signed by this server and
 // returns the app named by its aud claim. The signature is checked against the
-// live signing key with RS256 only; claim *timestamps* are not validated
-// because OIDC RP-Initiated Logout 1.0 §2 allows an expired id_token as a hint
-// (the RP may be logging out a session whose token has already expired).
-// Nothing else from the hint is trusted.
+// key named by the token's kid — any non-retired key, so a hint issued before a
+// rotation still verifies — with RS256 only. Claim *timestamps* are not
+// validated because OIDC RP-Initiated Logout 1.0 §2 allows an expired id_token
+// as a hint (the RP may be logging out a session whose token has already
+// expired). Nothing else from the hint is trusted.
 func (s *Service) ClientForIDTokenHint(ctx context.Context, idTokenHint string) (*app.App, error) {
 	claims := jwtlib.MapClaims{}
 	_, err := jwtlib.ParseWithClaims(idTokenHint, claims, func(t *jwtlib.Token) (any, error) {
-		// Reject any algorithm confusion (e.g. HS256 signed with the public key).
-		if _, ok := t.Method.(*jwtlib.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method %q", t.Method.Alg())
+		// Only RS256 is allowed, which also rejects an HS256 token that tries to
+		// use the public key as an HMAC secret (algorithm confusion).
+		kid, _ := t.Header["kid"].(string)
+		key, ok := s.keyring().ByKID(kid)
+		if !ok {
+			return nil, fmt.Errorf("unknown or retired kid %q", kid)
 		}
-		return &s.privateKey.PublicKey, nil
+		return key.PublicKey(), nil
 	}, jwtlib.WithValidMethods([]string{"RS256"}), jwtlib.WithoutClaimsValidation())
 	if err != nil {
 		// The parse error is not returned to the client; it is kept in the
@@ -720,9 +797,13 @@ func (s *Service) buildIDToken(ctx context.Context, u *user.User, appID, clientI
 	claims["roles"] = roles
 	claims["groups"] = groups
 
+	key, err := s.CurrentSigningKey()
+	if err != nil {
+		return "", fmt.Errorf("oauth build id token: %w", err)
+	}
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodRS256, claims)
-	token.Header["kid"] = s.keyID
-	signed, err := token.SignedString(s.privateKey)
+	token.Header["kid"] = key.KID
+	signed, err := token.SignedString(key.privateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign id token: %w", err)
 	}

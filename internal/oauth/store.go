@@ -292,72 +292,277 @@ func (s *SQLiteStore) DeleteExpired(ctx context.Context) error {
 	return nil
 }
 
-// GetOrCreateRSAKey returns the stored RSA private key PEM from oidc_config,
-// creating and storing a new 2048-bit RSA key if none exists.
-// Uses INSERT OR IGNORE + read-back to be safe against concurrent startup.
-// The kid is derived deterministically from the public key's DER encoding
-// (SHA-256 thumbprint, base64url-encoded per RFC 7638).
-func (s *SQLiteStore) GetOrCreateRSAKey(ctx context.Context) (privateKeyPEM []byte, kid string, err error) {
-	// Try to read existing key first.
-	const selectQuery = `SELECT value FROM oidc_config WHERE key = 'rsa_private_key'`
-	var pemStr string
-	err = s.db.QueryRowContext(ctx, selectQuery).Scan(&pemStr)
-	if err == nil {
-		kid, err = deriveKID([]byte(pemStr))
+// legacyRSAKeyName is the oidc_config key that held the single RSA key before
+// kid history existed. It is imported once and deliberately left in place: an
+// older binary rolling back still reads it.
+const legacyRSAKeyName = "rsa_private_key"
+
+// signingKeyBits is the RSA modulus size for signing keys.
+const signingKeyBits = 2048
+
+// EnsureSigningKeys makes sure the keyring can sign. It is idempotent and is
+// called at startup:
+//
+//   - any non-retired key means there is nothing to do;
+//   - an empty table imports the legacy oidc_config RSA key with its derived
+//     kid, so existing id_tokens keep verifying and the JWKS does not change;
+//   - otherwise (no legacy key, or every row retired by hand) a new 2048-bit
+//     RSA key is generated, because an issuer that cannot sign is down.
+//
+// The thumbprint is always computed in Go, never in SQL.
+func (s *SQLiteStore) EnsureSigningKeys(ctx context.Context) error {
+	var total, active int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(SUM(retired_at IS NULL), 0) FROM oauth_signing_keys`,
+	).Scan(&total, &active); err != nil {
+		return fmt.Errorf("oauth store count signing keys: %w", err)
+	}
+	if active > 0 {
+		return nil
+	}
+	if total > 0 {
+		// Every key is retired. Only direct SQL can reach this state (the API
+		// refuses to retire the last key); keep the history and add a fresh key
+		// so the server comes up.
+		key, err := generateSigningKey()
 		if err != nil {
-			return nil, "", fmt.Errorf("oauth store derive kid: %w", err)
+			return err
 		}
-		return []byte(pemStr), kid, nil
-	}
-	if err != sql.ErrNoRows {
-		return nil, "", fmt.Errorf("oauth store get rsa key: %w", err)
+		return s.CreateSigningKey(ctx, key)
 	}
 
-	// No key found — generate a new one.
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	var (
+		legacyPEM     string
+		legacyCreated sql.NullTime
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT value, created_at FROM oidc_config WHERE key = ?`, legacyRSAKeyName,
+	).Scan(&legacyPEM, &legacyCreated)
+	switch {
+	case err == nil:
+		kid, err := deriveKID([]byte(legacyPEM))
+		if err != nil {
+			return fmt.Errorf("oauth store import legacy signing key: %w", err)
+		}
+		createdAt := time.Now().UTC()
+		if legacyCreated.Valid && !legacyCreated.Time.IsZero() {
+			createdAt = legacyCreated.Time.UTC()
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO oauth_signing_keys (kid, private_key_pem, created_at) VALUES (?, ?, ?)`,
+			kid, legacyPEM, createdAt,
+		); err != nil {
+			return fmt.Errorf("oauth store import legacy signing key: %w", err)
+		}
+		return nil
+	case err != sql.ErrNoRows:
+		return fmt.Errorf("oauth store read legacy signing key: %w", err)
+	}
+
+	key, err := generateSigningKey()
 	if err != nil {
-		return nil, "", fmt.Errorf("oauth store generate rsa key: %w", err)
+		return err
+	}
+	return s.CreateSigningKey(ctx, key)
+}
+
+// ListSigningKeys returns every stored key, newest first, retired keys
+// included. The kid is taken from the row: it was derived from this PEM when
+// the row was written.
+func (s *SQLiteStore) ListSigningKeys(ctx context.Context) ([]*SigningKey, error) {
+	const query = `
+		SELECT kid, private_key_pem, created_at, retired_at
+		FROM oauth_signing_keys
+		ORDER BY created_at DESC, rowid DESC`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("oauth store list signing keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []*SigningKey
+	for rows.Next() {
+		var (
+			kid       string
+			pemStr    string
+			createdAt sql.NullTime
+			retiredAt sql.NullTime
+		)
+		if err := rows.Scan(&kid, &pemStr, &createdAt, &retiredAt); err != nil {
+			return nil, fmt.Errorf("oauth store scan signing key: %w", err)
+		}
+		privateKey, err := parsePrivateKeyPEM([]byte(pemStr))
+		if err != nil {
+			return nil, fmt.Errorf("oauth store parse signing key %q: %w", kid, err)
+		}
+		key := &SigningKey{
+			KID:        kid,
+			CreatedAt:  createdAt.Time.UTC(),
+			privateKey: privateKey,
+		}
+		if retiredAt.Valid {
+			retired := retiredAt.Time.UTC()
+			key.RetiredAt = &retired
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("oauth store list signing keys: %w", err)
+	}
+	return keys, nil
+}
+
+// CreateSigningKey persists key, deriving its kid from the public key and
+// stamping CreatedAt. The caller must set the private key.
+func (s *SQLiteStore) CreateSigningKey(ctx context.Context, key *SigningKey) error {
+	if key == nil || key.privateKey == nil {
+		return fmt.Errorf("oauth store create signing key: missing private key")
+	}
+	pemBytes := marshalPrivateKeyPEM(key.privateKey)
+	kid, err := deriveKID(pemBytes)
+	if err != nil {
+		return fmt.Errorf("oauth store create signing key: %w", err)
 	}
 
-	pemBytes := pem.EncodeToMemory(&pem.Block{
+	now := time.Now().UTC()
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO oauth_signing_keys (kid, private_key_pem, created_at) VALUES (?, ?, ?)`,
+		kid, string(pemBytes), now,
+	); err != nil {
+		return fmt.Errorf("oauth store create signing key: %w", err)
+	}
+
+	key.KID = kid
+	key.CreatedAt = now
+	key.RetiredAt = nil
+	return nil
+}
+
+// RetireSigningKey marks kid retired. Retiring an already-retired key is a
+// no-op, and the last non-retired key cannot be retired: rotating first keeps
+// the issuer able to sign at all times.
+func (s *SQLiteStore) RetireSigningKey(ctx context.Context, kid string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("oauth store retire signing key: %w", err)
+	}
+	// Rollback after a successful commit is a documented no-op; the error is
+	// not actionable.
+	defer func() { _ = tx.Rollback() }()
+
+	var retiredAt sql.NullTime
+	err = tx.QueryRowContext(ctx,
+		`SELECT retired_at FROM oauth_signing_keys WHERE kid = ?`, kid,
+	).Scan(&retiredAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrSigningKeyNotFound
+		}
+		return fmt.Errorf("oauth store retire signing key: %w", err)
+	}
+	if retiredAt.Valid {
+		return tx.Commit()
+	}
+
+	var active int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM oauth_signing_keys WHERE retired_at IS NULL`,
+	).Scan(&active); err != nil {
+		return fmt.Errorf("oauth store retire signing key: count active: %w", err)
+	}
+	if active <= 1 {
+		return ErrSigningKeyLast
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE oauth_signing_keys SET retired_at = ? WHERE kid = ?`,
+		time.Now().UTC(), kid,
+	); err != nil {
+		return fmt.Errorf("oauth store retire signing key: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("oauth store retire signing key: commit: %w", err)
+	}
+	return nil
+}
+
+// DeleteSigningKey removes a retired key permanently. Active keys are refused
+// so a key cannot disappear while it is still signing or verifying.
+func (s *SQLiteStore) DeleteSigningKey(ctx context.Context, kid string) error {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM oauth_signing_keys WHERE kid = ? AND retired_at IS NOT NULL`, kid,
+	)
+	if err != nil {
+		return fmt.Errorf("oauth store delete signing key: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("oauth store delete signing key: rows affected: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+
+	var exists int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM oauth_signing_keys WHERE kid = ?`, kid,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("oauth store delete signing key: lookup: %w", err)
+	}
+	if exists == 0 {
+		return ErrSigningKeyNotFound
+	}
+	return ErrSigningKeyActive
+}
+
+// generateSigningKey creates a new RSA private key for rotation.
+func generateSigningKey() (*SigningKey, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, signingKeyBits)
+	if err != nil {
+		return nil, fmt.Errorf("oauth store generate signing key: %w", err)
+	}
+	return &SigningKey{privateKey: privateKey}, nil
+}
+
+// marshalPrivateKeyPEM encodes an RSA private key as a PKCS#1 PEM, the format
+// earlier versions wrote to oidc_config.
+func marshalPrivateKeyPEM(privateKey *rsa.PrivateKey) []byte {
+	return pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
 	})
-
-	now := time.Now().UTC()
-	const insertQuery = `
-		INSERT OR IGNORE INTO oidc_config (key, value, created_at, updated_at)
-		VALUES ('rsa_private_key', ?, ?, ?)`
-
-	_, err = s.db.ExecContext(ctx, insertQuery, string(pemBytes), now, now)
-	if err != nil {
-		return nil, "", fmt.Errorf("oauth store insert rsa key: %w", err)
-	}
-
-	// Read back what was actually stored (another process may have won the race).
-	var stored string
-	if err := s.db.QueryRowContext(ctx, selectQuery).Scan(&stored); err != nil {
-		return nil, "", fmt.Errorf("oauth store read back rsa key: %w", err)
-	}
-
-	kid, err = deriveKID([]byte(stored))
-	if err != nil {
-		return nil, "", fmt.Errorf("oauth store derive kid: %w", err)
-	}
-	return []byte(stored), kid, nil
 }
 
-// deriveKID computes a stable key ID from the RSA private key PEM.
-// It parses the PEM, extracts the public key DER encoding, and returns
-// base64url(sha256(DER(publicKey))) per RFC 7638.
-func deriveKID(privateKeyPEM []byte) (string, error) {
+// parsePrivateKeyPEM decodes an RSA private key. PKCS#1 is what Passage has
+// always written; PKCS#8 is accepted so a hand-migrated key still loads.
+func parsePrivateKeyPEM(privateKeyPEM []byte) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
-		return "", fmt.Errorf("deriveKID: failed to decode PEM block")
+		return nil, fmt.Errorf("failed to decode PEM block")
 	}
-	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return privateKey, nil
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return "", fmt.Errorf("deriveKID: parse RSA private key: %w", err)
+		return nil, fmt.Errorf("parse RSA private key: %w", err)
+	}
+	privateKey, ok := parsed.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("private key is %T, want RSA", parsed)
+	}
+	return privateKey, nil
+}
+
+// deriveKID computes a stable key ID from the RSA private key PEM: the
+// base64url SHA-256 of the public key's DER encoding. This is the same
+// derivation earlier versions used, so importing the legacy key leaves every
+// existing id_token verifiable.
+func deriveKID(privateKeyPEM []byte) (string, error) {
+	privateKey, err := parsePrivateKeyPEM(privateKeyPEM)
+	if err != nil {
+		return "", fmt.Errorf("deriveKID: %w", err)
 	}
 	pubDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	if err != nil {

@@ -2,7 +2,6 @@ package oauth_test
 
 import (
 	"context"
-	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -185,8 +184,7 @@ func TestHandler_Authorize_AccessPolicy(t *testing.T) {
 			testUser.IsAdmin = tt.isAdmin
 
 			recorder := &policyRecorder{}
-			h := oauth.NewHandler(stack.svc, sv, stack.svc.PrivateKey().Public().(*rsa.PublicKey),
-				stack.svc.KeyID(), "https://auth.example.com", recorder, testConfig(), slog.Default())
+			h := oauth.NewHandler(stack.svc, sv, "https://auth.example.com", recorder, testConfig(), slog.Default())
 
 			req := httptest.NewRequest(http.MethodGet,
 				"/oauth/authorize?client_id="+clientID+"&redirect_uri="+redirectURI+"&response_type=code&scope=openid&state=st", nil)
