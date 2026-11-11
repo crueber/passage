@@ -38,6 +38,11 @@ const (
 	EventMFADisabled         = "mfa.disabled"
 	EventMFACodesRegenerated = "mfa.codes_regenerated"
 	EventMFAReset            = "mfa.reset"
+
+	// Per-app access policy denial. Detail names the app slug and the policy
+	// rule that denied access (a short token such as "group" or "hours"); it
+	// never carries a credential or a response body.
+	EventAccessDenied = "access.denied"
 )
 
 // Outcomes describe how an event ended.
@@ -89,6 +94,7 @@ func Names() []string {
 		EventMFADisabled,
 		EventMFACodesRegenerated,
 		EventMFAReset,
+		EventAccessDenied,
 	}
 }
 

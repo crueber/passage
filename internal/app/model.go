@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/crueber/passage/internal/policy"
 )
 
 // Sentinel errors for app-related operations.
@@ -59,6 +61,29 @@ type App struct {
 	ClientSecretHash string
 	RedirectURIs     []string // stored as newline-separated in DB
 	OAuthEnabled     bool
+
+	// Access policy fields. The zero value of each means "no restriction", so
+	// an app with no policy behaves exactly as it did before policies existed.
+	// Parsing and evaluation live in internal/policy; see Service.EvaluateAccess.
+	RequiredGroup string // one app-scoped group name the user must hold
+	RequiredRole  string // one app-scoped role name the user must hold
+	AllowedCIDRs  string // comma/space separated CIDR prefixes
+	AdminOnly     bool   // only admin users may use the app
+	AllowedHours  string // "HH:MM-HH:MM" in server local time
+	AllowedDays   string // ISO weekday list/ranges (1 = Monday … 7 = Sunday)
+}
+
+// Policy returns the app's access policy in the form internal/policy
+// evaluates. A zero-value policy imposes no restriction.
+func (a *App) Policy() policy.Policy {
+	return policy.Policy{
+		RequiredGroup: a.RequiredGroup,
+		RequiredRole:  a.RequiredRole,
+		AllowedCIDRs:  a.AllowedCIDRs,
+		AdminOnly:     a.AdminOnly,
+		AllowedHours:  a.AllowedHours,
+		AllowedDays:   a.AllowedDays,
+	}
 }
 
 // UserAccess represents a user's access grant to a specific app.
