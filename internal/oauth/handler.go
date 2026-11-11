@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +28,10 @@ import (
 // Defined here at the consumer boundary, per Go convention.
 type oauthService interface {
 	Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID, clientIP string) (*Code, error)
+	// ValidateClientRedirectURI checks the client and its redirect_uri without
+	// issuing a code, for authorization requests that must be answered before a
+	// session is resolved (prompt=none).
+	ValidateClientRedirectURI(ctx context.Context, clientID, redirectURI string) error
 	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier string) (*TokenResponse, error)
 	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret string) (*TokenResponse, error)
 	ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error)
@@ -67,6 +73,9 @@ type Handler struct {
 	authEvents authEventRecorder
 	cfg        *config.Config
 	logger     *slog.Logger
+	// now is the handler's time source. It is time.Now unless a test overrides
+	// it with SetClock, so authentication-age boundaries are deterministic.
+	now func() time.Time
 }
 
 // NewHandler creates a new Handler with the given dependencies.
@@ -80,7 +89,26 @@ func NewHandler(svc oauthService, sessions sessionValidator, publicKey *rsa.Publ
 		authEvents: authEvents,
 		cfg:        cfg,
 		logger:     logger,
+		now:        time.Now,
 	}
+}
+
+// SetClock replaces the handler's time source. It exists for tests that need
+// deterministic authentication-age boundaries and must be called before the
+// handler serves requests.
+func (h *Handler) SetClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	h.now = now
+}
+
+// currentTime returns the handler's current time.
+func (h *Handler) currentTime() time.Time {
+	if h.now == nil {
+		return time.Now()
+	}
+	return h.now()
 }
 
 // record emits an authentication event for r, filling in the client address
@@ -200,16 +228,49 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate the session.
-	cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName())
+	// Validate the OIDC re-authentication parameters. A malformed value is the
+	// client's own error and is answered before any session work, so it never
+	// turns into a login bounce.
+	prompts, err := parseReauthParameters(q)
 	if err != nil {
-		// No session cookie — redirect to login.
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	// Validate the session. A request may legitimately have no session: the
+	// login bounce below brings the browser back here with a fresh one.
+	var sess *session.Session
+	var u *user.User
+	cookie, cookieErr := r.Cookie(h.cfg.Session.EffectiveCookieName())
+	if cookieErr == nil {
+		sess, u, err = h.sessions.ValidateSession(ctx, cookie.Value)
+	}
+	if cookieErr != nil || err != nil {
+		if prompts.none {
+			// prompt=none forbids showing any UI, so the client is told that
+			// authentication is required instead of being sent to the login page.
+			h.redirectLoginRequired(w, r, clientID, redirectURI, state)
+			return
+		}
 		h.redirectToLogin(w, r)
 		return
 	}
 
-	sess, u, err := h.sessions.ValidateSession(ctx, cookie.Value)
-	if err != nil {
+	// Step-up: prompt=login, max_age, and acr_values=urn:passage:reauth all ask
+	// for a *fresh* authentication rather than merely an existing session. The
+	// session's authentication time is its creation time (the same value the
+	// id_token reports as auth_time).
+	if prompts.requiresFreshAuth(sess.CreatedAt, h.currentTime()) {
+		if prompts.none {
+			h.redirectLoginRequired(w, r, clientID, redirectURI, state)
+			return
+		}
+		// Send the browser through the login flow and straight back to this
+		// exact authorization request. The freshness window is the loop guard:
+		// the login flow always creates a *new* session, so the request that
+		// comes back is fresh and this branch is not taken again. The existing
+		// session is left intact — step-up adds a session, it never rotates or
+		// revokes the old one.
 		h.redirectToLogin(w, r)
 		return
 	}
@@ -242,15 +303,10 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 			})
 			h.writeJSONError(w, http.StatusForbidden, "access_denied",
 				"The resource owner or authorization server denied the request.")
-		case errors.Is(err, app.ErrOAuthNotEnabled):
-			h.writeJSONError(w, http.StatusBadRequest, "unauthorized_client",
-				"OAuth is not enabled for this client")
-		case errors.Is(err, app.ErrRedirectURIMismatch):
-			h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
-				"redirect_uri does not match registered URIs")
-		case errors.Is(err, ErrPKCEVerificationFailed):
-			h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
-				"invalid code_challenge or code_challenge_method")
+		case errors.Is(err, app.ErrOAuthNotEnabled),
+			errors.Is(err, app.ErrRedirectURIMismatch),
+			errors.Is(err, ErrPKCEVerificationFailed):
+			h.writeAuthorizeClientError(w, err)
 		default:
 			// Fixed description: err may wrap internal details (DB errors,
 			// store chains) that must not reach the client. Log the real error.
@@ -678,6 +734,143 @@ func (h *Handler) redirectToLogin(w http.ResponseWriter, r *http.Request) {
 	rd := r.URL.RequestURI()
 	loginURL := "/auth/start?rd=" + url.QueryEscape(rd)
 	http.Redirect(w, r, loginURL, http.StatusFound)
+}
+
+const (
+	// reauthWindow is how recently a session must have been created to count as
+	// a fresh authentication for prompt=login and acr_values=urn:passage:reauth.
+	// It only needs to cover the round trip through the login flow, and it is
+	// the loop guard for the re-authentication bounce.
+	reauthWindow = 60 * time.Second
+
+	// acrReauth is the only acr_values entry Passage recognises. It asks for a
+	// fresh authentication and is satisfied by reauthWindow. Other acr_values
+	// entries are ignored: Passage does not implement other authentication
+	// context classes, and OIDC Core §3.1.2.1 lets the OP ignore unknown
+	// requested values.
+	acrReauth = "urn:passage:reauth"
+
+	// maxMaxAgeSeconds caps max_age at the largest number of seconds that fits
+	// in a time.Duration, so a hostile value cannot overflow the age comparison.
+	maxMaxAgeSeconds = int64(math.MaxInt64 / int64(time.Second))
+)
+
+// reauthParameters are the OIDC re-authentication parameters of an
+// authorization request.
+type reauthParameters struct {
+	none      bool // prompt=none: never show UI; answer login_required instead
+	login     bool // prompt=login: require a fresh authentication
+	maxAge    *time.Duration
+	acrReauth bool // acr_values named urn:passage:reauth
+}
+
+// parseReauthParameters parses prompt, max_age, and acr_values. Unknown prompt
+// and acr_values entries are ignored (OIDC Core §3.1.2.1 allows that); a
+// malformed max_age and prompt=none combined with another prompt value are
+// invalid_request. The returned errors are fixed strings safe to show clients.
+func parseReauthParameters(q url.Values) (reauthParameters, error) {
+	var p reauthParameters
+
+	promptValues := strings.Fields(q.Get("prompt"))
+	for _, v := range promptValues {
+		switch v {
+		case "none":
+			p.none = true
+		case "login":
+			p.login = true
+		}
+	}
+	if p.none && len(promptValues) > 1 {
+		return reauthParameters{}, errors.New("prompt=none must not be combined with other prompt values")
+	}
+
+	for _, v := range strings.Fields(q.Get("acr_values")) {
+		if v == acrReauth {
+			p.acrReauth = true
+		}
+	}
+
+	if q.Has("max_age") {
+		n, err := strconv.ParseInt(q.Get("max_age"), 10, 64)
+		if err != nil || n < 0 || n > maxMaxAgeSeconds {
+			return reauthParameters{}, errors.New("max_age must be a non-negative integer number of seconds")
+		}
+		d := time.Duration(n) * time.Second
+		p.maxAge = &d
+	}
+
+	return p, nil
+}
+
+// requiresFreshAuth reports whether the request demands a more recent
+// authentication than authTime provides. The caller decides what to do about
+// it: a login bounce, or login_required for prompt=none.
+func (p reauthParameters) requiresFreshAuth(authTime, now time.Time) bool {
+	if (p.login || p.acrReauth) && now.Sub(authTime) > reauthWindow {
+		return true
+	}
+	if p.maxAge == nil {
+		return false
+	}
+	window := *p.maxAge
+	if window == 0 {
+		// max_age=0 means "authenticate again now". It is treated as the same
+		// freshness window as prompt=login, which is what stops a loop: a
+		// literal "age > 0" test would fail for every session, including the
+		// one the login flow has just created.
+		window = reauthWindow
+	}
+	return now.Sub(authTime) > window
+}
+
+// redirectLoginRequired answers a prompt=none authorization request that cannot
+// be satisfied without showing UI. The error may only be delivered to a
+// redirect_uri registered to the client; when there is none, the request falls
+// back to the JSON error path so the endpoint never becomes an open redirector.
+func (h *Handler) redirectLoginRequired(w http.ResponseWriter, r *http.Request, clientID, redirectURI, state string) {
+	if err := h.svc.ValidateClientRedirectURI(r.Context(), clientID, redirectURI); err != nil {
+		h.writeAuthorizeClientError(w, err)
+		return
+	}
+	h.redirectAuthError(w, r, redirectURI, state, "login_required")
+}
+
+// redirectAuthError redirects to an already validated redirect_uri with an
+// RFC 6749 §4.1.2.1 error response.
+func (h *Handler) redirectAuthError(w http.ResponseWriter, r *http.Request, redirectURI, state, code string) {
+	target, err := url.Parse(redirectURI)
+	if err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is malformed")
+		return
+	}
+	q := target.Query()
+	q.Set("error", code)
+	if state != "" {
+		q.Set("state", state)
+	}
+	target.RawQuery = q.Encode()
+	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+// writeAuthorizeClientError writes the JSON error for the client-side failures
+// of an authorization request. Descriptions are fixed strings so internal
+// detail never reaches a client.
+func (h *Handler) writeAuthorizeClientError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, app.ErrOAuthNotEnabled):
+		h.writeJSONError(w, http.StatusBadRequest, "unauthorized_client",
+			"OAuth is not enabled for this client")
+	case errors.Is(err, app.ErrRedirectURIMismatch):
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
+			"redirect_uri does not match registered URIs")
+	case errors.Is(err, ErrPKCEVerificationFailed):
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
+			"invalid code_challenge or code_challenge_method")
+	default:
+		h.logger.Warn("oauth authorize: client validation failed", "error", err)
+		h.writeJSONError(w, http.StatusForbidden, "access_denied",
+			"The resource owner or authorization server denied the request.")
+	}
 }
 
 // authorizeDenyReason maps an Authorize error to a stable, log-friendly reason
