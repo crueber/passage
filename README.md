@@ -47,6 +47,8 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **Per-app access control** — grant or revoke each user's access to each application independently, with app-scoped roles and groups
 - **Self-service sessions** — users see their devices, can revoke one or sign out everywhere; optional idle timeout
 - **Upstream identity providers** — sign in with an existing OIDC provider (Authentik, Keycloak, Google, …) and link it to a local account
+- **Step-up authentication** — `prompt=login`, `max_age` and `acr_values` force a fresh sign-in for sensitive apps
+- **Signing-key rotation** — rotate the OIDC key from the admin UI; kid history keeps existing id_tokens verifiable
 - **Per-app access policies** — require an app group or role, restrict by CIDR or time of day, or make an app admin-only
 - **Authentication log** — every sign-in, failure, lockout, passkey and magic-link use, MFA and OAuth event, filterable in the admin UI with 90-day retention
 - **Read-only admin API** — `/api/v1` exposes users, apps, sessions and the audit log to scripts, authenticated with revocable API tokens
@@ -281,7 +283,7 @@ Passage acts as an OpenID Connect identity provider for downstream applications 
 | `/oauth/revoke` | `POST` | RFC 7009 token revocation (access or refresh token) |
 | `/oauth/introspect` | `POST` | RFC 7662 token introspection |
 
-The RSA signing key is auto-generated on first start and stored in the database — no manual key management is required.
+The RSA signing key is generated on first start and stored in the database, with key rotation and kid history available from the admin UI (System → Signing keys). Old keys stay valid for verification until you retire them, so rotating does not invalidate live tokens.
 
 ### Setting up a client
 
