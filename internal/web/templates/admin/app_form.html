@@ -137,15 +137,15 @@
       {{if not .IsNew}}
       <div>
         <label class="label" for="redirect_uris">Redirect URIs <span class="font-normal text-faint">(one per line)</span></label>
-        <textarea class="input font-mono text-xs" id="redirect_uris" name="redirect_uris" rows="4">{{range .EditApp.RedirectURIs}}{{.}}
-{{end}}</textarea>
+        <textarea class="input font-mono text-xs" id="redirect_uris" name="redirect_uris" rows="4">{{range $i, $v := .EditApp.RedirectURIs}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
         <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
       </div>
 
       <div>
         <label class="label" for="scopes">Allowed scopes <span class="font-normal text-faint">(one per line)</span></label>
-        <textarea class="input font-mono text-xs" id="scopes" name="scopes" rows="3">{{range .EditApp.AllowedScopes}}{{.}}
-{{end}}</textarea>
+        <textarea class="input font-mono text-xs" id="scopes" name="scopes" rows="3">{{range $i, $v := .EditApp.AllowedScopes}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
         <p class="help">
           Blank means any scope a client asks for is granted. When set, an
           authorization request may only ask for scopes from this list; anything
@@ -157,8 +157,8 @@
 
       <div>
         <label class="label" for="resources">Allowed resources (audiences) <span class="font-normal text-faint">(one per line)</span></label>
-        <textarea class="input font-mono text-xs" id="resources" name="resources" rows="3">{{range .EditApp.AllowedResources}}{{.}}
-{{end}}</textarea>
+        <textarea class="input font-mono text-xs" id="resources" name="resources" rows="3">{{range $i, $v := .EditApp.AllowedResources}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
         <p class="help">
           RFC 8707 resource indicators this client may request. Each entry is an
           absolute URI (for example <span class="td-mono">https://api.example.com</span>)

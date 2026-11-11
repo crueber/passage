@@ -7,15 +7,22 @@ A self-hosted authentication service for home labs. Passage provides a single fr
 ## Screenshots
 
 <p align="center">
-  <a href="screenshots/01-sign-in.png"><img src="screenshots/01-sign-in.png" alt="Sign in" width="31%" /></a>
-  <a href="screenshots/02-my-apps.png"><img src="screenshots/02-my-apps.png" alt="My apps" width="31%" /></a>
-  <a href="screenshots/03-security.png"><img src="screenshots/03-security.png" alt="Passkeys and two-factor authentication" width="31%" /></a>
+  <a href="screenshots/01-sign-in.png"><img src="screenshots/01-sign-in.png" alt="Sign in, with passkey and upstream identity provider options (light theme)" width="31%" /></a>
+  <a href="screenshots/02-my-apps.png"><img src="screenshots/02-my-apps.png" alt="My Apps: a pinned favourite and the condensed-view switch" width="31%" /></a>
+  <a href="screenshots/03-security.png"><img src="screenshots/03-security.png" alt="Security page: passkeys and two-factor authentication" width="31%" /></a>
 </p>
 <p align="center">
   <a href="screenshots/04-dashboard.png"><img src="screenshots/04-dashboard.png" alt="Admin dashboard with recent sign-ins" width="31%" /></a>
   <a href="screenshots/05-apps.png"><img src="screenshots/05-apps.png" alt="Applications" width="31%" /></a>
-  <a href="screenshots/06-logs.png"><img src="screenshots/06-logs.png" alt="Authentication and admin logs" width="31%" /></a>
+  <a href="screenshots/06-logs.png"><img src="screenshots/06-logs.png" alt="Authentication log, including policy denials and upstream sign-ins" width="31%" /></a>
 </p>
+<p align="center">
+  <a href="screenshots/07-app-access-policy.png"><img src="screenshots/07-app-access-policy.png" alt="Per-app access policy: group, role, CIDR range, hours and days" width="31%" /></a>
+  <a href="screenshots/08-signing-keys.png"><img src="screenshots/08-signing-keys.png" alt="OIDC signing-key history: current, active and retired keys" width="31%" /></a>
+  <a href="screenshots/09-api-tokens.png"><img src="screenshots/09-api-tokens.png" alt="Read-only admin API tokens" width="31%" /></a>
+</p>
+
+<p align="center"><sub>Dark theme throughout; the sign-in page is shown in the light theme. Passage also ships nine other colour themes — see <a href="docs/theming.md">docs/theming.md</a>.</sub></p>
 
 ---
 
@@ -56,7 +63,7 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **Read-only admin API** — `/api/v1` exposes users, apps, sessions and the audit log to scripts, authenticated with revocable API tokens
 - **Prometheus metrics** — `/metrics` with authentication, session and HTTP counters plus instance gauges (optional bearer token)
 - **Security webhook** — POST every authentication event as JSON, optionally HMAC-signed
-- **Admin web UI** — manage users, apps, sessions, settings and logs without touching config files
+- **Admin web UI** — manage users, apps (OAuth clients, access policies, groups and roles), sessions, settings, logs, API tokens and signing keys without touching config files
 - **Email** — optional self-registration with address verification, password reset, and magic-link sign-in
 - **Secrets encrypted at rest** — TOTP secrets are sealed with AES-256-GCM; the key comes from config or a `0600` file beside the database
 - **Ten colour themes** — slate, nord, gruvbox, solarized, catppuccin, tokyo-night, rose-pine, everforest, kanagawa, paper
@@ -64,6 +71,20 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **SQLite backing store** — a single `.db` file; no separate database server
 
 The security model, storage guarantees, and operational notes live in [docs/security.md](docs/security.md).
+
+### Documentation
+
+| Guide | What it covers |
+|---|---|
+| [docs/security.md](docs/security.md) | Trust model, known limitations, webhook payloads, MFA and step-up |
+| [docs/forward-auth.md](docs/forward-auth.md) | Nginx and Traefik integration |
+| [docs/app-access-policies.md](docs/app-access-policies.md) | Per-app group, role, CIDR, admin-only, hours and days rules |
+| [docs/idp.md](docs/idp.md) | Signing in with an upstream OIDC provider and account linking |
+| [docs/jwt-access-tokens.md](docs/jwt-access-tokens.md) | Access-token format, scopes and RFC 8707 resource indicators |
+| [docs/oauth-signing-key-rotation.md](docs/oauth-signing-key-rotation.md) | Rotating the OIDC signing key without breaking live tokens |
+| [docs/admin-api.md](docs/admin-api.md) | The read-only `/api/v1` endpoints and API tokens |
+| [docs/metrics.md](docs/metrics.md) | Prometheus metrics and what each one counts |
+| [docs/theming.md](docs/theming.md) | Colour themes, the token contract, and adding a theme |
 
 ---
 
@@ -289,6 +310,8 @@ Passage acts as an OpenID Connect identity provider for downstream applications 
 
 The RSA signing key is generated on first start and stored in the database, with key rotation and kid history available from the admin UI (System → Signing keys). Old keys stay valid for verification until you retire them, so rotating does not invalidate live tokens.
 
+Access tokens are RS256 JWTs signed by the same keyring, so a downstream API can verify them offline against the JWKS. Each app can carry an **allowed-scope** list and an **allowed-audience** list (RFC 8707 resource indicators); both are optional, and empty means the pre-existing behaviour — any requested scope is granted and no resource indicator is accepted. Revoking a JWT adds its `jti` to a denylist, so introspection, userinfo and validation reject it immediately. See [docs/jwt-access-tokens.md](docs/jwt-access-tokens.md).
+
 ### Setting up a client
 
 1. In the Passage admin UI, open an application and enable OAuth. Generate OAuth credentials to receive a `client_id` and `client_secret`.
@@ -408,6 +431,8 @@ go mod tidy && git diff --exit-code go.mod go.sum
 - **SQL**: All queries use parameterized statements — no string concatenation in SQL.
 - **Templates**: `html/template` auto-escaping on all rendered output — no `template.HTML()` bypasses.
 - **Admin routes**: `is_admin` checked against the database on every admin request; not cached.
+- **API tokens**: `pst_` prefixed, 32 bytes of `crypto/rand`, stored as a SHA-256 digest and shown once. Every rejected credential gets the same `401`, and a rejection is written to the authentication log.
+- **Metrics**: `/metrics` can require a bearer token (`metrics.token`); the token is compared in constant time and never logged.
 
 ---
 

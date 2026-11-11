@@ -419,7 +419,10 @@
 
   /* ── Tabs ────────────────────────────────────────────────────────────── */
   .tabs {
-    @apply mb-6 flex gap-1 overflow-x-auto border-b border-line;
+    /* overflow-y-hidden: the active tab's -mb-px pulls it one pixel above the
+       strip, which would otherwise give the strip a vertical scrollbar in
+       browsers that reserve space for it. */
+    @apply mb-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line;
   }
   .tab {
     @apply -mb-px whitespace-nowrap border-b-2 border-transparent px-3.5 py-2.5 text-sm
