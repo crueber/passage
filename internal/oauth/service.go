@@ -666,6 +666,13 @@ func (s *Service) ClientForIDTokenHint(ctx context.Context, idTokenHint string) 
 		return nil, fmt.Errorf("oauth verify id token hint: %w: %w", err, ErrInvalidIDTokenHint)
 	}
 
+	// Access tokens are signed by the same key and issuer, so shape alone does
+	// not tell them apart. A jti is an access-token claim (id_tokens have
+	// none): refuse one here so an access token cannot act as a logout hint.
+	if _, isAccessToken := claims["jti"]; isAccessToken {
+		return nil, fmt.Errorf("oauth verify id token hint: access token presented as hint: %w", ErrInvalidIDTokenHint)
+	}
+
 	issuer, err := claims.GetIssuer()
 	if err != nil || issuer != s.baseURL {
 		return nil, fmt.Errorf("oauth verify id token hint: issuer mismatch: %w", ErrInvalidIDTokenHint)

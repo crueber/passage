@@ -558,3 +558,41 @@ func TestHandler_Authorize_ScopeAndResource(t *testing.T) {
 		})
 	}
 }
+
+// TestService_ClientForIDTokenHint_RejectsAccessToken proves an access token
+// cannot stand in for an id_token_hint at logout: both are signed by the same
+// key and issuer, so the jti claim is the discriminator.
+func TestService_ClientForIDTokenHint_RejectsAccessToken(t *testing.T) {
+	t.Parallel()
+	const (
+		clientID    = "client-hint-type"
+		plainSecret = "hint-type-secret"
+		redirectURI = "https://rp.example.com/callback"
+	)
+	ctx := context.Background()
+
+	testApp := buildTestApp(t, clientID, plainSecret, []string{redirectURI})
+	testUser := &user.User{Username: "hint-user", Email: "hint@example.com", Name: "Hint User"}
+	sc := newTestServiceWithDB(t, testutil.NewTestDB(t), testApp, testUser)
+
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+	if err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+
+	if _, err := sc.svc.ClientForIDTokenHint(ctx, tokens.AccessToken); !errors.Is(err, oauth.ErrInvalidIDTokenHint) {
+		t.Errorf("access token as id_token_hint = %v, want ErrInvalidIDTokenHint", err)
+	}
+
+	a, err := sc.svc.ClientForIDTokenHint(ctx, tokens.IDToken)
+	if err != nil {
+		t.Fatalf("id_token hint rejected: %v", err)
+	}
+	if a.ClientID != clientID {
+		t.Errorf("hint resolved client %q, want %q", a.ClientID, clientID)
+	}
+}

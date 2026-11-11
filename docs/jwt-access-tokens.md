@@ -35,6 +35,9 @@ access token is stateless.
 - The token is **not** stored in `oauth_tokens`. The `oauth_tokens` table is
   still read, so tokens issued before this change keep working (see
   "Compatibility").
+- An access token is not accepted as an `id_token_hint` at `/oauth/logout`.
+  Both token types share the signing key and issuer; the `jti` claim (which
+  id_tokens do not carry) is what tells them apart.
 
 ## Scope registry (`apps.scopes`)
 
