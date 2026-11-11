@@ -81,7 +81,7 @@ type Handler struct {
 	settings   settingsReader
 	authEvents authEventRecorder
 	client     *Client
-	providers  map[string]*Provider
+	providers  *ProviderStore
 	cfg        *config.Config
 	logger     *slog.Logger
 	now        func() time.Time
@@ -97,15 +97,12 @@ func NewHandler(
 	settings settingsReader,
 	authEvents authEventRecorder,
 	client *Client,
+	providers *ProviderStore,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *Handler {
 	if client == nil {
 		client = NewClient(nil)
-	}
-	providers := make(map[string]*Provider)
-	for _, p := range Providers(cfg.Auth.Providers) {
-		providers[p.Name] = p
 	}
 	return &Handler{
 		links:      links,
@@ -411,8 +408,17 @@ func (h *Handler) registrationAllowed(ctx context.Context) bool {
 // provider resolves the {provider} route parameter against the configured set.
 func (h *Handler) provider(r *http.Request) (*Provider, bool) {
 	name := chi.URLParam(r, "provider")
-	p, ok := h.providers[name]
-	return p, ok
+	if h.providers == nil {
+		return nil, false
+	}
+	p, err := h.providers.Get(r.Context(), name)
+	if err != nil {
+		if !errors.Is(err, ErrProviderNotFound) {
+			h.logger.Error("idp: load provider", "provider", name, "error", err)
+		}
+		return nil, false
+	}
+	return p, true
 }
 
 // redirectURI is the value registered with the provider. It must match the

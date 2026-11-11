@@ -1,0 +1,74 @@
+{{define "admin-providers"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Identity providers — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Identity providers</h1>
+      <p class="page-sub">Upstream OIDC/OAuth providers. Each one adds a sign-in button to the log-in page.</p>
+    </div>
+    <a href="/admin/providers/new" class="btn btn-primary">Add provider</a>
+  </div>
+
+  {{if .Providers}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Label</th>
+          <th>Issuer</th>
+          <th>New accounts</th>
+          <th class="text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Providers}}
+        <tr>
+          <td><a href="/admin/providers/{{.ID}}" class="link">{{.Name}}</a></td>
+          <td>{{.Label}}</td>
+          <td class="td-mono text-xs">{{.Issuer}}</td>
+          <td>
+            {{if .AutoCreate}}<span class="badge">Auto-create</span>{{else}}<span class="text-faint">Link only</span>{{end}}
+          </td>
+          <td class="text-right">
+            <a href="/admin/providers/{{.ID}}" class="btn btn-sm btn-outline">Edit</a>
+            <form method="POST" action="/admin/providers/{{.ID}}/delete" class="inline">
+              {{csrfField $.CSRFToken}}
+              <button type="submit" class="btn btn-sm btn-danger"
+                      data-confirm="Delete the {{.Name}} provider? Its sign-in button disappears immediately.">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty" role="status">
+    {{template "ic-users"}}
+    <p class="empty-title">No upstream providers yet</p>
+    <p class="empty-sub">
+      Add one to let people sign in with an existing OIDC account (Authentik,
+      Keycloak, Google, …) instead of a Passage password.
+    </p>
+  </div>
+  {{end}}
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

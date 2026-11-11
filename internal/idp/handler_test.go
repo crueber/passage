@@ -248,19 +248,13 @@ type fixture struct {
 	sessions  *session.Service
 	authStore *authlog.Store
 	settings  *mapSettings
+	providers *idp.ProviderStore
 	fake      *fakeProvider
 	server    *httptest.Server
 	client    *http.Client
 }
 
 func newFixture(t *testing.T, autoCreate bool) *fixture {
-	t.Helper()
-	return newFixtureWith(t, autoCreate, nil)
-}
-
-// newFixtureWith is newFixture with a hook that can adjust the configuration
-// (for example to add a second provider) before the handler snapshots it.
-func newFixtureWith(t *testing.T, autoCreate bool, mutate func(*config.Config, *fakeProvider)) *fixture {
 	t.Helper()
 
 	fake := newFakeProvider(t)
@@ -272,24 +266,12 @@ func newFixtureWith(t *testing.T, autoCreate bool, mutate func(*config.Config, *
 		Auth: config.AuthConfig{
 			AllowRegistration: true,
 			BcryptCost:        10,
-			Providers: []config.ProviderConfig{{
-				Name:         testProviderName,
-				Label:        "Authentik",
-				Issuer:       fake.server.URL,
-				ClientID:     testClientID,
-				ClientSecret: testClientSecret,
-				AutoCreate:   autoCreate,
-			}},
 		},
 		Session: config.SessionConfig{
 			DurationHours: 24,
 			CookieName:    "passage_session",
 			CookieSecure:  false,
 		},
-	}
-
-	if mutate != nil {
-		mutate(cfg, fake)
 	}
 
 	userStore := user.NewStore(database)
@@ -302,6 +284,20 @@ func newFixtureWith(t *testing.T, autoCreate bool, mutate func(*config.Config, *
 	authRecorder := authlog.NewRecorder(authStore, nil, logger)
 	settings := &mapSettings{values: map[string]string{}}
 
+	// The provider list comes from the store, as it does in production.
+	providerStore := idp.NewProviderStore(database, nil)
+	if err := providerStore.Create(context.Background(), &idp.Provider{
+		Name:         testProviderName,
+		Label:        "Authentik",
+		Issuer:       fake.server.URL,
+		ClientID:     testClientID,
+		ClientSecret: testClientSecret,
+		Scopes:       idp.DefaultScopes(),
+		AutoCreate:   autoCreate,
+	}); err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
+
 	handler := idp.NewHandler(
 		linkStore,
 		userSvc,
@@ -310,6 +306,7 @@ func newFixtureWith(t *testing.T, autoCreate bool, mutate func(*config.Config, *
 		settings,
 		authRecorder,
 		idp.NewClient(fake.server.Client()),
+		providerStore,
 		cfg,
 		logger,
 	)
@@ -345,6 +342,7 @@ func newFixtureWith(t *testing.T, autoCreate bool, mutate func(*config.Config, *
 		sessions:  sessionSvc,
 		authStore: authStore,
 		settings:  settings,
+		providers: providerStore,
 		fake:      fake,
 		server:    srv,
 		client:    client,
@@ -935,17 +933,18 @@ func TestFlows_TwoProvidersDoNotShareStateCookie(t *testing.T) {
 	const secondProvider = "keycloak"
 
 	// A second provider can share the fake issuer and client: only the name
-	// (and therefore the cookie) is under test here. Providers are snapshotted
-	// when the handler is built, so the configuration is adjusted first.
-	f := newFixtureWith(t, true, func(cfg *config.Config, fake *fakeProvider) {
-		cfg.Auth.Providers = append(cfg.Auth.Providers, config.ProviderConfig{
-			Name:         secondProvider,
-			Label:        "Keycloak",
-			Issuer:       fake.server.URL,
-			ClientID:     testClientID,
-			ClientSecret: testClientSecret,
-		})
-	})
+	// (and therefore the cookie) is under test here.
+	f := newFixture(t, true)
+	if err := f.providers.Create(context.Background(), &idp.Provider{
+		Name:         secondProvider,
+		Label:        "Keycloak",
+		Issuer:       f.fake.server.URL,
+		ClientID:     testClientID,
+		ClientSecret: testClientSecret,
+		Scopes:       idp.DefaultScopes(),
+	}); err != nil {
+		t.Fatalf("seed second provider: %v", err)
+	}
 
 	startFor := func(name string) string {
 		f.t.Helper()

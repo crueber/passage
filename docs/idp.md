@@ -9,33 +9,22 @@ exist but resolve no provider, and every other flow behaves exactly as before.
 
 ## Configuration
 
-```yaml
-auth:
-  providers:
-    - name: "authentik"
-      label: "Authentik"
-      issuer: "https://auth.example.com/application/o/passage/"
-      client_id: "passage"
-      client_secret: "changeme"
-      scopes: ["openid", "email", "profile"]
-      auto_create: false
-```
+Providers are managed in the admin UI under **Identity providers**
+(`/admin/providers`): add, edit and delete them there. There is no YAML
+configuration. The list is read per request, so adding a provider makes its
+sign-in button appear immediately, with no restart.
 
-| Key | Required | Meaning |
+| Field | Required | Meaning |
 |---|---|---|
-| `name` | yes | Unique URL slug, `[a-z0-9][a-z0-9_-]*`, max 64 characters. Appears in the sign-in URLs, so changing it breaks in-flight flows and existing links (links are keyed by it). |
-| `label` | no | Login button text. Defaults to `name`. |
-| `issuer` | yes | Absolute `https` URL. Passage fetches `<issuer>/.well-known/openid-configuration` and requires the document's `issuer` to match exactly (a trailing slash is ignored). |
-| `client_id` | yes | OAuth client id. |
-| `client_secret` | yes | OAuth client secret. Sent with HTTP Basic auth (`client_secret_basic`) to the token endpoint. |
-| `scopes` | no | Defaults to `openid email profile` and must include `openid`. `email` is needed for email-based linking. |
-| `auto_create` | no | Create a local account on first sign-in when no link or matching email exists. Always subject to the global registration policy. |
+| Name | yes | Unique URL slug, `[a-z0-9][a-z0-9_-]*`, max 64 characters. Appears in the sign-in URLs, so changing it breaks in-flight flows and existing links (links are keyed by it). |
+| Label | no | Login button text. Defaults to the name. |
+| Issuer | yes | Absolute `https` URL. Passage fetches `<issuer>/.well-known/openid-configuration` and requires the document's `issuer` to match (a trailing slash is ignored there, but the id_token `iss` must equal the configured value exactly). |
+| Client ID | yes | OAuth client id. |
+| Client secret | yes | OAuth client secret, sent with HTTP Basic auth (`client_secret_basic`) to the token endpoint. Stored encrypted with the instance key; the edit form never echoes it (leave it blank to keep it). |
+| Scopes | no | One per line. Defaults to `openid email profile` and must include `openid`. `email` is needed for email-based linking. |
+| Auto-create | no | Create a local account on first sign-in when no link or matching email exists. Always subject to the global registration policy. |
 
-There is deliberately **no environment-variable override** for the list: a list
-has no useful single-value env form. Configure it in `passage.yaml`.
-
-`server.base_url` is required when any provider is configured: it builds the
-registered redirect URI.
+`server.base_url` is required: it builds the registered redirect URI.
 
 Register this redirect URI with the provider:
 

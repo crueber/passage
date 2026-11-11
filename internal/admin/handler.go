@@ -149,6 +149,7 @@ type Handler struct {
 	authRecorder authEventRecorder
 	throttle     loginThrottleAdmin
 	apiTokens    apiTokenManager
+	providers    providerManager
 	signingKeys  signingKeyManager
 	mailer       email.Sender
 	tmpl         *template.Template
@@ -261,6 +262,14 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Get("/api-tokens", h.GetAPITokens)
 	r.Post("/api-tokens", h.PostCreateAPIToken)
 	r.Post("/api-tokens/{id}/revoke", h.PostRevokeAPIToken)
+
+	// Upstream identity providers.
+	r.Get("/providers", h.GetProviders)
+	r.Get("/providers/new", h.GetNewProvider)
+	r.Post("/providers", h.PostCreateProvider)
+	r.Get("/providers/{id}", h.GetEditProvider)
+	r.Post("/providers/{id}", h.PostUpdateProvider)
+	r.Post("/providers/{id}/delete", h.PostDeleteProvider)
 
 	// Audit log
 	r.Get("/audit-log", h.redirectLogs(logTabAdmin))

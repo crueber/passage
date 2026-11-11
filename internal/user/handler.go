@@ -99,9 +99,11 @@ type Handler struct {
 	// passkey is the WebAuthn bridge that can complete a pending second-factor
 	// challenge. May be nil (passkeys disabled, or tests).
 	passkey secondFactorPasskey
-	tmpl    *template.Template
-	cfg     *config.Config
-	logger  *slog.Logger
+	// providers lists upstream identity providers for the log-in page.
+	providers ProviderSource
+	tmpl      *template.Template
+	cfg       *config.Config
+	logger    *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
@@ -236,7 +238,7 @@ type loginData struct {
 	AllowPassword     bool
 	AllowPasskey      bool
 	AllowMagicLink    bool
-	AllowProviders    []providerButton
+	AllowProviders    []ProviderButton
 	Tagline           string
 	Wordmark          string
 	CSRFToken         string
@@ -304,19 +306,35 @@ func (h *Handler) wordmark(ctx context.Context) string {
 	return DefaultWordmark + " for " + phrase
 }
 
-// providerButtons returns one button per configured upstream provider, in
-// configuration order. A provider without a label is shown by its slug.
-func providerButtons(cfg *config.Config) []providerButton {
-	if cfg == nil || len(cfg.Auth.Providers) == 0 {
+// ProviderButton is one upstream sign-in button on the log-in page.
+type ProviderButton struct {
+	Name  string
+	Label string
+}
+
+// ProviderSource lists the upstream providers for the log-in page. Defined at
+// the consumer boundary (the user package cannot import idp: idp imports user)
+// and backed by the idp provider store in run.go.
+type ProviderSource interface {
+	ProviderButtons(ctx context.Context) ([]ProviderButton, error)
+}
+
+// SetProviderSource wires the upstream provider list. Call once before serving;
+// a nil source renders no provider buttons.
+func (h *Handler) SetProviderSource(src ProviderSource) {
+	h.providers = src
+}
+
+// providerButtons returns the upstream sign-in buttons, read live so a provider
+// added in the admin UI appears without a restart.
+func (h *Handler) providerButtons(ctx context.Context) []ProviderButton {
+	if h.providers == nil {
 		return nil
 	}
-	buttons := make([]providerButton, 0, len(cfg.Auth.Providers))
-	for _, p := range cfg.Auth.Providers {
-		label := p.Label
-		if label == "" {
-			label = p.Name
-		}
-		buttons = append(buttons, providerButton{Name: p.Name, Label: label})
+	buttons, err := h.providers.ProviderButtons(ctx)
+	if err != nil {
+		h.logger.Error("login: list identity providers", "error", err)
+		return nil
 	}
 	return buttons
 }
@@ -369,7 +387,7 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
-		AllowProviders:    providerButtons(h.cfg),
+		AllowProviders:    h.providerButtons(r.Context()),
 		Tagline:           h.tagline(r.Context()),
 		Wordmark:          h.wordmark(r.Context()),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
@@ -860,7 +878,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
-		AllowProviders:    providerButtons(h.cfg),
+		AllowProviders:    h.providerButtons(r.Context()),
 		Tagline:           h.tagline(r.Context()),
 		Wordmark:          h.wordmark(r.Context()),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),

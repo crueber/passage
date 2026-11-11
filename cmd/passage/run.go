@@ -62,6 +62,24 @@ const (
 // auditAPIAdapter adapts the admin audit service to adminapi.auditSource. The
 // admin UI package and the REST API package deliberately do not import each
 // other, so the mapping lives here at the wiring layer.
+// idpButtons adapts the provider store to the login page's button source. It
+// lives in the wiring layer because idp imports user, so user cannot import idp.
+type idpButtons struct {
+	store *idp.ProviderStore
+}
+
+func (b idpButtons) ProviderButtons(ctx context.Context) ([]user.ProviderButton, error) {
+	providers, err := b.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]user.ProviderButton, 0, len(providers))
+	for _, p := range providers {
+		out = append(out, user.ProviderButton{Name: p.Name, Label: p.Label})
+	}
+	return out, nil
+}
+
 type auditAPIAdapter struct {
 	svc *admin.AuditService
 }
@@ -440,18 +458,26 @@ func run() error {
 	auditStore := admin.NewSQLiteAuditStore(database)
 	auditSvc := admin.NewAuditService(auditStore, logger)
 
+	// Upstream identity providers (managed in the admin UI). The store seals
+	// client secrets with the same key that protects TOTP secrets.
+	idpStore := idp.NewProviderStore(database, mfaCipher)
+
 	// API tokens for the read-only administrative REST API (/api/v1).
 	apiTokenSvc := adminapi.NewService(adminapi.NewStore(database), logger)
 	apiHandler := adminapi.NewHandler(userStore, appStore, sessionStore, &auditAPIAdapter{svc: auditSvc}, logger)
 
 	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle, apiTokenSvc, oauthSvc)
+	adminHandler.SetProviderManager(idpStore)
 
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
+	// The login page renders one button per stored upstream provider. The
+	// adapter lives here because idp imports user, so user cannot import idp.
+	userHandler.SetProviderSource(idpButtons{store: idpStore})
 
-	// Upstream OIDC/OAuth identity providers. With no auth.providers configured
-	// the handler has no provider to resolve, so the two routes are inert and
-	// sign-in behaves exactly as before.
+	// Upstream OIDC/OAuth identity providers. The list is read from the
+	// database per request, so a provider added in the admin UI works
+	// immediately; with none configured the two routes are inert.
 	idpHandler := idp.NewHandler(
 		idp.NewStore(database),
 		userSvc,
@@ -460,6 +486,7 @@ func run() error {
 		settingsStore,
 		authRecorder,
 		idp.NewClient(nil),
+		idpStore,
 		cfg,
 		logger,
 	)

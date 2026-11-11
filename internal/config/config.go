@@ -3,11 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
-	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -164,46 +161,12 @@ type SMTPConfig struct {
 	TLS      string `yaml:"-"`
 }
 
-// ProviderConfig configures one upstream OIDC/OAuth identity provider.
-//
-// Name is a slug used in the login routes (/login/oidc/<name>/start) and must
-// be unique. Issuer is an absolute https URL whose
-// /.well-known/openid-configuration document names the authorization, token,
-// and JWKS endpoints. Scopes defaults to "openid email profile" and must
-// include openid.
-type ProviderConfig struct {
-	Name         string   `yaml:"name"`
-	Label        string   `yaml:"label"`
-	Issuer       string   `yaml:"issuer"`
-	ClientID     string   `yaml:"client_id"`
-	ClientSecret string   `yaml:"client_secret"`
-	Scopes       []string `yaml:"scopes"`
-	AutoCreate   bool     `yaml:"auto_create"`
-}
-
-// DefaultProviderScopes is the scope set used when a provider does not list
-// any. Every upstream flow needs openid to receive an id_token.
-func DefaultProviderScopes() []string {
-	return []string{"openid", "email", "profile"}
-}
-
-// providerNameRe constrains provider slugs: lowercase alphanumerics, dash, and
-// underscore. The same value is a URL path segment, so anything else would
-// need escaping and invites confusion.
-var providerNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
-
 // AuthConfig holds authentication settings.
 type AuthConfig struct {
 	// These are startup snapshots of the matching admin settings. They are not
 	// read from the file; the settings table is authoritative.
 	AllowRegistration bool `yaml:"-"`
 	BcryptCost        int  `yaml:"-"`
-
-	// Providers configures upstream OIDC/OAuth identity providers. Each entry
-	// adds a sign-in button to the login page. There is deliberately no
-	// environment-variable override for this list — a list has no useful
-	// single-value env form, so configure it in the YAML file.
-	Providers []ProviderConfig `yaml:"providers"`
 
 	// MaxLoginFailures is the number of consecutive invalid password attempts
 	// that locks an account. Zero disables per-account throttling.
@@ -313,61 +276,6 @@ func (c *Config) Validate() error {
 	// internal/admin/settings_form.go).
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port))
-	}
-
-	// Validate upstream identity providers. The provider list is optional; an
-	// empty list means the feature stays off and behaves exactly as before.
-	seenProviders := make(map[string]bool, len(c.Auth.Providers))
-	for i, p := range c.Auth.Providers {
-		where := fmt.Sprintf("auth.providers[%d]", i)
-		if !providerNameRe.MatchString(p.Name) || len(p.Name) > 64 {
-			errs = append(errs, fmt.Errorf("%s.name %q must be a lowercase slug of 1–64 characters ([a-z0-9][a-z0-9_-]*)", where, p.Name))
-		}
-		if seenProviders[p.Name] {
-			errs = append(errs, fmt.Errorf("%s.name %q is duplicated; provider names must be unique", where, p.Name))
-		}
-		seenProviders[p.Name] = true
-
-		u, err := url.Parse(p.Issuer)
-		switch {
-		case err != nil:
-			errs = append(errs, fmt.Errorf("%s.issuer is not a valid URL: %w", where, err))
-		case !strings.EqualFold(u.Scheme, "https"):
-			errs = append(errs, fmt.Errorf("%s.issuer must use https, got scheme %q", where, u.Scheme))
-		case u.Host == "":
-			errs = append(errs, fmt.Errorf("%s.issuer must include a host, got %q", where, p.Issuer))
-		case u.User != nil:
-			errs = append(errs, fmt.Errorf("%s.issuer must not include user information", where))
-		case u.RawQuery != "" || u.Fragment != "":
-			errs = append(errs, fmt.Errorf("%s.issuer must not include a query or fragment", where))
-		}
-		if p.ClientID == "" {
-			errs = append(errs, fmt.Errorf("%s.client_id must not be empty", where))
-		}
-		if p.ClientSecret == "" {
-			errs = append(errs, fmt.Errorf("%s.client_secret must not be empty", where))
-		}
-
-		scopes := p.Scopes
-		if len(scopes) == 0 {
-			scopes = DefaultProviderScopes()
-		}
-		hasOpenID := false
-		for _, scope := range scopes {
-			if scope == "" || strings.ContainsAny(scope, " \t\r\n") {
-				errs = append(errs, fmt.Errorf("%s.scopes contains an invalid scope %q", where, scope))
-				continue
-			}
-			if scope == "openid" {
-				hasOpenID = true
-			}
-		}
-		if !hasOpenID {
-			errs = append(errs, fmt.Errorf("%s.scopes must include \"openid\"", where))
-		}
-	}
-	if len(c.Auth.Providers) > 0 && c.Server.BaseURL == "" {
-		errs = append(errs, fmt.Errorf("server.base_url is required when auth.providers is configured (it builds the OAuth redirect URI)"))
 	}
 
 	if c.Database.Path == "" {

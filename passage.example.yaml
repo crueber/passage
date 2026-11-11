@@ -40,21 +40,3 @@ csrf:
 log:
   level: "info"    # "debug" | "info" | "warn" | "error"
   format: "json"   # "json" | "text"
-
-auth:
-  # Upstream OIDC/OAuth identity providers. Each entry adds a sign-in button to
-  # the login page and uses authorization-code flow with state, nonce, and PKCE
-  # (S256). The provider's id_token is verified against its JWKS (RS256 only),
-  # issuer, audience, expiry, and nonce.
-  #
-  # This list is the one feature still configured here; provider management
-  # moves into the admin UI next.
-  providers: []
-  # providers:
-  #   - name: "authentik"     # unique slug used in /login/oidc/{name}
-  #     label: "Authentik"
-  #     issuer: "https://auth.example.com/application/o/passage/"
-  #     client_id: "passage"
-  #     client_secret: "secret"
-  #     scopes: ["openid", "email", "profile"]
-  #     auto_create: false    # create a local account on first sign-in

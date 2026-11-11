@@ -23,8 +23,6 @@ import (
 	"time"
 
 	jwtlib "github.com/golang-jwt/jwt/v5"
-
-	"github.com/crueber/passage/internal/config"
 )
 
 // errJWKSKeyNotFound marks a token whose kid is not in the cached JWKS. It is
@@ -41,38 +39,23 @@ const (
 	maxResponseBody = 1 << 20 // 1 MiB
 )
 
-// Provider is the runtime form of one configured upstream provider.
+// Provider is one upstream identity provider, as stored in the database and
+// shown in the admin UI.
 type Provider struct {
+	ID           string
 	Name         string
+	Label        string
 	Issuer       string
 	ClientID     string
 	ClientSecret string
 	Scopes       []string
 	AutoCreate   bool
-}
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 
-// Providers converts configured providers into runtime values, normalising the
-// issuer (trailing slash removed) and defaulting the scopes. The caller has
-// already validated the configuration.
-func Providers(cfgs []config.ProviderConfig) []*Provider {
-	out := make([]*Provider, 0, len(cfgs))
-	for _, p := range cfgs {
-		scopes := append([]string(nil), p.Scopes...)
-		if len(scopes) == 0 {
-			// openid is required to receive an id_token; email is required to
-			// link to an existing account by address.
-			scopes = config.DefaultProviderScopes()
-		}
-		out = append(out, &Provider{
-			Name:         p.Name,
-			Issuer:       strings.TrimRight(p.Issuer, "/"),
-			ClientID:     p.ClientID,
-			ClientSecret: p.ClientSecret,
-			Scopes:       scopes,
-			AutoCreate:   p.AutoCreate,
-		})
-	}
-	return out
+	// sealed is the stored, encrypted client secret. It is only set while a
+	// row is being read; the plaintext lives in ClientSecret.
+	sealed string
 }
 
 // Discovery is the subset of the OIDC discovery document Passage needs.

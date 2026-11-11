@@ -1,0 +1,111 @@
+{{define "admin-provider-form"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{if .IsNew}}Add identity provider{{else}}Edit {{.Provider.Name}}{{end}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{if .IsNew}}Add identity provider{{else}}Edit identity provider{{end}}</h1>
+      <p class="page-sub">An upstream OIDC/OAuth provider that people can sign in with.</p>
+    </div>
+  </div>
+
+  <div class="max-w-2xl">
+    <form method="POST"
+          action="{{if .IsNew}}/admin/providers{{else}}/admin/providers/{{.Provider.ID}}{{end}}"
+          class="card space-y-5 p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+
+      {{if .FormError}}
+      <div class="note note-error" role="alert">{{.FormError}}</div>
+      {{end}}
+
+      <div>
+        <label class="label" for="name">Name</label>
+        <input class="input sm:max-w-md" type="text" id="name" name="name" required
+               maxlength="64" value="{{.Provider.Name}}" placeholder="authentik">
+        <p class="help">
+          A short slug used in the sign-in URL (<span class="td-mono">/login/oidc/&lt;name&gt;</span>).
+          Lowercase letters, digits, dash and underscore.
+        </p>
+      </div>
+
+      <div>
+        <label class="label" for="label">Button label</label>
+        <input class="input sm:max-w-md" type="text" id="label" name="label"
+               maxlength="100" value="{{.Provider.Label}}" placeholder="Authentik">
+        <p class="help">Text on the sign-in button. Empty uses the name.</p>
+      </div>
+
+      <div>
+        <label class="label" for="issuer">Issuer URL</label>
+        <input class="input sm:max-w-md" type="url" id="issuer" name="issuer" required
+               value="{{.Provider.Issuer}}" placeholder="https://auth.example.com/application/o/passage/">
+        <p class="help">
+          An absolute <span class="td-mono">https</span> URL. Passage reads its
+          <span class="td-mono">/.well-known/openid-configuration</span> and
+          requires the document's issuer to match. The <span class="td-mono">iss</span>
+          claim must match this value exactly, including a trailing slash.
+        </p>
+      </div>
+
+      <div>
+        <label class="label" for="client_id">Client ID</label>
+        <input class="input sm:max-w-md" type="text" id="client_id" name="client_id" required
+               value="{{.Provider.ClientID}}">
+      </div>
+
+      <div>
+        <label class="label" for="client_secret">Client secret</label>
+        <input class="input sm:max-w-md" type="password" id="client_secret" name="client_secret"
+               autocomplete="new-password"
+               {{if .IsNew}}required{{end}}
+               placeholder="{{if .IsNew}}The secret from the provider{{else}}Leave blank to keep the current secret{{end}}">
+        <p class="help">
+          Stored encrypted with the instance key. Register
+          <span class="td-mono">&lt;server.base_url&gt;/login/oidc/&lt;name&gt;/callback</span>
+          as the callback URL with the provider.
+        </p>
+      </div>
+
+      <div>
+        <label class="label" for="scopes">Scopes <span class="font-normal text-faint">(one per line)</span></label>
+        <textarea class="input font-mono text-xs" id="scopes" name="scopes" rows="4">{{range $i, $v := .Provider.Scopes}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
+        <p class="help">
+          Must include <span class="td-mono">openid</span>. Leave it empty for
+          <span class="td-mono">openid</span>, <span class="td-mono">email</span>
+          and <span class="td-mono">profile</span>.
+        </p>
+      </div>
+
+      <label class="checkbox" for="auto_create">
+        <input type="checkbox" id="auto_create" name="auto_create" {{if .Provider.AutoCreate}}checked{{end}}>
+        Create a local account on first sign-in
+      </label>
+      <p class="help">
+        Without this, a sign-in only links to an existing Passage account with
+        the same verified email address.
+      </p>
+
+      <div class="flex items-center justify-end gap-3 border-t border-line pt-4">
+        <a href="/admin/providers" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-primary">{{if .IsNew}}Add provider{{else}}Save changes{{end}}</button>
+      </div>
+    </form>
+  </div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

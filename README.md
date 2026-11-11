@@ -55,7 +55,7 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **Per-app access control** — grant or revoke each user's access to each application independently, with app-scoped roles and groups
 - **Favourites and a condensed view** — pin the apps you use most to the top of your dashboard, and switch the list to a tighter layout
 - **Self-service sessions** — users see their devices, can revoke one or sign out everywhere; optional idle timeout
-- **Upstream identity providers** — sign in with an existing OIDC provider (Authentik, Keycloak, Google, …) and link it to a local account
+- **Upstream identity providers** — add OIDC providers (Authentik, Keycloak, Google, …) in the admin UI; their sign-in buttons appear immediately, with optional account auto-creation and verified-email linking
 - **Step-up authentication** — `prompt=login`, `max_age` and `acr_values` force a fresh sign-in for sensitive apps
 - **Signing-key rotation** — rotate the OIDC key from the admin UI; kid history keeps existing id_tokens verifiable
 - **Per-app access policies** — require an app group or role, restrict by CIDR or time of day, or make an app admin-only
@@ -188,7 +188,6 @@ log:
   format: "json"         # "json" | "text"
 
 auth:
-  providers: []          # upstream OIDC providers (management moves into the UI next)
 ```
 
 ### Environment variable overrides

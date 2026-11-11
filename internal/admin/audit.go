@@ -41,6 +41,9 @@ const (
 	AuditActionAuthMethodUpdate     = "auth.method.update"
 	AuditActionAPITokenCreate       = "api_token.create"
 	AuditActionAPITokenRevoke       = "api_token.revoke"
+	AuditActionProviderCreate       = "provider.create"
+	AuditActionProviderUpdate       = "provider.update"
+	AuditActionProviderDelete       = "provider.delete"
 )
 
 // ─── Model ────────────────────────────────────────────────────────────────────

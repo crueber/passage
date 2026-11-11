@@ -222,38 +222,6 @@ func TestValidate(t *testing.T) {
 			name:   "csrf key of 64 hex characters passes",
 			mutate: func(c *config.Config) { c.CSRF.Key = strings.Repeat("ab", 32) },
 		},
-		{
-			name: "provider without openid scope fails",
-			mutate: func(c *config.Config) {
-				c.Server.BaseURL = "https://auth.example.com"
-				c.Auth.Providers = []config.ProviderConfig{{
-					Name: "authentik", Issuer: "https://idp.example.com",
-					ClientID: "passage", ClientSecret: "x", Scopes: []string{"email"},
-				}}
-			},
-			wantErr: true,
-		},
-		{
-			name: "provider with an http issuer fails",
-			mutate: func(c *config.Config) {
-				c.Server.BaseURL = "https://auth.example.com"
-				c.Auth.Providers = []config.ProviderConfig{{
-					Name: "authentik", Issuer: "http://idp.example.com",
-					ClientID: "passage", ClientSecret: "x",
-				}}
-			},
-			wantErr: true,
-		},
-		{
-			name: "valid provider passes",
-			mutate: func(c *config.Config) {
-				c.Server.BaseURL = "https://auth.example.com"
-				c.Auth.Providers = []config.ProviderConfig{{
-					Name: "authentik", Issuer: "https://idp.example.com/application/o/passage/",
-					ClientID: "passage", ClientSecret: "x",
-				}}
-			},
-		},
 	}
 
 	for _, tt := range tests {
