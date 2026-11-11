@@ -13,13 +13,15 @@ import (
 // queries. It must stay in sync with scanApp.
 const selectAppColumns = `id, slug, name, description, host_pattern, default_url, is_active,
 		session_duration_hours, created_at, updated_at,
-		client_id, client_secret_hash, redirect_uris, oauth_enabled`
+		client_id, client_secret_hash, redirect_uris, oauth_enabled,
+		required_group, required_role, allowed_cidrs, admin_only, allowed_hours, allowed_days`
 
 // selectAppColumnsAliased is the same column list but prefixed with a table
 // alias "a." for use in queries that JOIN other tables to avoid ambiguity.
 const selectAppColumnsAliased = `a.id, a.slug, a.name, a.description, a.host_pattern, a.default_url, a.is_active,
 		a.session_duration_hours, a.created_at, a.updated_at,
-		a.client_id, a.client_secret_hash, a.redirect_uris, a.oauth_enabled`
+		a.client_id, a.client_secret_hash, a.redirect_uris, a.oauth_enabled,
+		a.required_group, a.required_role, a.allowed_cidrs, a.admin_only, a.allowed_hours, a.allowed_days`
 
 // SQLiteStore implements Store and AccessStore using a SQLite database.
 type SQLiteStore struct {
@@ -61,14 +63,17 @@ func (s *SQLiteStore) Create(ctx context.Context, a *App) error {
 	const query = `
 		INSERT INTO apps (id, slug, name, description, host_pattern, default_url, is_active,
 		                  session_duration_hours, created_at, updated_at,
-		                  client_id, client_secret_hash, redirect_uris, oauth_enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		                  client_id, client_secret_hash, redirect_uris, oauth_enabled,
+		                  required_group, required_role, allowed_cidrs, admin_only, allowed_hours, allowed_days)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		a.ID, a.Slug, a.Name, a.Description, a.HostPattern, a.DefaultURL,
 		boolToInt(a.IsActive), a.SessionDurationHours, a.CreatedAt, a.UpdatedAt,
 		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
 		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
+		a.RequiredGroup, a.RequiredRole, a.AllowedCIDRs, boolToInt(a.AdminOnly),
+		a.AllowedHours, a.AllowedDays,
 	)
 	if err != nil {
 		return mapAppConstraintError(err)
@@ -173,7 +178,9 @@ func (s *SQLiteStore) Update(ctx context.Context, a *App) error {
 		UPDATE apps
 		SET slug = ?, name = ?, description = ?, host_pattern = ?, default_url = ?,
 		    is_active = ?, session_duration_hours = ?, updated_at = ?,
-		    client_id = ?, client_secret_hash = ?, redirect_uris = ?, oauth_enabled = ?
+		    client_id = ?, client_secret_hash = ?, redirect_uris = ?, oauth_enabled = ?,
+		    required_group = ?, required_role = ?, allowed_cidrs = ?, admin_only = ?,
+		    allowed_hours = ?, allowed_days = ?
 		WHERE id = ?`
 
 	res, err := s.db.ExecContext(ctx, query,
@@ -181,6 +188,8 @@ func (s *SQLiteStore) Update(ctx context.Context, a *App) error {
 		boolToInt(a.IsActive), a.SessionDurationHours, a.UpdatedAt,
 		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
 		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
+		a.RequiredGroup, a.RequiredRole, a.AllowedCIDRs, boolToInt(a.AdminOnly),
+		a.AllowedHours, a.AllowedDays,
 		a.ID,
 	)
 	if err != nil {
@@ -297,6 +306,7 @@ func scanApp(s appScanner) (*App, error) {
 	var a App
 	var isActive int
 	var oauthEnabled int
+	var adminOnly int
 	var clientID sql.NullString
 	var clientSecretHash sql.NullString
 	var redirectURIsRaw string
@@ -304,6 +314,8 @@ func scanApp(s appScanner) (*App, error) {
 		&a.ID, &a.Slug, &a.Name, &a.Description, &a.HostPattern, &a.DefaultURL,
 		&isActive, &a.SessionDurationHours, &a.CreatedAt, &a.UpdatedAt,
 		&clientID, &clientSecretHash, &redirectURIsRaw, &oauthEnabled,
+		&a.RequiredGroup, &a.RequiredRole, &a.AllowedCIDRs, &adminOnly,
+		&a.AllowedHours, &a.AllowedDays,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -313,6 +325,7 @@ func scanApp(s appScanner) (*App, error) {
 	}
 	a.IsActive = isActive != 0
 	a.OAuthEnabled = oauthEnabled != 0
+	a.AdminOnly = adminOnly != 0
 	a.ClientID = clientID.String
 	a.ClientSecretHash = clientSecretHash.String
 	a.RedirectURIs = splitRedirectURIs(redirectURIsRaw)

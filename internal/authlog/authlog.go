@@ -43,6 +43,11 @@ const (
 	// polled and would drown the log), but a rejected bearer credential is a
 	// failed authentication and belongs in the security log.
 	EventAPIAuthFailure = "api.auth_failure"
+
+	// Per-app access policy denial. Detail names the app slug and the policy
+	// rule that denied access (a short token such as "group" or "hours"); it
+	// never carries a credential or a response body.
+	EventAccessDenied = "access.denied"
 )
 
 // Outcomes describe how an event ended.
@@ -95,6 +100,7 @@ func Names() []string {
 		EventMFACodesRegenerated,
 		EventMFAReset,
 		EventAPIAuthFailure,
+		EventAccessDenied,
 	}
 }
 

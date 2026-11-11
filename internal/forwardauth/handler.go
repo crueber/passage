@@ -11,7 +11,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/policy"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 )
@@ -35,26 +37,50 @@ type mfaGate interface {
 type appResolver interface {
 	ResolveFromHost(ctx context.Context, host string) (*app.App, error)
 	HasAccess(ctx context.Context, userID, appID string) (bool, error)
+	// EvaluateAccess applies the app's access policy to the user. An error means
+	// the policy could not be evaluated and must be treated as a denial.
+	EvaluateAccess(ctx context.Context, a *app.App, userID string, isAdmin bool, clientIP string, now time.Time) (policy.Decision, error)
+}
+
+// authEventRecorder records authentication events for the admin security log.
+// Defined at the consumer boundary; backed by *authlog.Recorder in run.go.
+// Recording is best-effort: the Recorder never returns an error.
+type authEventRecorder interface {
+	Record(ctx context.Context, e authlog.Event)
 }
 
 // Handler handles forward-auth requests for Nginx and Traefik.
 type Handler struct {
-	sessions sessionValidator
-	apps     appResolver
-	mfa      mfaGate
-	cfg      *config.Config
-	logger   *slog.Logger
+	sessions   sessionValidator
+	apps       appResolver
+	mfa        mfaGate
+	authEvents authEventRecorder
+	cfg        *config.Config
+	logger     *slog.Logger
 }
 
-// NewHandler creates a new Handler with the given dependencies.
-func NewHandler(sessions sessionValidator, apps appResolver, mfaGate mfaGate, cfg *config.Config, logger *slog.Logger) *Handler {
+// NewHandler creates a new Handler with the given dependencies. authEvents may
+// be nil (unit tests); it is used to record policy denials.
+func NewHandler(sessions sessionValidator, apps appResolver, mfaGate mfaGate, authEvents authEventRecorder, cfg *config.Config, logger *slog.Logger) *Handler {
 	return &Handler{
-		sessions: sessions,
-		apps:     apps,
-		mfa:      mfaGate,
-		cfg:      cfg,
-		logger:   logger,
+		sessions:   sessions,
+		apps:       apps,
+		mfa:        mfaGate,
+		authEvents: authEvents,
+		cfg:        cfg,
+		logger:     logger,
 	}
+}
+
+// record emits an authentication event for r, filling in the client address
+// and user agent. It is a no-op when no recorder is wired (unit tests).
+func (h *Handler) record(r *http.Request, e authlog.Event) {
+	if h.authEvents == nil {
+		return
+	}
+	e.IP = authlog.ClientIP(r)
+	e.UserAgent = r.UserAgent()
+	h.authEvents.Record(r.Context(), e)
 }
 
 // Routes registers the forward-auth routes on the given router.
@@ -151,6 +177,33 @@ func (h *Handler) checkAuth(w http.ResponseWriter, r *http.Request, host string)
 	if !hasAccess {
 		h.logger.Debug("forward auth: user has no access to app", "user_id", u.ID, "app_id", a.ID)
 		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	// Per-app access policy (group/role/CIDR/admin-only/hours/days). This runs
+	// after the MFA gate so a policy denial cannot be used to probe the app
+	// without enrolling, and before the identity headers are set so nothing is
+	// leaked to the upstream on a denial. The reason goes to the log and the
+	// auth event; the response body stays generic.
+	decision, err := h.apps.EvaluateAccess(ctx, a, u.ID, u.IsAdmin, authlog.ClientIP(r), time.Now())
+	if err != nil {
+		h.logger.Error("forward auth: access policy could not be evaluated",
+			"user_id", u.ID, "app_id", a.ID, "error", err)
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	if !decision.Allowed {
+		h.logger.Info("forward auth: access policy denied",
+			"user_id", u.ID, "username", u.Username, "app_id", a.ID, "app_slug", a.Slug,
+			"reason", decision.Reason, "client_ip", authlog.ClientIP(r))
+		h.record(r, authlog.Event{
+			Event:    authlog.EventAccessDenied,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   u.ID,
+			Username: u.Username,
+			Detail:   "app=" + a.Slug + " reason=" + decision.Reason,
+		})
+		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
 

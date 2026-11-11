@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"path"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/crueber/passage/internal/policy"
 )
 
 // Service implements business logic for app management and host resolution.
@@ -437,4 +440,40 @@ func (s *Service) TokenAssignments(ctx context.Context, userID, appID string) (r
 // GetByClientID returns the app with the given OAuth client_id.
 func (s *Service) GetByClientID(ctx context.Context, clientID string) (*App, error) {
 	return s.store.GetByClientID(ctx, clientID)
+}
+
+// EvaluateAccess applies app a's access policy to a user.
+//
+// It resolves the user's effective names for the app with the same queries that
+// feed OIDC claims (roles held plus direct and role-inherited groups), then
+// delegates the decision to internal/policy. An app with no policy allows
+// without touching the assignment tables.
+//
+// The returned error means the policy could not be evaluated — a malformed
+// stored rule, a store failure, or an unparseable client address. Callers must
+// treat an error as a denial; the error is for the server log, never the
+// response body.
+func (s *Service) EvaluateAccess(ctx context.Context, a *App, userID string, isAdmin bool, clientIP string, now time.Time) (policy.Decision, error) {
+	p := a.Policy()
+	if p.IsEmpty() {
+		return policy.Allow(), nil
+	}
+
+	roles, groups, err := s.TokenAssignments(ctx, userID, a.ID)
+	if err != nil {
+		return policy.Decision{}, fmt.Errorf("app service evaluate access: %w", err)
+	}
+
+	decision, err := policy.Evaluate(policy.Input{
+		Policy:     p,
+		UserGroups: groups,
+		UserRoles:  roles,
+		IsAdmin:    isAdmin,
+		ClientIP:   clientIP,
+		Now:        now,
+	})
+	if err != nil {
+		return policy.Decision{}, fmt.Errorf("app service evaluate access: %w", err)
+	}
+	return decision, nil
 }

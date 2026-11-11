@@ -19,6 +19,7 @@ import (
 
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/oauth"
+	"github.com/crueber/passage/internal/policy"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/user"
 )
@@ -33,6 +34,8 @@ type fakeAppClient struct {
 	tokenRoles  []string
 	tokenGroups []string
 	assignErr   error
+	// evalErr makes EvaluateAccess fail.
+	evalErr error
 }
 
 func (f *fakeAppClient) GetByClientID(_ context.Context, _ string) (*app.App, error) {
@@ -55,6 +58,22 @@ func (f *fakeAppClient) TokenAssignments(_ context.Context, _, _ string) (roles,
 		groups = f.tokenGroups
 	}
 	return roles, groups, f.assignErr
+}
+
+// EvaluateAccess mirrors app.Service.EvaluateAccess against the fake's app and
+// assignment fields so handler/service tests exercise the real policy rules.
+func (f *fakeAppClient) EvaluateAccess(_ context.Context, a *app.App, _ string, isAdmin bool, clientIP string, now time.Time) (policy.Decision, error) {
+	if f.evalErr != nil {
+		return policy.Decision{}, f.evalErr
+	}
+	return policy.Evaluate(policy.Input{
+		Policy:     a.Policy(),
+		UserGroups: f.tokenGroups,
+		UserRoles:  f.tokenRoles,
+		IsAdmin:    isAdmin,
+		ClientIP:   clientIP,
+		Now:        now,
+	})
 }
 
 // fakeUserReader implements oauth's userReader interface for testing.
@@ -242,7 +261,7 @@ func TestService_Authorize(t *testing.T) {
 				sc.svc = svc
 			}
 
-			code, err := sc.svc.Authorize(context.Background(), tc.clientID, tc.redirectURI, "openid", "state-1", "", "", "", time.Now(), testUser.ID)
+			code, err := sc.svc.Authorize(context.Background(), tc.clientID, tc.redirectURI, "openid", "state-1", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 
 			if tc.wantNoErr {
 				if err == nil {
@@ -286,7 +305,7 @@ func TestService_Authorize(t *testing.T) {
 		}
 		sc.svc = svc
 
-		_, gotErr := sc.svc.Authorize(context.Background(), "unknown-client", redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		_, gotErr := sc.svc.Authorize(context.Background(), "unknown-client", redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if !errors.Is(gotErr, app.ErrOAuthNotEnabled) {
 			t.Errorf("invalid client: got %v, want ErrOAuthNotEnabled", gotErr)
 		}
@@ -313,7 +332,7 @@ func TestService_Authorize(t *testing.T) {
 		}
 		sc.svc = svc
 
-		_, gotErr := sc.svc.Authorize(context.Background(), clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		_, gotErr := sc.svc.Authorize(context.Background(), clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if !errors.Is(gotErr, app.ErrOAuthNotEnabled) {
 			t.Errorf("oauth not enabled: got %v, want ErrOAuthNotEnabled", gotErr)
 		}
@@ -335,7 +354,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -387,7 +406,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -410,7 +429,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -438,7 +457,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -455,7 +474,7 @@ func TestService_ExchangeCode(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -483,7 +502,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 		// Get a refresh token via full code exchange.
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -546,7 +565,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -577,7 +596,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -598,7 +617,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -629,7 +648,7 @@ func TestService_RefreshTokens(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -672,7 +691,7 @@ func TestService_ValidateAccessToken(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -733,7 +752,7 @@ func TestService_ValidateAccessToken(t *testing.T) {
 		testUser := &user.User{Username: "alice", Email: "alice@example.com", Name: "Alice"}
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -777,7 +796,7 @@ func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
 	ctx := context.Background()
 
 	// Step 1: Get an authorization code.
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid profile email", "", "", "", "", time.Now(), testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid profile email", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -921,7 +940,7 @@ func TestService_IDToken_AuthTime(t *testing.T) {
 	// Use a well-known session creation time in the past.
 	sessionCreatedAt := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
 
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", sessionCreatedAt, testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", sessionCreatedAt, testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -980,7 +999,7 @@ func TestService_IDToken_Nonce(t *testing.T) {
 			testUser := &user.User{Username: "nonceuser", Email: "nonce@example.com", Name: "Nonce User"}
 			sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-			code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", tc.nonce, "", "", time.Now(), testUser.ID)
+			code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", tc.nonce, "", "", time.Now(), testUser.ID, "127.0.0.1")
 			if err != nil {
 				t.Fatalf("Authorize: %v", err)
 			}
@@ -1028,7 +1047,7 @@ func TestService_IDToken_AuthTime_FlowedFromCode(t *testing.T) {
 	// the exchange time and verify the code record's value is used, not now.
 	sessionCreatedAt := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", sessionCreatedAt, testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", sessionCreatedAt, testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -1077,7 +1096,7 @@ func TestService_IDToken_RefreshOmitsAuthTime(t *testing.T) {
 	testUser := &user.User{Username: "refreshuser", Email: "refresh@example.com", Name: "Refresh User"}
 	sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -1191,7 +1210,7 @@ func TestService_PKCE(t *testing.T) {
 			testUser := &user.User{Username: "pkceuser", Email: "pkce@example.com", Name: "PKCE User"}
 			sc := newTestServiceWithDB(t, db, testApp, testUser)
 
-			code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", tc.codeChallenge, tc.challengeMethod, time.Now(), testUser.ID)
+			code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", tc.codeChallenge, tc.challengeMethod, time.Now(), testUser.ID, "127.0.0.1")
 			if tc.wantAuthorizeErr {
 				if err == nil {
 					t.Error("Authorize: expected error, got nil")
@@ -1225,7 +1244,7 @@ func TestService_PKCE(t *testing.T) {
 
 		// Get a code via Authorize with valid S256 challenge.
 		challenge := makeS256Challenge(t, verifier)
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -1268,7 +1287,7 @@ func TestService_ExchangeCode_PKCEPublicClient(t *testing.T) {
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 		challenge := makeS256Challenge(t, verifier)
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -1297,7 +1316,7 @@ func TestService_ExchangeCode_PKCEPublicClient(t *testing.T) {
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 		challenge := makeS256Challenge(t, verifier)
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", challenge, "S256", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -1317,7 +1336,7 @@ func TestService_ExchangeCode_PKCEPublicClient(t *testing.T) {
 		sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 		// Authorize without PKCE — this is a confidential client flow.
-		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "" /* no challenge */, "", time.Now(), testUser.ID)
+		code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "" /* no challenge */, "", time.Now(), testUser.ID, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Authorize: %v", err)
 		}
@@ -1354,7 +1373,7 @@ func TestService_ExchangeCode_AssignmentClaims(t *testing.T) {
 	sc.apps.tokenGroups = []string{"direct-group", "role-group"}
 
 	ctx := context.Background()
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -1415,7 +1434,7 @@ func TestService_ExchangeCode_EmptyAssignmentClaims(t *testing.T) {
 	sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 	ctx := context.Background()
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}

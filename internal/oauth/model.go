@@ -31,7 +31,28 @@ var (
 	// ErrRefreshTokenReuse is returned when an already-rotated refresh token is
 	// presented again. The token family it belonged to has been revoked.
 	ErrRefreshTokenReuse = errors.New("oauth: refresh token reuse detected")
+
+	// ErrAccessDeniedByPolicy is returned at authorization time when the app's
+	// access policy (group/role/CIDR/admin-only/hours/days) refuses the user.
+	// The handler maps it to the OAuth access_denied error with a fixed
+	// description, so the specific rule never reaches the client.
+	ErrAccessDeniedByPolicy = errors.New("oauth: access denied by application policy")
 )
+
+// PolicyDenialError names the policy rule that denied an authorization request.
+// Reason is a short token from internal/policy (for example "group" or "hours")
+// and carries no user data; AppSlug identifies the app for the event log.
+type PolicyDenialError struct {
+	AppSlug string
+	Reason  string
+}
+
+func (e *PolicyDenialError) Error() string {
+	return "oauth: access denied by application policy: app=" + e.AppSlug + " reason=" + e.Reason
+}
+
+// Unwrap makes errors.Is(err, ErrAccessDeniedByPolicy) hold for every denial.
+func (e *PolicyDenialError) Unwrap() error { return ErrAccessDeniedByPolicy }
 
 // RefreshTokenReuseError reports a replayed refresh token, which indicates the
 // credential was stolen (OAuth 2.1 §6.1). By the time it is returned the entire

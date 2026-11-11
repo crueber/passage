@@ -42,6 +42,7 @@ type testDeps struct {
 	sessionSvc *session.Service
 	appSvc     *app.Service
 	handler    *forwardauth.Handler
+	authEvents *recordingAuthEvents
 }
 
 // setupDeps creates real services backed by an in-memory SQLite database and
@@ -60,7 +61,8 @@ func setupDeps(t *testing.T) *testDeps {
 	appStore := app.NewStore(db)
 	appSvc := app.NewService(appStore, appStore, slog.Default())
 
-	handler := forwardauth.NewHandler(sessionSvc, appSvc, nil, cfg, slog.Default())
+	authEvents := &recordingAuthEvents{}
+	handler := forwardauth.NewHandler(sessionSvc, appSvc, nil, authEvents, cfg, slog.Default())
 
 	return &testDeps{
 		cfg:        cfg,
@@ -69,6 +71,7 @@ func setupDeps(t *testing.T) *testDeps {
 		sessionSvc: sessionSvc,
 		appSvc:     appSvc,
 		handler:    handler,
+		authEvents: authEvents,
 	}
 }
 
@@ -216,7 +219,7 @@ func TestNginxAuth_ExpiredSession(t *testing.T) {
 	sessionSvc2 := session.NewService(sessionStore2, userStore2, nil, nil, expiredCfg, slog.Default())
 	appStore2 := app.NewStore(db2)
 	appSvc2 := app.NewService(appStore2, appStore2, slog.Default())
-	h2 := forwardauth.NewHandler(sessionSvc2, appSvc2, nil, expiredCfg, slog.Default())
+	h2 := forwardauth.NewHandler(sessionSvc2, appSvc2, nil, nil, expiredCfg, slog.Default())
 
 	u2, err := userSvc2.Register(ctx, "expuser2", "expuser2@example.com", "password123")
 	if err != nil {
@@ -276,7 +279,7 @@ func TestTraefikAuth_ExpiredSession(t *testing.T) {
 	sessionSvc3 := session.NewService(sessionStore3, userStore3, nil, nil, expiredCfg3, slog.Default())
 	appStore3 := app.NewStore(db3)
 	appSvc3 := app.NewService(appStore3, appStore3, slog.Default())
-	h3 := forwardauth.NewHandler(sessionSvc3, appSvc3, nil, expiredCfg3, slog.Default())
+	h3 := forwardauth.NewHandler(sessionSvc3, appSvc3, nil, nil, expiredCfg3, slog.Default())
 
 	u3, err := userSvc3.Register(ctx, "traefikexpuser", "traefikexpuser@example.com", "password123")
 	if err != nil {
@@ -542,7 +545,7 @@ func TestNginxAuth_MFAPolicy(t *testing.T) {
 				t.Fatalf("GrantAccess: %v", err)
 			}
 
-			handler := forwardauth.NewHandler(deps.sessionSvc, deps.appSvc, stubMFAGate{blocked: tt.blocked}, deps.cfg, slog.Default())
+			handler := forwardauth.NewHandler(deps.sessionSvc, deps.appSvc, stubMFAGate{blocked: tt.blocked}, nil, deps.cfg, slog.Default())
 
 			r := httptest.NewRequest(http.MethodGet, "/auth/nginx", nil)
 			r.Header.Set("X-Original-URL", "https://grafana.home.example.com/dashboard")

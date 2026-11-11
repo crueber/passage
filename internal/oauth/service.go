@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/policy"
 	"github.com/crueber/passage/internal/user"
 )
 
@@ -28,6 +29,10 @@ type appClient interface {
 	// TokenAssignments resolves a user's app-scoped role names and effective
 	// (direct plus role-inherited) group names for token claims.
 	TokenAssignments(ctx context.Context, userID, appID string) (roles, groups []string, err error)
+	// EvaluateAccess applies the app's access policy to the user at
+	// authorization time. An error means the policy could not be evaluated and
+	// must be treated as a denial.
+	EvaluateAccess(ctx context.Context, a *app.App, userID string, isAdmin bool, clientIP string, now time.Time) (policy.Decision, error)
 }
 
 // userReader is the minimal interface needed from the user package.
@@ -91,9 +96,11 @@ func (s *Service) KeyID() string {
 	return s.keyID
 }
 
-// Authorize validates the OAuth2 authorization request and creates an
-// authorization code if the user has access to the requesting app.
-func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID string) (*Code, error) {
+// Authorize validates an authorization request and creates a code. clientIP is
+// the browser's address at the authorization endpoint (used only by the app's
+// access policy). It returns a *PolicyDenialError when the app's group, role,
+// CIDR, admin-only, hour or day rules refuse the user.
+func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID, clientIP string) (*Code, error) {
 	// Look up app by clientID.
 	a, err := s.apps.GetByClientID(ctx, clientID)
 	if err != nil {
@@ -126,6 +133,25 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 	}
 	if !hasAccess {
 		return nil, fmt.Errorf("oauth authorize: user does not have access to this application")
+	}
+
+	// Per-app access policy. Only apps that define a policy incur the extra
+	// assignment and user lookups; an app with no policy authorizes exactly as
+	// before. A malformed stored rule or an unparseable client address fails
+	// closed with the same opaque error the client sees for any other policy
+	// denial.
+	if !a.Policy().IsEmpty() {
+		u, err := s.users.GetByID(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("oauth authorize: load user for access policy: %w", err)
+		}
+		decision, err := s.apps.EvaluateAccess(ctx, a, userID, u.IsAdmin, clientIP, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("oauth authorize: evaluate access policy: %w", err)
+		}
+		if !decision.Allowed {
+			return nil, &PolicyDenialError{AppSlug: a.Slug, Reason: decision.Reason}
+		}
 	}
 
 	// Validate PKCE parameters per RFC 7636 §4.3.
