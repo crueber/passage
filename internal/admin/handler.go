@@ -146,6 +146,7 @@ type Handler struct {
 	authLog      authLogReader
 	authRecorder authEventRecorder
 	throttle     loginThrottleAdmin
+	apiTokens    apiTokenManager
 	mailer       email.Sender
 	tmpl         *template.Template
 	cfg          *config.Config
@@ -169,6 +170,7 @@ func NewHandler(
 	authLog authLogReader,
 	authRecorder authEventRecorder,
 	throttle loginThrottleAdmin,
+	apiTokens apiTokenManager,
 ) *Handler {
 	return &Handler{
 		userStore:    userStore,
@@ -182,6 +184,7 @@ func NewHandler(
 		authLog:      authLog,
 		authRecorder: authRecorder,
 		throttle:     throttle,
+		apiTokens:    apiTokens,
 		mailer:       mailer,
 		tmpl:         tmpl,
 		cfg:          cfg,
@@ -243,6 +246,11 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Get("/settings", h.GetSettings)
 	r.Post("/settings", h.PostSettings)
 
+	// API tokens for the read-only admin REST API (/api/v1).
+	r.Get("/api-tokens", h.GetAPITokens)
+	r.Post("/api-tokens", h.PostCreateAPIToken)
+	r.Post("/api-tokens/{id}/revoke", h.PostRevokeAPIToken)
+
 	// Audit log
 	r.Get("/audit-log", h.redirectLogs(logTabAdmin))
 
@@ -297,6 +305,8 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "Account unlocked."}
 	case "mfa-reset":
 		return &Flash{Type: "success", Message: "Two-factor authentication reset. The user can sign in with their password and enrol again."}
+	case "api-token-revoked":
+		return &Flash{Type: "success", Message: "API token revoked. Requests using it will fail from now on."}
 	case "access-granted":
 		return &Flash{Type: "success", Message: "Access granted."}
 	case "access-revoked":

@@ -38,6 +38,11 @@ const (
 	EventMFADisabled         = "mfa.disabled"
 	EventMFACodesRegenerated = "mfa.codes_regenerated"
 	EventMFAReset            = "mfa.reset"
+
+	// Administrative API tokens. A successful call is not recorded (the API is
+	// polled and would drown the log), but a rejected bearer credential is a
+	// failed authentication and belongs in the security log.
+	EventAPIAuthFailure = "api.auth_failure"
 )
 
 // Outcomes describe how an event ended.
@@ -89,6 +94,7 @@ func Names() []string {
 		EventMFADisabled,
 		EventMFACodesRegenerated,
 		EventMFAReset,
+		EventAPIAuthFailure,
 	}
 }
 

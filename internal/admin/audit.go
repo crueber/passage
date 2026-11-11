@@ -36,6 +36,8 @@ const (
 	AuditActionSessionRevokeAll     = "session.revoke_all"
 	AuditActionSettingsUpdate       = "settings.update"
 	AuditActionAuthMethodUpdate     = "auth.method.update"
+	AuditActionAPITokenCreate       = "api_token.create"
+	AuditActionAPITokenRevoke       = "api_token.revoke"
 )
 
 // ─── Model ────────────────────────────────────────────────────────────────────
