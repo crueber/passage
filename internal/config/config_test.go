@@ -282,6 +282,31 @@ func TestValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "encryption key unset is valid (key file next to the database)",
+			mutate:  func(c *config.Config) { c.Security.EncryptionKey = "" },
+			wantErr: false,
+		},
+		{
+			name:    "encryption key as 64 hex characters is valid",
+			mutate:  func(c *config.Config) { c.Security.EncryptionKey = strings.Repeat("ab", 32) },
+			wantErr: false,
+		},
+		{
+			name:    "encryption key as base64 of 32 bytes is valid",
+			mutate:  func(c *config.Config) { c.Security.EncryptionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
+			wantErr: false,
+		},
+		{
+			name:    "short encryption key fails",
+			mutate:  func(c *config.Config) { c.Security.EncryptionKey = strings.Repeat("ab", 16) },
+			wantErr: true,
+		},
+		{
+			name:    "garbage encryption key fails",
+			mutate:  func(c *config.Config) { c.Security.EncryptionKey = "definitely not a key" },
+			wantErr: true,
+		},
+		{
 			name: "smtp tls=starttls with host passes",
 			mutate: func(c *config.Config) {
 				c.SMTP.Host = "mail.example.com"
@@ -680,6 +705,71 @@ func TestSecurityWebhook(t *testing.T) {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("Validate error %q does not mention %q", err, want)
 				}
+			}
+		})
+	}
+}
+
+// TestEncryptionKey covers the security.encryption_key default, YAML value,
+// validation, and env override. Env mutation means the subtests run serially
+// (no t.Parallel).
+func TestEncryptionKey(t *testing.T) {
+	writeConfig := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "passage.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		return path
+	}
+
+	hexKey := strings.Repeat("01", 32)
+
+	tests := []struct {
+		name string
+		yaml string
+		env  string // PASSAGE_SECURITY_ENCRYPTION_KEY; empty means unset
+		want string
+	}{
+		{
+			name: "default is empty (key file is used)",
+			want: "",
+		},
+		{
+			name: "yaml value is loaded",
+			yaml: "security:\n  encryption_key: " + hexKey + "\n",
+			want: hexKey,
+		},
+		{
+			name: "env overrides the file",
+			yaml: "security:\n  encryption_key: " + hexKey + "\n",
+			env:  strings.Repeat("02", 32),
+			want: strings.Repeat("02", 32),
+		},
+		{
+			name: "env alone is enough",
+			env:  hexKey,
+			want: hexKey,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("PASSAGE_SECURITY_ENCRYPTION_KEY", tt.env)
+
+			var path string
+			if tt.yaml != "" {
+				path = writeConfig(t, tt.yaml)
+			}
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Security.EncryptionKey != tt.want {
+				t.Errorf("Security.EncryptionKey = %q; want %q", cfg.Security.EncryptionKey, tt.want)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate: unexpected error: %v", err)
 			}
 		})
 	}

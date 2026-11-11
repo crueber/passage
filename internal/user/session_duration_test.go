@@ -79,7 +79,7 @@ func newLoginFixture(t *testing.T) *loginFixture {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	clock := newTestClock()
-	mfaSvc := mfa.NewService(mfa.NewStore(db), "Passage", clock.Now)
+	mfaSvc := mfa.NewService(mfa.NewStore(db, nil), "Passage", clock.Now)
 	handler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	u, err := userSvc.Register(context.Background(), "login_user", "login@example.com", "password123")

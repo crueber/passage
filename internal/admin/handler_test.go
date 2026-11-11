@@ -121,7 +121,7 @@ func newFixture(t *testing.T) *fixture {
 		MaxFailures: 5,
 		Lockout:     15 * time.Minute,
 	}, time.Now)
-	mfaSvc := mfa.NewService(mfa.NewStore(database), "Passage", nil)
+	mfaSvc := mfa.NewService(mfa.NewStore(database, nil), "Passage", nil)
 	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle)
 
 	return &fixture{

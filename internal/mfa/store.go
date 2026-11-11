@@ -54,16 +54,24 @@ type Challenge struct {
 
 // Store persists MFA state. It is a concrete type used by Service; the HTTP
 // layer depends on Service, never on the store.
+//
+// Secrets are encrypted with cipher on every write and decrypted on every read,
+// so no caller above this layer sees a stored value. A nil cipher means
+// plaintext storage; that exists only for tests and for code that never handles
+// a secret.
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	cipher *Cipher
 }
 
-// NewStore creates a Store backed by db.
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+// NewStore creates a Store backed by db. Pass a nil cipher to store secrets in
+// plain text (tests only).
+func NewStore(db *sql.DB, cipher *Cipher) *Store {
+	return &Store{db: db, cipher: cipher}
 }
 
-// Get returns the user's MFA row.
+// Get returns the user's MFA row, with the secret decrypted and bound to the
+// owning user.
 func (s *Store) Get(ctx context.Context, userID string) (*Credential, error) {
 	const query = `
 		SELECT user_id, secret, last_step, enabled_at, created_at, updated_at
@@ -78,6 +86,11 @@ func (s *Store) Get(ctx context.Context, userID string) (*Credential, error) {
 		}
 		return nil, fmt.Errorf("mfa store get: %w", err)
 	}
+	secret, err := s.decryptSecret(userID, c.Secret)
+	if err != nil {
+		return nil, fmt.Errorf("mfa store get: %w", err)
+	}
+	c.Secret = secret
 	if enabledAt.Valid {
 		t := enabledAt.Time
 		c.EnabledAt = &t
@@ -101,6 +114,10 @@ func (s *Store) Enabled(ctx context.Context, userID string) (bool, error) {
 // silently replaced: if the user already has a working second factor this is a
 // no-op and the caller is told so with ErrNotPending.
 func (s *Store) UpsertPending(ctx context.Context, userID, secret string, now time.Time) error {
+	stored, err := s.encryptSecret(userID, secret)
+	if err != nil {
+		return fmt.Errorf("mfa store upsert pending: %w", err)
+	}
 	const query = `
 		INSERT INTO user_mfa (user_id, secret, last_step, enabled_at, created_at, updated_at)
 		VALUES (?, ?, 0, NULL, ?, ?)
@@ -109,7 +126,7 @@ func (s *Store) UpsertPending(ctx context.Context, userID, secret string, now ti
 			last_step = 0,
 			updated_at = excluded.updated_at
 		WHERE user_mfa.enabled_at IS NULL`
-	res, err := s.db.ExecContext(ctx, query, userID, secret, now, now)
+	res, err := s.db.ExecContext(ctx, query, userID, stored, now, now)
 	if err != nil {
 		return fmt.Errorf("mfa store upsert pending: %w", err)
 	}
@@ -335,6 +352,103 @@ func (s *Store) DeleteExpiredChallenges(ctx context.Context, cutoff time.Time) e
 		return fmt.Errorf("mfa store delete expired challenges: %w", err)
 	}
 	return nil
+}
+
+// ReencryptSecrets rewrites every secret still stored in plain text, returning
+// how many rows it changed. It is the one-time upgrade pass for a database
+// written by a release that did not encrypt secrets.
+//
+// The pass is sequential and simple by design: db.Open keeps a single writer
+// connection, so rows are collected first and updated afterwards (issuing an
+// UPDATE while a result set is open would block on that connection). Each
+// UPDATE matches the old value, which makes a second run a no-op and makes a
+// concurrent re-enrollment win instead of being clobbered. updated_at is left
+// alone: re-encryption is not a change the user made.
+//
+// A nil cipher has nothing to migrate and returns (0, nil).
+func (s *Store) ReencryptSecrets(ctx context.Context) (int, error) {
+	if s.cipher == nil {
+		return 0, nil
+	}
+	pending, err := s.plaintextSecrets(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	changed := 0
+	for _, row := range pending {
+		encrypted, err := s.cipher.Encrypt(row.secret, row.userID)
+		if err != nil {
+			return changed, fmt.Errorf("mfa store reencrypt: %w", err)
+		}
+		const query = `UPDATE user_mfa SET secret = ? WHERE user_id = ? AND secret = ?`
+		res, err := s.db.ExecContext(ctx, query, encrypted, row.userID, row.secret)
+		if err != nil {
+			return changed, fmt.Errorf("mfa store reencrypt: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return changed, fmt.Errorf("mfa store reencrypt rows: %w", err)
+		}
+		changed += int(n)
+	}
+	return changed, nil
+}
+
+// legacySecret is a raw user_mfa row as it sits in the database, before any
+// decryption — the input to the re-encryption pass.
+type legacySecret struct {
+	userID string
+	secret string
+}
+
+// plaintextSecrets lists the rows whose stored value is not yet encrypted. It
+// reads the raw column: decrypting here would defeat the point, and legacy
+// values pass through unchanged anyway.
+func (s *Store) plaintextSecrets(ctx context.Context) ([]legacySecret, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id, secret FROM user_mfa`)
+	if err != nil {
+		return nil, fmt.Errorf("mfa store list plaintext secrets: %w", err)
+	}
+	defer rows.Close()
+
+	var pending []legacySecret
+	for rows.Next() {
+		var row legacySecret
+		if err := rows.Scan(&row.userID, &row.secret); err != nil {
+			return nil, fmt.Errorf("mfa store list plaintext secrets scan: %w", err)
+		}
+		if !IsEncrypted(row.secret) {
+			pending = append(pending, row)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mfa store list plaintext secrets rows: %w", err)
+	}
+	return pending, nil
+}
+
+// encryptSecret seals secret for userID, or returns it unchanged when the store
+// has no cipher.
+func (s *Store) encryptSecret(userID, secret string) (string, error) {
+	if s.cipher == nil {
+		return secret, nil
+	}
+	encrypted, err := s.cipher.Encrypt(secret, userID)
+	if err != nil {
+		return "", err
+	}
+	return encrypted, nil
+}
+
+// decryptSecret opens secret for userID. A legacy plaintext value comes back
+// unchanged, which is what keeps an upgraded database usable before (or
+// without) ReencryptSecrets.
+func (s *Store) decryptSecret(userID, secret string) (string, error) {
+	if s.cipher == nil {
+		return secret, nil
+	}
+	return s.cipher.Decrypt(secret, userID)
 }
 
 // requireRows turns a zero-rows-affected result into the given error.

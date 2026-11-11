@@ -2,15 +2,17 @@
 // (SHA-1, 6 digits, 30-second steps, ±1 step of clock skew) and single-use
 // recovery codes.
 //
-// The package is pure: no HTTP, no database, no logging. Everything that
-// touches time or persistence is passed in by the caller, which keeps the
-// algorithms testable with the RFC's published vectors and lets the store
-// enforce anti-replay atomically.
+// The TOTP and recovery-code algorithms are pure: no HTTP, no database, no
+// logging. Everything that touches time or persistence is passed in by the
+// caller, which keeps the algorithms testable with the RFC's published vectors
+// and lets the store enforce anti-replay atomically. Persistence and key
+// material live beside them in store.go, cipher.go, and key.go.
 //
 // Nothing here ever exposes a plaintext code to a log. Secrets are base32
 // (RFC 4648, no padding) and recovery codes are only ever handled as sha256
-// hashes once issued. Secret storage is deliberately unencrypted; the SQLite
-// database file is expected to be mode 0600 (see docs/security.md).
+// hashes once issued. The TOTP algorithm itself is uninterested in storage:
+// secrets reach Validate already decrypted by the store, which seals them with
+// AES-256-GCM at rest (see cipher.go and key.go).
 package mfa
 
 import (

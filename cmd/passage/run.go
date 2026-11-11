@@ -106,6 +106,22 @@ func run() error {
 	}
 	defer database.Close()
 
+	// TOTP secrets are encrypted at rest with AES-256-GCM. The key comes from
+	// security.encryption_key when set, otherwise from a 0600 file next to the
+	// database (created on first use). Resolving it before anything else fails
+	// startup loudly instead of silently leaving enrolled secrets unreadable.
+	mfaKey, err := mfa.ResolveKey(cfg.Security.EncryptionKey, cfg.Database.Path)
+	if err != nil {
+		return fmt.Errorf("resolve mfa encryption key: %w", err)
+	}
+	mfaCipher, err := mfa.NewCipher(mfaKey)
+	if err != nil {
+		return fmt.Errorf("init mfa cipher: %w", err)
+	}
+	// The cipher keeps its own key schedule; drop the raw bytes so they are not
+	// sitting in a live slice for the life of the process.
+	clear(mfaKey)
+
 	// Build stores and services. The session service is built before the user
 	// service so password changes can revoke the user's sessions.
 	userStore := user.NewStore(database)
@@ -151,7 +167,23 @@ func run() error {
 	// Two-factor authentication: TOTP secrets, recovery codes, and pending
 	// login challenges. Built here so the user handler, the security page, and
 	// the admin reset all share one service (and one clock).
-	mfaSvc := mfa.NewService(mfa.NewStore(database), "Passage", nil)
+	mfaStore := mfa.NewStore(database, mfaCipher)
+	mfaSvc := mfa.NewService(mfaStore, "Passage", nil)
+
+	// Rewrite any secret written before encryption existed. Legacy plaintext
+	// rows stay readable in the meantime (Decrypt passes them through), so this
+	// is a best-effort upgrade: a failure is logged and never fatal, and it runs
+	// off the startup path so a large table cannot delay serving.
+	go func() {
+		n, err := mfaStore.ReencryptSecrets(ctx)
+		if err != nil {
+			logger.Error("mfa secret re-encryption failed", "error", err)
+			return
+		}
+		if n > 0 {
+			logger.Info("encrypted legacy mfa secrets", "count", n)
+		}
+	}()
 
 	// Build email sender.
 	mailer, err := email.NewSMTPSender(cfg, logger)
