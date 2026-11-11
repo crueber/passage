@@ -333,6 +333,39 @@ func TestNewSession_UsesDurationFromDB(t *testing.T) {
 	}
 }
 
+// TestNewSession_ExplicitConfigDurationWins proves a session.duration_hours
+// supplied by the config file or environment overrides the admin setting, the
+// same precedence the settings page advertises as read-only.
+func TestNewSession_ExplicitConfigDurationWins(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewTestDB(t)
+	userStore := user.NewStore(db)
+	cfg := testConfig()
+	cfg.Session.DurationHours = 6
+	cfg.Session.DurationHoursSet = true
+	userSvc := user.NewService(userStore, userStore, nil, cfg)
+
+	// The admin setting disagrees; the config value must win.
+	settings := &stubSettings{data: map[string]string{"session_duration_hours": "48"}}
+	sessionSvc := session.NewService(session.NewStore(db), userStore, settings, nil, cfg, slog.Default())
+
+	ctx := context.Background()
+	u, err := userSvc.Register(ctx, "config_duration_user", "cfgdura@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	sess, err := sessionSvc.NewSession(ctx, u.ID, nil, "127.0.0.1", "TestAgent/1.0")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	want := time.Now().Add(6 * time.Hour)
+	if diff := sess.ExpiresAt.Sub(want); diff < -5*time.Minute || diff > 5*time.Minute {
+		t.Errorf("NewSession: ExpiresAt %v is not ~6h from now (want %v)", sess.ExpiresAt, want)
+	}
+}
+
 // TestNewSession_FallsBackToConfig verifies that when the settings store
 // returns an error (key absent), the cfg.Session.DurationHours value is used.
 func TestNewSession_FallsBackToConfig(t *testing.T) {

@@ -147,6 +147,11 @@ type DatabaseConfig struct {
 // SessionConfig holds session settings.
 type SessionConfig struct {
 	DurationHours int `yaml:"duration_hours"`
+	// DurationHoursSet records whether the config file or environment supplied
+	// duration_hours. An explicit value overrides the matching admin setting
+	// (Settings → General) and is shown read-only there. yaml:"-" keeps it out
+	// of the file itself.
+	DurationHoursSet bool `yaml:"-"`
 	// IdleTimeoutMinutes closes a session that has not been used for this many
 	// minutes, independent of the absolute DurationHours. Zero (the default)
 	// disables the idle timeout.
@@ -219,7 +224,11 @@ var providerNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 // AuthConfig holds authentication settings.
 type AuthConfig struct {
 	AllowRegistration bool `yaml:"allow_registration"`
-	BcryptCost        int  `yaml:"bcrypt_cost"`
+	// AllowRegistrationSet records whether the config file or environment
+	// supplied allow_registration. An explicit value overrides the admin
+	// setting and the field is read-only in the UI.
+	AllowRegistrationSet bool `yaml:"-"`
+	BcryptCost           int  `yaml:"bcrypt_cost"`
 
 	// Providers configures upstream OIDC/OAuth identity providers. Each entry
 	// adds a sign-in button to the login page. There is deliberately no
@@ -238,10 +247,12 @@ type AuthConfig struct {
 
 	// RequireMFA makes two-factor authentication mandatory: a signed-in user
 	// without a completed TOTP enrollment is sent to /mfa/setup until they
-	// enrol. It is only a default — an explicit auth_require_mfa value in the
-	// settings store (Settings → Authentication methods) wins over it.
+	// enrol. When set here (or via the environment) it overrides the
+	// auth_require_mfa admin setting and that checkbox is read-only; when
+	// absent, the saved admin setting wins and this value is the default.
 	// Env: PASSAGE_AUTH_REQUIRE_MFA.
-	RequireMFA bool `yaml:"require_mfa"`
+	RequireMFA    bool `yaml:"require_mfa"`
+	RequireMFASet bool `yaml:"-"`
 }
 
 // LogConfig holds logging settings.
@@ -323,12 +334,67 @@ func Load(path string) (*Config, error) {
 			if err := yaml.Unmarshal(data, cfg); err != nil {
 				return nil, fmt.Errorf("parse config file %q: %w", path, err)
 			}
+			markExplicitSettings(cfg, data)
 		}
 		// File not existing is not an error — env vars and defaults apply.
 	}
 
 	applyEnvOverrides(cfg)
 	return cfg, nil
+}
+
+// explicitSettings mirrors the settings that also exist in the admin settings
+// store, using pointers so a missing key is distinguishable from a zero value.
+// A key that is present here is authoritative over the stored value.
+type explicitSettings struct {
+	Auth struct {
+		AllowRegistration *bool `yaml:"allow_registration"`
+		RequireMFA        *bool `yaml:"require_mfa"`
+	} `yaml:"auth"`
+	Session struct {
+		DurationHours *int `yaml:"duration_hours"`
+	} `yaml:"session"`
+}
+
+// markExplicitSettings records which settings the config file supplied, so the
+// admin UI can show them read-only instead of silently ignoring them.
+func markExplicitSettings(cfg *Config, data []byte) {
+	var explicit explicitSettings
+	// The bytes already decoded into cfg, so a failure here is impossible in
+	// practice; treating it as "nothing explicit" is the safe fallback.
+	if err := yaml.Unmarshal(data, &explicit); err != nil {
+		return
+	}
+	cfg.Auth.AllowRegistrationSet = explicit.Auth.AllowRegistration != nil
+	cfg.Auth.RequireMFASet = explicit.Auth.RequireMFA != nil
+	cfg.Session.DurationHoursSet = explicit.Session.DurationHours != nil
+}
+
+// BoolSetting resolves a boolean that exists both in the config file and in
+// the admin settings store. Precedence: an explicit config value, then the
+// stored value, then the config default. The UI shows the field read-only when
+// the config supplies it.
+func BoolSetting(explicit, configValue bool, stored string, hasStored bool) bool {
+	if explicit {
+		return configValue
+	}
+	if hasStored {
+		return strings.EqualFold(strings.TrimSpace(stored), "true")
+	}
+	return configValue
+}
+
+// IntSetting applies the same precedence rule to a positive integer setting.
+func IntSetting(explicit bool, configValue int, stored string, hasStored bool) int {
+	if explicit {
+		return configValue
+	}
+	if hasStored {
+		if n, err := strconv.Atoi(strings.TrimSpace(stored)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return configValue
 }
 
 // Validate checks that all configuration values are within acceptable bounds.
@@ -541,6 +607,7 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_SESSION_DURATION_HOURS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Session.DurationHours = n
+			cfg.Session.DurationHoursSet = true
 		} else {
 			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SESSION_DURATION_HOURS", v, err)
 		}
@@ -591,6 +658,7 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_AUTH_ALLOW_REGISTRATION"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Auth.AllowRegistration = b
+			cfg.Auth.AllowRegistrationSet = true
 		} else {
 			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_ALLOW_REGISTRATION", v, err)
 		}
@@ -619,6 +687,7 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_AUTH_REQUIRE_MFA"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Auth.RequireMFA = b
+			cfg.Auth.RequireMFASet = true
 		} else {
 			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_REQUIRE_MFA", v, err)
 		}

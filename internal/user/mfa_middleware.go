@@ -3,20 +3,19 @@ package user
 import (
 	"context"
 	"net/http"
-	"strings"
+
+	"github.com/crueber/passage/internal/config"
 )
 
 // mfaRequired reports whether the instance enforces a second factor for every
-// account. An explicit settings-store value wins over the auth.require_mfa
-// config/env default, which is what makes the admin checkbox authoritative
-// once it has been saved.
+// account. An explicit auth.require_mfa from the config file or environment
+// wins; otherwise the saved admin setting does; otherwise the config default.
 func (h *Handler) mfaRequired(ctx context.Context) bool {
-	if h.settings != nil {
-		if raw, err := h.settings.Get(ctx, SettingRequireMFA); err == nil {
-			return strings.EqualFold(strings.TrimSpace(raw), "true")
-		}
+	if h.settings == nil {
+		return h.cfg.Auth.RequireMFA
 	}
-	return h.cfg.Auth.RequireMFA
+	raw, err := h.settings.Get(ctx, SettingRequireMFA)
+	return config.BoolSetting(h.cfg.Auth.RequireMFASet, h.cfg.Auth.RequireMFA, raw, err == nil)
 }
 
 // MFABlocked reports whether the global policy currently requires this user to

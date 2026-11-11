@@ -1832,6 +1832,12 @@ type settingsData struct {
 	AllowRegistration    string
 	SessionDurationHours string
 	SMTPFrom             string
+	// Locked flags mark settings the configuration file or environment
+	// supplied. Those win over the stored value, so the control is rendered
+	// read-only with a note instead of silently ignoring the operator's save.
+	AllowRegistrationLocked bool
+	SessionDurationLocked   bool
+	AuthRequireMFALocked    bool
 	// Themes is the registry shown in the per-browser appearance picker.
 	// It is presentation-only data: selecting a theme is client-side and does
 	// not touch the settings store.
@@ -1864,9 +1870,19 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-settings", h.buildSettingsData(r, all, h.baseFlash(r, "settings", flash)))
 }
 
-// buildSettingsData populates a settingsData from the given settings map and basePage.
-// Applies defaults: password and passkey default to "true", magic link defaults to "false".
+// buildSettingsData populates a settingsData from the given settings map and
+// basePage. Applies defaults: password and passkey default to "true", magic
+// link defaults to "false". Settings the config file supplies display the
+// config value and are marked locked.
 func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base basePage) settingsData {
+	allowRegistration := all["allow_registration"]
+	if allowRegistration == "" {
+		allowRegistration = strconv.FormatBool(h.cfg.Auth.AllowRegistration)
+	}
+	sessionDuration := all["session_duration_hours"]
+	if sessionDuration == "" {
+		sessionDuration = strconv.Itoa(h.cfg.Session.DurationHours)
+	}
 	authPassword := all["auth_password_enabled"]
 	if authPassword == "" {
 		authPassword = "true"
@@ -1879,24 +1895,51 @@ func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base
 	if authMagicLink == "" {
 		authMagicLink = "false"
 	}
-	// The config default is the checkbox state until an operator saves the
-	// form; from then on the stored value is authoritative.
 	authRequireMFA := all["auth_require_mfa"]
 	if authRequireMFA == "" {
 		authRequireMFA = strconv.FormatBool(h.cfg.Auth.RequireMFA)
 	}
-	return settingsData{
-		basePage:             base,
-		AllowRegistration:    all["allow_registration"],
-		SessionDurationHours: all["session_duration_hours"],
-		SMTPFrom:             all["smtp_from"],
-		Themes:               theme.All,
-		AuthPasswordEnabled:  authPassword,
-		AuthPasskeyEnabled:   authPasskey,
-		AuthMagicLinkEnabled: authMagicLink,
-		AuthRequireMFA:       authRequireMFA,
-		SMTPConfigured:       h.cfg.SMTP.Host != "",
+	// A value supplied by the config file or environment wins, so show it and
+	// say so rather than letting the form edit a setting that is ignored.
+	if h.cfg.Auth.AllowRegistrationSet {
+		allowRegistration = strconv.FormatBool(h.cfg.Auth.AllowRegistration)
 	}
+	if h.cfg.Session.DurationHoursSet {
+		sessionDuration = strconv.Itoa(h.cfg.Session.DurationHours)
+	}
+	if h.cfg.Auth.RequireMFASet {
+		authRequireMFA = strconv.FormatBool(h.cfg.Auth.RequireMFA)
+	}
+	return settingsData{
+		basePage:                base,
+		AllowRegistration:       allowRegistration,
+		SessionDurationHours:    sessionDuration,
+		SMTPFrom:                all["smtp_from"],
+		AllowRegistrationLocked: h.cfg.Auth.AllowRegistrationSet,
+		SessionDurationLocked:   h.cfg.Session.DurationHoursSet,
+		AuthRequireMFALocked:    h.cfg.Auth.RequireMFASet,
+		Themes:                  theme.All,
+		AuthPasswordEnabled:     authPassword,
+		AuthPasskeyEnabled:      authPasskey,
+		AuthMagicLinkEnabled:    authMagicLink,
+		AuthRequireMFA:          authRequireMFA,
+		SMTPConfigured:          h.cfg.SMTP.Host != "",
+	}
+}
+
+// settingLockedByConfig reports whether the configuration file or environment
+// supplies the given setting. Such a value wins over the store, so a save must
+// not write it (the form cannot edit it; this also covers a crafted POST).
+func (h *Handler) settingLockedByConfig(key string) bool {
+	switch key {
+	case "allow_registration":
+		return h.cfg.Auth.AllowRegistrationSet
+	case "session_duration_hours":
+		return h.cfg.Session.DurationHoursSet
+	case "auth_require_mfa":
+		return h.cfg.Auth.RequireMFASet
+	}
+	return false
 }
 
 // renderSettingsWithError re-loads settings from the store and renders the settings
@@ -1948,6 +1991,12 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		"auth_password_enabled", "auth_passkey_enabled", "auth_magic_link_enabled", "auth_require_mfa",
 	}
 	for _, key := range keys {
+		// A settings-page field that the config file or environment supplies is
+		// read-only: the config value wins, so writing the form value here would
+		// only create a mismatch between what the UI says and what applies.
+		if h.settingLockedByConfig(key) {
+			continue
+		}
 		// An empty duration is "leave the current value alone"; everything else
 		// (including empty smtp_from) is an explicit value.
 		if key == "session_duration_hours" && values[key] == "" {

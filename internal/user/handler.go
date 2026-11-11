@@ -146,19 +146,16 @@ func (h *Handler) record(r *http.Request, e authlog.Event) {
 	h.authEvents.Record(r.Context(), e)
 }
 
-// registrationAllowed checks the DB setting first, falling back to the static config.
-// If the DB setting is present and is "false", registration is disabled.
-// If missing (ErrNotFound or any error), fall back to h.cfg.Auth.AllowRegistration.
+// registrationAllowed resolves the registration policy: an explicit
+// auth.allow_registration from the config file or environment wins, otherwise
+// the admin setting, otherwise the config default. The settings page shows the
+// field read-only while the config controls it.
 func (h *Handler) registrationAllowed(ctx context.Context) bool {
 	if h.settings == nil {
 		return h.cfg.Auth.AllowRegistration
 	}
 	val, err := h.settings.Get(ctx, "allow_registration")
-	if err != nil {
-		// Setting not found or DB error — fall back to static config.
-		return h.cfg.Auth.AllowRegistration
-	}
-	return val == "true"
+	return config.BoolSetting(h.cfg.Auth.AllowRegistrationSet, h.cfg.Auth.AllowRegistration, val, err == nil)
 }
 
 // safeReturnPath reports whether rd is a same-site absolute path that is safe

@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/crueber/passage/internal/config"
@@ -97,8 +96,9 @@ func (s *Service) countRevoked() {
 // sessionDurationHours returns the effective session duration in hours for the
 // given app (nil = global/admin session). Resolution order:
 //  1. App-level override (apps.GetSessionDurationHours > 0)
-//  2. Global DB setting (session_duration_hours key in settings)
-//  3. cfg.Session.DurationHours (config-file / env-var default)
+//  2. An explicit session.duration_hours from the config file or environment
+//  3. The global admin setting (session_duration_hours in the settings store)
+//  4. cfg.Session.DurationHours (the default)
 func (s *Service) sessionDurationHours(ctx context.Context, appID *string) int {
 	// 1. Per-app override.
 	if appID != nil && s.apps != nil {
@@ -109,19 +109,14 @@ func (s *Service) sessionDurationHours(ctx context.Context, appID *string) int {
 		// On error (app deleted mid-request, etc.) fall through silently.
 	}
 
-	// 2. Global DB setting.
+	// 2./3. Explicit config, then the admin setting, then the default.
+	stored, hasStored := "", false
 	if s.settings != nil {
-		val, err := s.settings.Get(ctx, "session_duration_hours")
-		if err == nil && val != "" {
-			n, err := strconv.Atoi(val)
-			if err == nil && n > 0 {
-				return n
-			}
+		if val, err := s.settings.Get(ctx, "session_duration_hours"); err == nil && val != "" {
+			stored, hasStored = val, true
 		}
 	}
-
-	// 3. Config fallback.
-	return s.cfg.Session.DurationHours
+	return config.IntSetting(s.cfg.Session.DurationHoursSet, s.cfg.Session.DurationHours, stored, hasStored)
 }
 
 // CreateSession creates a new session and returns the token string and expiry

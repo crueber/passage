@@ -37,18 +37,32 @@
         <div class="mt-4 space-y-4">
           <label class="checkbox" for="allow_registration">
             <input type="checkbox" id="allow_registration" name="allow_registration"
-                   {{if eq .AllowRegistration "true"}}checked{{end}}>
+                   {{if eq .AllowRegistration "true"}}checked{{end}}{{if .AllowRegistrationLocked}} disabled{{end}}>
             Allow public registration
           </label>
+          {{if .AllowRegistrationLocked}}
+          <p class="help">
+            Set by the configuration file or environment
+            (<span class="td-mono">auth.allow_registration: {{.AllowRegistration}}</span>).
+            Change it there and restart Passage; this switch is read-only.
+          </p>
+          {{end}}
 
           <div>
             <label class="label" for="session_duration_hours">Session duration (hours)</label>
             <input class="input sm:max-w-xs" type="number" id="session_duration_hours" name="session_duration_hours"
-                   min="1" max="8760" value="{{.SessionDurationHours}}">
+                   min="1" max="8760" value="{{.SessionDurationHours}}"{{if .SessionDurationLocked}} disabled{{end}}>
             <p class="help">
               Global default for all apps. Takes effect immediately for new sessions.
               Per-app overrides can be set on each app's edit page.
             </p>
+            {{if .SessionDurationLocked}}
+            <p class="help">
+              Set by the configuration file or environment
+              (<span class="td-mono">session.duration_hours: {{.SessionDurationHours}}</span>).
+              Change it there and restart Passage; this field is read-only.
+            </p>
+            {{end}}
           </div>
 
           <div>
@@ -91,9 +105,16 @@
           <div>
             <label class="checkbox" for="auth_require_mfa">
               <input type="checkbox" id="auth_require_mfa" name="auth_require_mfa"
-                     {{if eq .AuthRequireMFA "true"}}checked{{end}}>
+                     {{if eq .AuthRequireMFA "true"}}checked{{end}}{{if .AuthRequireMFALocked}} disabled{{end}}>
               Require two-factor authentication
             </label>
+            {{if .AuthRequireMFALocked}}
+            <p class="help">
+              Set by the configuration file or environment
+              (<span class="td-mono">auth.require_mfa: {{.AuthRequireMFA}}</span>).
+              Change it there and restart Passage; this checkbox is read-only.
+            </p>
+            {{end}}
             <p class="help">
               Every user must enrol an authenticator app (TOTP) before they can use
               Passage. Password sign-ins then ask for a code. Passkeys and magic

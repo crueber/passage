@@ -11,6 +11,9 @@ database:
   path: "./passage.db"
 
 session:
+  # Global session lifetime. When this key is present (or
+  # PASSAGE_SESSION_DURATION_HOURS is set) it overrides the matching admin
+  # setting and the field is read-only in Settings → General.
   duration_hours: 24
   # Optional idle timeout. A session that has not been used for this many
   # minutes is closed even if duration_hours has not elapsed. 0 disables it.
@@ -28,6 +31,10 @@ smtp:
   tls: "starttls"
 
 auth:
+  # Public self-registration. When this key is present (or
+  # PASSAGE_AUTH_ALLOW_REGISTRATION is set) it overrides the admin switch and
+  # that switch is read-only in Settings → General; remove the key to manage
+  # registration from the UI.
   allow_registration: true
   bcrypt_cost: 12
   # Per-account password-login throttling. After this many consecutive invalid
@@ -40,8 +47,9 @@ auth:
   # Default for the "Require two-factor authentication" policy. When on, every
   # signed-in user must enrol an authenticator app (TOTP) before they can use
   # Passage; password sign-ins then ask for a 6-digit code. Passkeys and magic
-  # links are not affected. The admin checkbox in Settings → Authentication
-  # methods overrides this value once saved.
+  # links are not affected. When this key is present (or
+  # PASSAGE_AUTH_REQUIRE_MFA is set) it overrides the admin checkbox, which is
+  # then read-only; remove the key to manage the policy from the UI.
   require_mfa: false
 
   # Upstream OIDC/OAuth identity providers. Each entry adds a sign-in button to

@@ -97,18 +97,21 @@ func TestRender_ThemeAttributes(t *testing.T) {
 	}{AllowPassword: true}
 
 	settings := struct {
-		ActiveNav            string
-		Flash                any
-		CSRFToken            string
-		AllowRegistration    string
-		SessionDurationHours string
-		SMTPFrom             string
-		Themes               []theme.Theme
-		AuthPasswordEnabled  string
-		AuthPasskeyEnabled   string
-		AuthMagicLinkEnabled string
-		AuthRequireMFA       string
-		SMTPConfigured       bool
+		ActiveNav               string
+		Flash                   any
+		CSRFToken               string
+		AllowRegistration       string
+		SessionDurationHours    string
+		SMTPFrom                string
+		AllowRegistrationLocked bool
+		SessionDurationLocked   bool
+		AuthRequireMFALocked    bool
+		Themes                  []theme.Theme
+		AuthPasswordEnabled     string
+		AuthPasskeyEnabled      string
+		AuthMagicLinkEnabled    string
+		AuthRequireMFA          string
+		SMTPConfigured          bool
 	}{
 		Themes:              theme.All,
 		AuthPasswordEnabled: "true",

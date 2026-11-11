@@ -2794,6 +2794,144 @@ func TestPostSettings_SingleSaveWritesBothSections(t *testing.T) {
 	}
 }
 
+// TestGetSettings_ConfigControlledFields pins the UI contract: a setting the
+// config file or environment supplies shows the config value, is disabled, and
+// says where to change it. A setting the config does not mention stays normal.
+func TestGetSettings_ConfigControlledFields(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		"allow_registration":     "true",
+		"session_duration_hours": "48",
+		"auth_require_mfa":       "false",
+		"smtp_from":              "kept@example.com",
+	} {
+		if err := f.settings.Set(ctx, key, value); err != nil {
+			t.Fatalf("seed %s: %v", key, err)
+		}
+	}
+
+	f.cfg.Auth.AllowRegistration = false
+	f.cfg.Auth.AllowRegistrationSet = true
+	f.cfg.Session.DurationHours = 6
+	f.cfg.Session.DurationHoursSet = true
+	f.cfg.Auth.RequireMFA = true
+	f.cfg.Auth.RequireMFASet = true
+
+	body := adminRequest(t, router, http.MethodGet, "/admin/settings", token, f.cfg.Session.CookieName, nil, "").Body.String()
+
+	// The config value is what the form shows, not the stored one.
+	for _, want := range []string{
+		`id="session_duration_hours"`,
+		`value="6"`,
+		`auth.allow_registration: false`,
+		`session.duration_hours: 6`,
+		`auth.require_mfa: true`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page missing %q", want)
+		}
+	}
+	// Each locked control carries disabled on its own tag; an unlocked one
+	// (SMTP from) does not. The magic-link checkbox may also be disabled for
+	// an unrelated reason (no SMTP configured), so match per control.
+	for _, id := range []string{"allow_registration", "session_duration_hours", "auth_require_mfa"} {
+		tag := inputTag(body, id)
+		if tag == "" {
+			t.Errorf("settings page has no input with id %q", id)
+			continue
+		}
+		if !strings.Contains(tag, "disabled") {
+			t.Errorf("input %q is not disabled: %s", id, tag)
+		}
+	}
+	if tag := inputTag(body, "smtp_from"); tag == "" || strings.Contains(tag, "disabled") {
+		t.Errorf("smtp_from should stay editable, tag = %q", tag)
+	}
+}
+
+// inputTag returns the markup of the first input element with the given id.
+func inputTag(body, id string) string {
+	needle := `id="` + id + `"`
+	i := strings.Index(body, needle)
+	if i < 0 {
+		return ""
+	}
+	start := strings.LastIndex(body[:i], "<input")
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(body[start:], ">")
+	if end < 0 {
+		return ""
+	}
+	return body[start : start+end+1]
+}
+
+// TestPostSettings_DoesNotOverwriteConfigControlledFields proves a save cannot
+// write a value the config controls, while the remaining settings still apply.
+func TestPostSettings_DoesNotOverwriteConfigControlledFields(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	f.cfg.Auth.AllowRegistration = false
+	f.cfg.Auth.AllowRegistrationSet = true
+	f.cfg.Session.DurationHours = 6
+	f.cfg.Session.DurationHoursSet = true
+	f.cfg.Auth.RequireMFA = true
+	f.cfg.Auth.RequireMFASet = true
+
+	// Stored values that disagree with the config; the save must leave them be.
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		"allow_registration":     "true",
+		"session_duration_hours": "48",
+		"auth_require_mfa":       "false",
+	} {
+		if err := f.settings.Set(ctx, key, value); err != nil {
+			t.Fatalf("seed %s: %v", key, err)
+		}
+	}
+
+	form := url.Values{}
+	form.Set("allow_registration", "on") // the UI would not submit this; a crafted POST can
+	form.Set("session_duration_hours", "48")
+	form.Set("smtp_from", "passage@example.com")
+	form.Set("auth_password_enabled", "on")
+	form.Set("auth_require_mfa", "on")
+	form.Set("auth_passkey_enabled", "on")
+
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	if rec.Result().StatusCode != http.StatusFound {
+		t.Fatalf("status = %d; want 302 (%s)", rec.Result().StatusCode, rec.Body.String())
+	}
+
+	for key, want := range map[string]string{
+		"allow_registration":     "true", // unchanged: config wins, the row is not written
+		"session_duration_hours": "48",
+		"auth_require_mfa":       "false",
+		"smtp_from":              "passage@example.com", // not config-controlled, so saved
+	} {
+		got, err := f.settings.Get(ctx, key)
+		if err != nil {
+			t.Errorf("%s: %v", key, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s = %q; want %q", key, got, want)
+		}
+	}
+}
+
 // TestPostSettings_RejectedFormPreservesValues makes sure a validation error
 // does not silently discard everything the operator just typed.
 func TestPostSettings_RejectedFormPreservesValues(t *testing.T) {

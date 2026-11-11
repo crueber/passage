@@ -178,7 +178,7 @@ database:
   path: "./passage.db"  # path to SQLite file; created on first run
 
 session:
-  duration_hours: 24    # how long sessions stay valid
+  duration_hours: 24    # how long sessions stay valid (overrides the admin setting when set)
   idle_timeout_minutes: 0  # optional: close a session after N minutes unused (0 = off)
   cookie_name: "passage_session"
   cookie_secure: true   # set false only for local HTTP development
@@ -192,7 +192,7 @@ smtp:
   tls: "starttls"       # "starttls" | "tls" | "none"
 
 auth:
-  allow_registration: true  # allow users to self-register; togglable in admin UI at runtime
+  allow_registration: true  # allow self-registration; overrides the admin switch when this key is present
   # Upstream OIDC providers (optional, empty by default). One login button per
   # entry; list form, so there is no env override.
   providers: []
@@ -207,7 +207,7 @@ auth:
   bcrypt_cost: 12           # password hashing cost; 10–14 recommended
   max_login_failures: 5     # per-account lockout threshold (0 disables)
   lockout_minutes: 15       # how long a locked account stays locked
-  require_mfa: false        # default for "require two-factor authentication"; the admin checkbox overrides it
+  require_mfa: false        # require two-factor authentication; overrides the admin checkbox when present
 
 security:
   encryption_key: ""        # AES-256-GCM key for TOTP secrets: 64 hex chars or base64 of 32 bytes
@@ -265,7 +265,7 @@ Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → 
 | `PASSAGE_AUTH_BCRYPT_COST` | `auth.bcrypt_cost` |
 | `PASSAGE_AUTH_MAX_LOGIN_FAILURES` | `auth.max_login_failures` |
 | `PASSAGE_AUTH_LOCKOUT_MINUTES` | `auth.lockout_minutes` |
-| `PASSAGE_AUTH_REQUIRE_MFA` | `auth.require_mfa` (the saved admin setting wins) |
+| `PASSAGE_AUTH_REQUIRE_MFA` | `auth.require_mfa` (overrides the saved admin setting) |
 | `PASSAGE_SECURITY_ENCRYPTION_KEY` | `security.encryption_key` — AES-256-GCM key for TOTP secrets |
 | `PASSAGE_SECURITY_WEBHOOK_URL` | `security.webhook_url` |
 | `PASSAGE_SECURITY_WEBHOOK_SECRET` | `security.webhook_secret` |

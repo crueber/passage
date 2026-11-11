@@ -670,6 +670,7 @@ func TestRequireMFA_Gate(t *testing.T) {
 	tests := []struct {
 		name     string
 		cfgOn    bool
+		cfgSet   bool // auth.require_mfa supplied by the config file or environment
 		setting  string
 		enrolled bool
 		path     string
@@ -683,6 +684,8 @@ func TestRequireMFA_Gate(t *testing.T) {
 		{name: "setting true overrides config off", setting: "true", path: "/", wantLoc: "/mfa/setup?required=1"},
 		{name: "setting false overrides config on", cfgOn: true, setting: "false", path: "/"},
 		{name: "setting true but enrolled", setting: "true", enrolled: true, path: "/"},
+		{name: "explicit config on beats stored false", cfgOn: true, cfgSet: true, setting: "false", path: "/", wantLoc: "/mfa/setup?required=1"},
+		{name: "explicit config off beats stored true", cfgSet: true, setting: "true", path: "/"},
 	}
 
 	for _, tt := range tests {
@@ -690,6 +693,7 @@ func TestRequireMFA_Gate(t *testing.T) {
 			t.Parallel()
 			f := newFullHandlerFixtureWith(t, true, func(c *config.Config) {
 				c.Auth.RequireMFA = tt.cfgOn
+				c.Auth.RequireMFASet = tt.cfgSet
 			}, noopSender{})
 			if tt.setting != "" {
 				f.settings.values[user.SettingRequireMFA] = tt.setting

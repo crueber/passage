@@ -401,17 +401,15 @@ func (h *Handler) linkUser(ctx context.Context, p *Provider, ident *Identity, us
 	return nil
 }
 
-// registrationAllowed mirrors the user handler: the DB setting wins over the
-// static config, and a missing setting or lookup error falls back to config.
+// registrationAllowed mirrors the user handler so an upstream sign-in obeys
+// the same policy: explicit config first, then the admin setting, then the
+// config default.
 func (h *Handler) registrationAllowed(ctx context.Context) bool {
 	if h.settings == nil {
 		return h.cfg.Auth.AllowRegistration
 	}
 	val, err := h.settings.Get(ctx, "allow_registration")
-	if err != nil {
-		return h.cfg.Auth.AllowRegistration
-	}
-	return val == "true"
+	return config.BoolSetting(h.cfg.Auth.AllowRegistrationSet, h.cfg.Auth.AllowRegistration, val, err == nil)
 }
 
 // provider resolves the {provider} route parameter against the configured set.
