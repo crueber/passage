@@ -171,6 +171,13 @@ type AuthConfig struct {
 	// MaxLoginFailures. Zero disables per-account throttling.
 	// Env: PASSAGE_AUTH_LOCKOUT_MINUTES.
 	LockoutMinutes int `yaml:"lockout_minutes"`
+
+	// RequireMFA makes two-factor authentication mandatory: a signed-in user
+	// without a completed TOTP enrollment is sent to /mfa/setup until they
+	// enrol. It is only a default — an explicit auth_require_mfa value in the
+	// settings store (Settings → Authentication methods) wins over it.
+	// Env: PASSAGE_AUTH_REQUIRE_MFA.
+	RequireMFA bool `yaml:"require_mfa"`
 }
 
 // LogConfig holds logging settings.
@@ -463,6 +470,13 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Auth.LockoutMinutes = n
 		} else {
 			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_LOCKOUT_MINUTES", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_AUTH_REQUIRE_MFA"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Auth.RequireMFA = b
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_REQUIRE_MFA", v, err)
 		}
 	}
 

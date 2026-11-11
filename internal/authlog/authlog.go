@@ -26,6 +26,18 @@ const (
 	EventOAuthRefreshReuse = "oauth.refresh_reuse"
 	EventOAuthRevoke       = "oauth.revoke"
 	EventOAuthLogout       = "oauth.logout"
+
+	// Two-factor authentication. A challenge is issued after a correct password
+	// when the account has TOTP enabled; it is not a login on its own. No event
+	// ever carries a TOTP code, secret, or recovery code — Detail names the
+	// method ("totp", "recovery") or the action, never the credential.
+	EventMFAChallenge        = "mfa.challenge"
+	EventMFASuccess          = "mfa.success"
+	EventMFAFailure          = "mfa.failure"
+	EventMFAEnrolled         = "mfa.enrolled"
+	EventMFADisabled         = "mfa.disabled"
+	EventMFACodesRegenerated = "mfa.codes_regenerated"
+	EventMFAReset            = "mfa.reset"
 )
 
 // Outcomes describe how an event ended.
@@ -70,6 +82,13 @@ func Names() []string {
 		EventOAuthRefreshReuse,
 		EventOAuthRevoke,
 		EventOAuthLogout,
+		EventMFAChallenge,
+		EventMFASuccess,
+		EventMFAFailure,
+		EventMFAEnrolled,
+		EventMFADisabled,
+		EventMFACodesRegenerated,
+		EventMFAReset,
 	}
 }
 
