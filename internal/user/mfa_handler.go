@@ -14,6 +14,7 @@ import (
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/ratelimit"
+	"github.com/skip2/go-qrcode"
 )
 
 const (
@@ -303,6 +304,42 @@ type mfaSetupData struct {
 	Required bool
 }
 
+// GetMFAQR serves the provisioning QR for the pending enrollment as a PNG.
+//
+// A route rather than an inline data URI: html/template refuses the data:
+// scheme in an src attribute (it renders #ZgotmplZ), and serving the image
+// keeps the template free of an escaping bypass. The response is never cached;
+// it is only meaningful while an enrollment is pending.
+func (h *Handler) GetMFAQR(w http.ResponseWriter, r *http.Request) {
+	u, ok := h.userCtx(r.Context())
+	if !ok || u == nil || h.mfa == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	enr, err := h.mfa.PendingEnrollment(r.Context(), u.ID, u.Username)
+	if err != nil {
+		// No pending enrollment (enabled, reset, or never started) is a 404. The
+		// setup page is the only expected referrer.
+		if !errors.Is(err, mfa.ErrNotPending) && !errors.Is(err, mfa.ErrNotFound) {
+			h.logger.Error("mfa: qr pending enrollment", "user_id", u.ID, "error", err)
+		}
+		http.NotFound(w, r)
+		return
+	}
+
+	png, err := qrcode.Encode(enr.URI, qrcode.Medium, 256)
+	if err != nil {
+		h.logger.Error("mfa: encode qr", "user_id", u.ID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(png)
+}
+
 // mfaCodesData is the one-time recovery-code page.
 type mfaCodesData struct {
 	User        *User
@@ -325,6 +362,7 @@ func (h *Handler) MFARoutes(r chi.Router, limiter *ratelimit.Limiter) {
 	}
 
 	r.Get("/mfa/setup", h.GetMFASetup)
+	r.Get("/mfa/qr", h.GetMFAQR)
 	r.Post("/mfa/setup", wrap(h.PostMFASetup))
 	r.Post("/mfa/disable", wrap(h.PostMFADisable))
 	r.Post("/mfa/recovery-codes", wrap(h.PostMFARecoveryCodes))

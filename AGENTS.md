@@ -76,6 +76,7 @@ All dependencies are **pure Go — no CGo**. Do not introduce any dependency tha
 | `modernc.org/sqlite` | Pure Go SQLite driver (no CGo) |
 | `github.com/go-webauthn/webauthn` | WebAuthn/passkeys |
 | `github.com/golang-jwt/jwt/v5` | JWT signing and verification (OAuth id_token) |
+| `github.com/skip2/go-qrcode` | TOTP enrollment QR codes (pure Go, no transitive dependencies) |
 | `gopkg.in/yaml.v3` | YAML config file parsing |
 
 ---

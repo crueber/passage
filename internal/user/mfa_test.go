@@ -1,6 +1,7 @@
 package user_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -469,6 +470,12 @@ func TestMFASetup_EnrollFlow(t *testing.T) {
 		}
 	}
 
+	// The page points at the QR route; the image itself is covered by
+	// TestGetMFAQR (a data URI would be rejected by html/template's src filter).
+	if !strings.Contains(body, `src="/mfa/qr"`) {
+		t.Error("setup page has no QR image")
+	}
+
 	var secret string
 	if err := f.db.QueryRow(`SELECT secret FROM user_mfa WHERE user_id = ?`, u.ID).Scan(&secret); err != nil {
 		t.Fatalf("read pending secret: %v", err)
@@ -808,4 +815,81 @@ func TestMFALogin_SuccessResetsThrottle(t *testing.T) {
 	} else if status.Failures != 0 {
 		t.Errorf("failure counter = %d; want 0 after success", status.Failures)
 	}
+}
+
+// pngSize reads the IHDR width and height from a PNG.
+func pngSize(t *testing.T, data []byte) (int, int) {
+	t.Helper()
+	if len(data) < 24 || string(data[12:16]) != "IHDR" {
+		t.Fatalf("not a PNG with an IHDR chunk")
+	}
+	return int(binary.BigEndian.Uint32(data[16:20])), int(binary.BigEndian.Uint32(data[20:24]))
+}
+
+// TestGetMFAQR serves the pending enrollment as a PNG. The image is the
+// provisioning URI, so it must exist while enrollment is pending, be uncached,
+// and disappear once the factor is enabled.
+func TestGetMFAQR(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+	u := registerUser(t, f, "quinn")
+	ctx := session.WithUser(context.Background(), u)
+
+	// Start enrollment so a pending secret exists.
+	req := httptest.NewRequest(http.MethodGet, "/mfa/setup", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	f.handler.GetMFASetup(rec, req)
+	if rec.Result().StatusCode != http.StatusOK {
+		t.Fatalf("setup status = %d; want 200", rec.Result().StatusCode)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/mfa/qr", nil).WithContext(ctx)
+	rec = httptest.NewRecorder()
+	f.handler.GetMFAQR(rec, req)
+	res := rec.Result()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("qr status = %d; want 200", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q; want image/png", ct)
+	}
+	if cc := res.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q; want no-store", cc)
+	}
+	png := rec.Body.Bytes()
+	if !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("not a PNG (prefix % x)", png[:8])
+	}
+	if w, h := pngSize(t, png); w != 256 || h != 256 {
+		t.Errorf("size = %dx%d; want 256x256", w, h)
+	}
+
+	// Once enabled, the pending secret is gone and so is the image.
+	rec = httptest.NewRecorder()
+	// The fixture injects a fixed clock into the MFA service, so the code must be
+	// computed at that time, not the wall clock.
+	req = httptest.NewRequest(http.MethodPost, "/mfa/setup", strings.NewReader("code="+totpAt(t, pendingSecret(t, f, u.ID), f.clock.Now()))).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	f.handler.PostMFASetup(rec, req)
+	if rec.Result().StatusCode != http.StatusOK {
+		t.Fatalf("confirm status = %d; want 200", rec.Result().StatusCode)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/mfa/qr", nil).WithContext(ctx)
+	f.handler.GetMFAQR(rec, req)
+	if rec.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("qr after enrollment = %d; want 404", rec.Result().StatusCode)
+	}
+}
+
+// pendingSecret reads the unconfirmed TOTP secret for a user.
+func pendingSecret(t *testing.T, f *handlerFixture, userID string) string {
+	t.Helper()
+	var secret string
+	if err := f.db.QueryRow(`SELECT secret FROM user_mfa WHERE user_id = ?`, userID).Scan(&secret); err != nil {
+		t.Fatalf("read pending secret: %v", err)
+	}
+	return secret
 }

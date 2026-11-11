@@ -34,9 +34,17 @@
       <h2 id="secret-heading" class="font-semibold text-ink">1. Add the account to your authenticator app</h2>
       <p class="mt-1 text-sm text-muted">
         Open your authenticator app (1Password, Bitwarden, Aegis, Google
-        Authenticator, …) and add an account manually with the key below.
-        Choose “time-based” if you are asked.
+        Authenticator, …) and scan the code, or add the account manually with
+        the key below. Choose “time-based” if you are asked.
       </p>
+
+      <div class="mt-4 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+        <img src="/mfa/qr" alt="QR code for the two-factor setup key"
+             width="176" height="176"
+             class="size-44 shrink-0 rounded-lg border border-line bg-white p-2">
+        <p class="help sm:max-w-xs">Scan this with your authenticator app. If it cannot
+          scan, use the key below.</p>
+      </div>
 
       <div class="mt-4 space-y-4">
         <div>

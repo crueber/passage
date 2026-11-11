@@ -155,6 +155,13 @@ Passkeys and magic links deliberately do **not** get a second step:
 | Passkey (WebAuthn) | The assertion already proves possession of the authenticator, which is itself "something you have" plus a local gesture/biometric. |
 | Magic link | Clicking the link proves control of the mailbox that received it. |
 
+### Enrollment
+
+Self-service from the Security page. The page shows a QR code (served by
+`GET /mfa/qr`, generated on demand for the pending secret only and never
+cached) plus the same key as text for manual entry, then asks for one code to
+confirm. Recovery codes are shown once, immediately after confirmation.
+
 ### Storage
 
 | Value | At rest |
