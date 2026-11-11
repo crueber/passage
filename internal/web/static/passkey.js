@@ -213,6 +213,43 @@
       });
     }
 
+    // Typing a username and pressing Enter should try a passkey, not bounce off
+    // the empty (required) password field. Two paths, because browsers differ:
+    // a normal browser fires `invalid` on the blocked password field before any
+    // submit event; an engine without constraint validation fires `submit`.
+    var loginForm = usernameInput && usernameInput.form;
+    if (loginForm) {
+      var passwordInput = loginForm.querySelector('input[type="password"]');
+      if (passwordInput) {
+        var usernameOnly = function () {
+          return !passwordInput.value && usernameInput.value.trim();
+        };
+
+        // Normal browsers: `required` blocks the submission and fires `invalid`
+        // on the empty password field before any submit event.
+        passwordInput.addEventListener('invalid', function (e) {
+          if (usernameOnly()) {
+            e.preventDefault();
+            btn.click();
+          }
+        });
+
+        // Fallback for engines without constraint validation, and for a
+        // programmatic form.submit() that skips validation: never send a
+        // credential-less POST to /login.
+        loginForm.addEventListener('submit', function (e) {
+          if (passwordInput.value) return;
+          e.preventDefault();
+          if (usernameInput.value.trim()) {
+            btn.click();
+          } else if (status) {
+            status.textContent = 'Enter your username and password, or use a passkey.';
+            usernameInput.focus();
+          }
+        });
+      }
+    }
+
     btn.addEventListener('click', async function () {
       // This button asks the server for *that account's* credentials
       // (allowCredentials), which is what makes a passkey registered before
