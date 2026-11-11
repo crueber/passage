@@ -46,3 +46,6 @@ tools/tailwindcss*
 
 # Local redesign screenshots (uncommitted per contract)
 /redesign-screenshots/
+
+# Agent session state (opencode goals etc.) — never commit
+.opencode/
