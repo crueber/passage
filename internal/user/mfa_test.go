@@ -750,3 +750,62 @@ func TestRequireMFA_ExemptRoutesStayReachable(t *testing.T) {
 		t.Fatalf("/logout Location = %q; want /login", loc)
 	}
 }
+
+// TestMFALogin_BadCodesLockTheAccount proves the second step cannot be brute
+// forced: repeated bad codes use the same per-account throttle as passwords.
+func TestMFALogin_BadCodesLockTheAccount(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixtureWithThrottle(t, true, 3, 15)
+	u := registerUser(t, f, "bruteforce")
+	codes := enrollMFA(t, f, u)
+
+	rec := postLogin(t, f, "bruteforce", "password123")
+	token := challengeTokenFrom(t, f, rec)
+	if token == "" {
+		t.Fatal("no challenge issued")
+	}
+
+	for i := 0; i < 3; i++ {
+		postMFALogin(t, f, token, "000000")
+	}
+
+	// Even a valid unused recovery code is refused while the account is locked.
+	locked := postMFALogin(t, f, token, codes[0])
+	if locked.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (re-rendered form)", locked.Code)
+	}
+	if !strings.Contains(locked.Body.String(), "Too many failed attempts") {
+		t.Errorf("locked form does not show the throttle message")
+	}
+	if n := countSessions(t, f, u.ID); n != 0 {
+		t.Errorf("session created while locked: %d", n)
+	}
+}
+
+// TestMFALogin_SuccessResetsThrottle is the other half: a good code clears a
+// partial failure count, so a fumbled digit does not accumulate.
+func TestMFALogin_SuccessResetsThrottle(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixtureWithThrottle(t, true, 3, 15)
+	u := registerUser(t, f, "fumbler")
+	codes := enrollMFA(t, f, u)
+
+	rec := postLogin(t, f, "fumbler", "password123")
+	token := challengeTokenFrom(t, f, rec)
+
+	for i := 0; i < 2; i++ {
+		postMFALogin(t, f, token, "000000")
+	}
+	ok := postMFALogin(t, f, token, codes[0])
+	if ok.Code != http.StatusFound {
+		t.Fatalf("status = %d; want 302 after a valid recovery code", ok.Code)
+	}
+	if n := countSessions(t, f, u.ID); n != 1 {
+		t.Errorf("sessions = %d; want 1", n)
+	}
+	if status, err := f.throttle.Status(context.Background(), "fumbler"); err != nil {
+		t.Fatalf("throttle status: %v", err)
+	} else if status.Failures != 0 {
+		t.Errorf("failure counter = %d; want 0 after success", status.Failures)
+	}
+}

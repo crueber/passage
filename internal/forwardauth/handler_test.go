@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,7 +60,7 @@ func setupDeps(t *testing.T) *testDeps {
 	appStore := app.NewStore(db)
 	appSvc := app.NewService(appStore, appStore, slog.Default())
 
-	handler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, slog.Default())
+	handler := forwardauth.NewHandler(sessionSvc, appSvc, nil, cfg, slog.Default())
 
 	return &testDeps{
 		cfg:        cfg,
@@ -215,7 +216,7 @@ func TestNginxAuth_ExpiredSession(t *testing.T) {
 	sessionSvc2 := session.NewService(sessionStore2, userStore2, nil, nil, expiredCfg, slog.Default())
 	appStore2 := app.NewStore(db2)
 	appSvc2 := app.NewService(appStore2, appStore2, slog.Default())
-	h2 := forwardauth.NewHandler(sessionSvc2, appSvc2, expiredCfg, slog.Default())
+	h2 := forwardauth.NewHandler(sessionSvc2, appSvc2, nil, expiredCfg, slog.Default())
 
 	u2, err := userSvc2.Register(ctx, "expuser2", "expuser2@example.com", "password123")
 	if err != nil {
@@ -275,7 +276,7 @@ func TestTraefikAuth_ExpiredSession(t *testing.T) {
 	sessionSvc3 := session.NewService(sessionStore3, userStore3, nil, nil, expiredCfg3, slog.Default())
 	appStore3 := app.NewStore(db3)
 	appSvc3 := app.NewService(appStore3, appStore3, slog.Default())
-	h3 := forwardauth.NewHandler(sessionSvc3, appSvc3, expiredCfg3, slog.Default())
+	h3 := forwardauth.NewHandler(sessionSvc3, appSvc3, nil, expiredCfg3, slog.Default())
 
 	u3, err := userSvc3.Register(ctx, "traefikexpuser", "traefikexpuser@example.com", "password123")
 	if err != nil {
@@ -508,5 +509,54 @@ func checkHeader(t *testing.T, w *httptest.ResponseRecorder, header, want string
 	got := w.Header().Get(header)
 	if got != want {
 		t.Errorf("header %q: got %q, want %q", header, got, want)
+	}
+}
+
+// stubMFAGate is a fixed answer for the policy gate, so these tests exercise
+// the forward-auth decision and not the policy itself.
+type stubMFAGate struct{ blocked bool }
+
+func (s stubMFAGate) MFABlocked(context.Context, string) bool { return s.blocked }
+
+// TestNginxAuth_MFAPolicy pins the integration rule: forward-auth must not be a
+// way around "require MFA".
+func TestNginxAuth_MFAPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		blocked bool
+		want    int
+	}{
+		{"enrolled user passes", false, http.StatusOK},
+		{"un-enrolled user is denied", true, http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			deps := setupDeps(t)
+			u, token := createUserAndSession(t, deps, "mfa"+strings.ReplaceAll(tt.name, " ", ""))
+			a := createApp(t, deps, "grafana", "grafana.home.example.com")
+			if err := deps.appSvc.GrantAccess(context.Background(), u.ID, a.ID); err != nil {
+				t.Fatalf("GrantAccess: %v", err)
+			}
+
+			handler := forwardauth.NewHandler(deps.sessionSvc, deps.appSvc, stubMFAGate{blocked: tt.blocked}, deps.cfg, slog.Default())
+
+			r := httptest.NewRequest(http.MethodGet, "/auth/nginx", nil)
+			r.Header.Set("X-Original-URL", "https://grafana.home.example.com/dashboard")
+			r.AddCookie(&http.Cookie{Name: deps.cfg.Session.CookieName, Value: token})
+			w := httptest.NewRecorder()
+
+			newRouter(handler).ServeHTTP(w, r)
+
+			if w.Code != tt.want {
+				t.Errorf("got status %d; want %d", w.Code, tt.want)
+			}
+			if tt.blocked && strings.Contains(w.Body.String(), u.Username) {
+				t.Error("denied response must not leak identity headers or username")
+			}
+		})
 	}
 }

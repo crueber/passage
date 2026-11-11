@@ -19,6 +19,27 @@ func (h *Handler) mfaRequired(ctx context.Context) bool {
 	return h.cfg.Auth.RequireMFA
 }
 
+// MFABlocked reports whether the global policy currently requires this user to
+// enroll before using the instance. It is the single definition of the policy:
+// RequireMFA uses it for Passage's own routes and forward-auth uses it for
+// upstream apps, so an un-enrolled user cannot reach either.
+//
+// It fails open on a store error, loudly: the MFA tables share the SQLite file
+// with the sessions that were just validated, so an error here means the
+// database is in trouble, and a policy check is not worth locking every
+// operator out of an auth proxy. The policy still applies on the next request.
+func (h *Handler) MFABlocked(ctx context.Context, userID string) bool {
+	if h.mfa == nil || !h.mfaRequired(ctx) {
+		return false
+	}
+	enabled, err := h.mfa.Enabled(ctx, userID)
+	if err != nil {
+		h.logger.Warn("mfa policy: enrollment check failed", "user_id", userID, "error", err)
+		return false
+	}
+	return !enabled
+}
+
 // RequireMFA is the global "require two-factor authentication" gate.
 //
 // When the policy is on, a signed-in user without a completed enrollment is
@@ -43,18 +64,7 @@ func (h *Handler) RequireMFA(next http.Handler) http.Handler {
 			return
 		}
 
-		enabled, err := h.mfa.Enabled(r.Context(), u.ID)
-		if err != nil {
-			// Fail open, loudly. The MFA tables share the SQLite file with the
-			// sessions RequireSession just validated, so an error here means the
-			// database is in trouble — and a policy check is not worth locking
-			// every operator out of an auth proxy. The policy still applies on
-			// the next request.
-			h.logger.Warn("mfa gate: enrollment check failed", "user_id", u.ID, "error", err)
-			next.ServeHTTP(w, r)
-			return
-		}
-		if !enabled {
+		if h.MFABlocked(r.Context(), u.ID) {
 			http.Redirect(w, r, "/mfa/setup?required=1", http.StatusFound)
 			return
 		}

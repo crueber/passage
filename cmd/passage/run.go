@@ -336,11 +336,12 @@ func run() error {
 	auditSvc := admin.NewAuditService(auditStore, logger)
 	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle)
 
-	// Build forward-auth handler.
-	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
-
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
+
+	// Build forward-auth handler. It takes the user handler as its MFA policy
+	// gate, so "require MFA" cannot be bypassed by going to an upstream app.
+	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, userHandler, cfg, logger)
 
 	// Build the user-facing sessions page handler (self-service revoke).
 	userSessionsHandler := session.NewHandler(sessionSvc, tmpl, cfg, logger)

@@ -44,6 +44,7 @@ passage/
     email/              # go-mail wrapper + embedded templates
     oauth/              # OAuth 2.0 / OIDC provider — authorize, token, userinfo, JWKS, PKCE
     webauthn/           # WebAuthn registration/authentication ceremonies + SQLite credential/challenge stores
+    mfa/                # TOTP (RFC 6238) + single-use recovery codes, pending login challenges
     csrf/               # CSRF middleware: ProtectAnonymous (double-submit) + ProtectAuthenticated (session-bound HMAC)
     ratelimit/          # in-memory sliding-window limiter + chi Middleware
     web/
@@ -99,8 +100,9 @@ Route groups in `run.go`; when adding routes, pick the right group:
 |---|---|---|
 | Global | `RequestID`, `RealIP`, `Logger`, `Recoverer`, `web.SecurityHeaders()` | everything |
 | Public JSON | none | `/healthz`, passkey auth routes, `/.well-known/*`, `/oauth/*` |
-| Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/register`, `/reset`, `/login/magic`, `/setup` |
-| Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, `/sessions` (+ revoke), passkey profile routes |
+| Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/login/mfa`, `/register`, `/reset`, `/login/magic`, `/setup` |
+| Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, `/sessions` (+ revoke), `/mfa/*` + Security page (ungated), passkey profile routes |
+| Behind the "require MFA" gate | `user.RequireMFA` inside the session group | app routes and `/admin/*` when `auth_require_mfa` is on |
 | Admin | `admin.RequireAdmin` + `csrf.ProtectAuthenticated` | `/admin/*` |
 
 - Rate limiting: `ratelimit.Middleware(limiter)` applied per-route (`/login`, `/reset`, `/oauth/token`, `/setup`). Limiters are in-memory sliding-window, configured in the `ratelimit` config section. Read-only OAuth endpoints (discovery, JWKS, userinfo) are deliberately NOT rate-limited.

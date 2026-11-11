@@ -23,6 +23,13 @@ type sessionValidator interface {
 	RevokeSession(ctx context.Context, token string) error
 }
 
+// mfaGate reports whether the global MFA policy blocks a user who has not
+// enrolled. Defined at the consumer boundary; backed by user.Handler.MFABlocked
+// in run.go so forward-auth and the app routes share one policy.
+type mfaGate interface {
+	MFABlocked(ctx context.Context, userID string) bool
+}
+
 // appResolver is the interface the Handler uses for app resolution and access checks.
 // Defined here at the consumer boundary.
 type appResolver interface {
@@ -34,15 +41,17 @@ type appResolver interface {
 type Handler struct {
 	sessions sessionValidator
 	apps     appResolver
+	mfa      mfaGate
 	cfg      *config.Config
 	logger   *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(sessions sessionValidator, apps appResolver, cfg *config.Config, logger *slog.Logger) *Handler {
+func NewHandler(sessions sessionValidator, apps appResolver, mfaGate mfaGate, cfg *config.Config, logger *slog.Logger) *Handler {
 	return &Handler{
 		sessions: sessions,
 		apps:     apps,
+		mfa:      mfaGate,
 		cfg:      cfg,
 		logger:   logger,
 	}
@@ -110,6 +119,17 @@ func (h *Handler) checkAuth(w http.ResponseWriter, r *http.Request, host string)
 	if err != nil {
 		h.logger.Debug("forward auth: session validation failed", "error", err)
 		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// The "require MFA" policy applies to upstream apps too, otherwise
+	// forward-auth would be the way around it. Deny with 403 rather than a
+	// redirect: nginx's auth_request treats anything but 2xx/401/403 as an
+	// error, so a 302 here would surface as a 500. The browser can reach
+	// /mfa/setup directly to satisfy the policy.
+	if h.mfa != nil && h.mfa.MFABlocked(ctx, u.ID) {
+		h.logger.Debug("forward auth: mfa enrollment required", "user_id", u.ID, "host", host)
+		http.Error(w, "Two-factor authentication enrollment required", http.StatusForbidden)
 		return
 	}
 

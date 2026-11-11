@@ -178,6 +178,10 @@ authentication event, or the security webhook. Events name the method
 - The pending challenge row is deleted as part of completing the sign-in. If the
   delete fails, no session is created.
 
+Practical consequence: because the enrollment code is consumed too, signing in on
+a second device within the same 30-second window will be rejected with the generic
+"not valid" message. Wait for the next code.
+
 ### Requiring MFA instance-wide
 
 Turn on **Settings → Authentication methods → Require two-factor
@@ -190,6 +194,17 @@ so the gate can always be satisfied.
 If the MFA lookup itself fails (a database problem), the gate fails **open**
 with a WARN log rather than locking every user out of an authentication proxy.
 The policy applies again on the next request.
+
+Forward-auth is covered by the same policy: `/auth/nginx` and `/auth/traefik`
+return `403 Forbidden` for a signed-in user who has not enrolled, so an upstream
+app cannot be used to slip past the gate. It is a 403 rather than a redirect
+because nginx's `auth_request` treats a 3xx from the subrequest as an error; the
+browser can open `/mfa/setup` directly to satisfy the policy.
+
+Failed second-factor codes increment the **same per-account login throttle** as
+bad passwords, so the six-digit code cannot be brute forced with a stolen
+password: a run of bad codes locks the account exactly like a run of bad
+passwords, and a successful code clears the counter.
 
 ### Lockout and recovery
 

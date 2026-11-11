@@ -184,9 +184,34 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The second step is a 6-digit secret: without a per-account limit it is the
+	// cheapest half of the pair to brute force. Reuse the password throttle so a
+	// run of bad codes locks the account exactly like a run of bad passwords.
+	if h.throttle != nil {
+		if status, terr := h.throttle.Status(r.Context(), u.Username); terr != nil {
+			// Fail open: a throttle-store problem must not block a valid user.
+			h.logger.Warn("mfa: throttle status", "error", terr)
+		} else if status.Locked {
+			h.record(r, authlog.Event{
+				Event:    authlog.EventMFAFailure,
+				Outcome:  authlog.OutcomeThrottled,
+				UserID:   u.ID,
+				Username: u.Username,
+				Detail:   "account locked",
+			})
+			h.renderMFALogin(w, r, u.Username, &Flash{Type: "error", Message: lockedLoginMessage(status.Remaining)})
+			return
+		}
+	}
+
 	code := strings.TrimSpace(r.FormValue("code"))
 	method, err := h.mfa.Verify(r.Context(), ch.UserID, code)
 	if err != nil {
+		if h.throttle != nil {
+			if _, terr := h.throttle.RecordFailure(r.Context(), u.Username); terr != nil {
+				h.logger.Warn("mfa: record failure", "error", terr)
+			}
+		}
 		// Log only the unexpected failures; a wrong, spent, or replayed code is
 		// routine and must not fill the log. The code itself is never logged.
 		if !isExpectedMFAFailure(err) {
@@ -227,6 +252,12 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 		})
 		http.Redirect(w, r, "/login?flash=error", http.StatusFound)
 		return
+	}
+
+	if h.throttle != nil {
+		if terr := h.throttle.Reset(r.Context(), u.Username); terr != nil {
+			h.logger.Warn("mfa: reset throttle", "error", terr)
+		}
 	}
 
 	setSessionCookie(w, token, expiresAt, h.cfg)
