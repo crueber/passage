@@ -141,6 +141,19 @@ func (s *SQLiteStore) DeleteExpired(ctx context.Context) error {
 	return nil
 }
 
+// CountActive returns the number of sessions that have not passed their
+// absolute expiry. It is a single COUNT query used by the metrics endpoint; the
+// idle window is not applied (it expires a session on read, not in the table).
+func (s *SQLiteStore) CountActive(ctx context.Context) (int, error) {
+	const query = `SELECT COUNT(*) FROM sessions WHERE expires_at > ?`
+
+	var n int
+	if err := s.db.QueryRowContext(ctx, query, time.Now().UTC()).Scan(&n); err != nil {
+		return 0, fmt.Errorf("session store count active: %w", err)
+	}
+	return n, nil
+}
+
 // TouchLastUsed records that a session was used, but only when the stored
 // value is older than staleBefore. The conditional WHERE is the throttle: two
 // concurrent requests for the same session produce a single write. Sessions

@@ -31,6 +31,7 @@ import (
 	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/forwardauth"
+	"github.com/crueber/passage/internal/metrics"
 	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/oauth"
 	"github.com/crueber/passage/internal/ratelimit"
@@ -65,6 +66,10 @@ func (a *appDurationAdapter) GetSessionDurationHours(ctx context.Context, appID 
 }
 
 func run() error {
+	// The process start time backs passage_process_start_time_seconds. Capture
+	// it before configuration so it reflects process start, not listen time.
+	processStart := time.Now()
+
 	// Parse flags.
 	configPath := flag.String("config", "passage.yaml", "path to configuration file")
 	flag.Parse()
@@ -130,6 +135,24 @@ func run() error {
 	// logged and never fails the auth flow.
 	authStore := authlog.NewStore(database)
 
+	// Build the settings store early so sessionSvc can consult it for
+	// the session_duration_hours setting on every new session.
+	settingsStore := admin.NewSQLiteSettingsStore(database)
+
+	// Build app store early so sessionSvc can use per-app duration overrides.
+	appStore := app.NewStore(database)
+
+	sessionStore := session.NewStore(database)
+	sessionSvc := session.NewService(sessionStore, userStore, settingsStore, &appDurationAdapter{store: appStore}, cfg, logger)
+
+	// Prometheus metrics. The registry is built before the auth recorder so
+	// every recorded event can be counted, and before sessionSvc starts serving
+	// so the session counters are installed from the first sign-in. Gauges are
+	// COUNT-query callbacks: a scrape costs three cheap queries and never holds
+	// the single SQLite connection across a render.
+	srvMetrics := newServerMetrics(logger, version, processStart, userStore, appStore, sessionStore)
+	sessionSvc.SetSessionCounter(srvMetrics)
+
 	// Optional security webhook: a second sink on the recorder. An empty URL
 	// disables it entirely. The worker runs on the run context; Close stops it
 	// deterministically without depending on the parent context being
@@ -150,17 +173,10 @@ func run() error {
 		authNotifier = notifier
 	}
 
-	authRecorder := authlog.NewRecorder(authStore, authNotifier, logger)
-
-	// Build the settings store early so sessionSvc can consult it for
-	// the session_duration_hours setting on every new session.
-	settingsStore := admin.NewSQLiteSettingsStore(database)
-
-	// Build app store early so sessionSvc can use per-app duration overrides.
-	appStore := app.NewStore(database)
-
-	sessionStore := session.NewStore(database)
-	sessionSvc := session.NewService(sessionStore, userStore, settingsStore, &appDurationAdapter{store: appStore}, cfg, logger)
+	// The metrics counter wraps the webhook sink: every event is counted, then
+	// forwarded. Both steps are non-blocking, so a scrape or a dead webhook can
+	// never delay a login.
+	authRecorder := authlog.NewRecorder(authStore, authEventCounter{counter: srvMetrics.authEvents, next: authNotifier}, logger)
 
 	userSvc := user.NewService(userStore, userStore, sessionSvc, cfg)
 
@@ -438,6 +454,9 @@ func run() error {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
+	// Request counting sits outside the recoverer so a panicking handler is
+	// still counted, at the status the recoverer writes (500).
+	r.Use(metrics.HTTPMiddleware(srvMetrics.requests))
 	r.Use(middleware.Recoverer)
 	r.Use(web.SecurityHeaders())
 
@@ -453,6 +472,15 @@ func run() error {
 			Version string `json:"version"`
 		}{Status: "ok", Version: version})
 	})
+
+	// Prometheus metrics. Registered unconditionally: when metrics.enabled is
+	// false the handler answers 404, so the configuration alone decides whether
+	// the endpoint exists. Only the method and status of each request are
+	// counted — never a path, which would make cardinality unbounded.
+	r.Handle("/metrics", srvMetrics.reg.Handler(metrics.HandlerOptions{
+		Enabled: cfg.Metrics.Enabled,
+		Token:   cfg.Metrics.Token,
+	}))
 
 	// Forward-auth endpoints (consumed by reverse proxy).
 	faHandler.Routes(r)
