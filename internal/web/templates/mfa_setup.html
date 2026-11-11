@@ -56,14 +56,16 @@
           <p class="help">The key is base32 and is shown once. Treat it like a password.</p>
         </div>
 
-        <div>
-          <p class="label">Provisioning URI</p>
-          <div class="flex flex-wrap items-center gap-2">
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium text-muted hover:text-ink">
+            Advanced: paste the setup link instead
+          </summary>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
             <code id="mfa-uri" class="td-mono max-w-full truncate rounded-md border border-line bg-surface px-3 py-2 text-xs">{{.URI}}</code>
             <button type="button" class="btn btn-outline btn-sm" data-copy="#mfa-uri">Copy</button>
           </div>
-          <p class="help">Paste this into an app that accepts <code>otpauth://</code> links.</p>
-        </div>
+          <p class="help">For apps that accept <code>otpauth://</code> links.</p>
+        </details>
       </div>
     </section>
 
@@ -86,7 +88,7 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <button type="submit" class="btn btn-primary">Enable two-factor authentication</button>
+          <button type="submit" class="btn btn-primary">Enable two-factor</button>
           <a class="btn btn-ghost" href="/passkeys">Cancel</a>
         </div>
       </form>

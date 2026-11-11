@@ -33,7 +33,8 @@
                spellcheck="false" required autofocus placeholder="123456 or xxxxx-xxxxx">
         <p class="help">
           A 6-digit code from your authenticator app, or one of the recovery
-          codes you saved when you enabled two-factor authentication.
+          codes saved when you enabled two-factor authentication. If you have
+          lost both, ask an administrator to reset it.
         </p>
       </div>
 
@@ -41,18 +42,14 @@
     </form>
 
     {{if .PasskeyAvailable}}
-    <div class="mt-5 space-y-2.5" data-passkey-section>
-      <button type="button" id="passkey-mfa-btn" class="btn btn-outline w-full">
+    <div class="mt-4 space-y-1.5" data-passkey-section>
+      <button type="button" id="passkey-mfa-btn" class="btn btn-ghost btn-sm w-full">
         {{template "ic-key"}}Use a passkey instead
       </button>
       <p id="passkey-mfa-status" class="help text-center" aria-live="polite"></p>
     </div>
     {{end}}
 
-    <p class="auth-alt">
-      Lost your device? <a href="/login">Start over</a> and use a recovery code,
-      or ask an administrator to reset your two-factor authentication.
-    </p>
   </div>
 
   <p class="mt-8 text-xs text-faint">Self-hosted authentication for your home lab</p>

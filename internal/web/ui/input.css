@@ -441,7 +441,10 @@
       var(--color-canvas);
   }
   .auth-card {
-    @apply mt-6 w-full max-w-md rounded-2xl border border-line bg-surface p-7 shadow-pop sm:p-8;
+    /* shrink-0: the auth shell is a centred flex column, and without it the
+       card can be compressed below its content height (clipping the last
+       element) when the page is taller than the viewport. */
+    @apply mt-6 w-full max-w-md shrink-0 rounded-2xl border border-line bg-surface p-7 shadow-pop sm:p-8;
   }
   .auth-title {
     @apply text-lg font-semibold tracking-tight text-ink;
