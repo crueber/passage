@@ -31,7 +31,7 @@ func issueTokens(t *testing.T, stack *handlerTestStack, clientID, plainSecret, r
 	if err != nil {
 		t.Fatalf("issueTokens: Authorize: %v", err)
 	}
-	resp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+	resp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 	if err != nil {
 		t.Fatalf("issueTokens: ExchangeCode: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestHandler_Revoke_DeletesWholeFamily(t *testing.T) {
 
 	first := issueTokens(t, stack, clientID, plainSecret, redirectURI, testUser.ID)
 	ctx := context.Background()
-	second, err := stack.svc.RefreshTokens(ctx, first.RefreshToken, clientID, plainSecret, "", "")
+	second, err := stack.svc.RefreshTokens(ctx, first.RefreshToken, clientID, plainSecret, "", "", "")
 	if err != nil {
 		t.Fatalf("RefreshTokens: %v", err)
 	}
@@ -651,7 +651,7 @@ func TestHandler_RefreshTokenReuse_RevokesFamily(t *testing.T) {
 	}
 
 	// Rotate once: child must inherit the family.
-	rotated, err := stack.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", "")
+	rotated, err := stack.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", "", "")
 	if err != nil {
 		t.Fatalf("RefreshTokens: %v", err)
 	}
@@ -738,15 +738,15 @@ func TestService_RefreshTokenReuse_ErrorType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
-	if _, err := sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", ""); err != nil {
+	if _, err := sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", "", ""); err != nil {
 		t.Fatalf("RefreshTokens: %v", err)
 	}
 
-	_, err = sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", "")
+	_, err = sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", "", "")
 	if err == nil {
 		t.Fatal("replay: expected an error, got nil")
 	}

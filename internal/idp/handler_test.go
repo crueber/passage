@@ -255,6 +255,13 @@ type fixture struct {
 
 func newFixture(t *testing.T, autoCreate bool) *fixture {
 	t.Helper()
+	return newFixtureWith(t, autoCreate, nil)
+}
+
+// newFixtureWith is newFixture with a hook that can adjust the configuration
+// (for example to add a second provider) before the handler snapshots it.
+func newFixtureWith(t *testing.T, autoCreate bool, mutate func(*config.Config, *fakeProvider)) *fixture {
+	t.Helper()
 
 	fake := newFakeProvider(t)
 	database := testutil.NewTestDB(t)
@@ -279,6 +286,10 @@ func newFixture(t *testing.T, autoCreate bool) *fixture {
 			CookieName:    "passage_session",
 			CookieSecure:  false,
 		},
+	}
+
+	if mutate != nil {
+		mutate(cfg, fake)
 	}
 
 	userStore := user.NewStore(database)
@@ -402,7 +413,7 @@ func (f *fixture) stateCookie() *http.Cookie {
 		f.t.Fatalf("parse server URL: %v", err)
 	}
 	for _, c := range f.client.Jar.Cookies(u) {
-		if c.Name == "passage_oidc" {
+		if strings.HasPrefix(c.Name, "passage_oidc") {
 			return c
 		}
 	}
@@ -570,7 +581,8 @@ func TestCallback_StateFailures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse server URL: %v", err)
 		}
-		f.client.Jar.SetCookies(u, []*http.Cookie{{Name: "passage_oidc", Value: "not-base64-json"}})
+		// The flow cookie is provider-scoped; tamper with the one this flow set.
+		f.client.Jar.SetCookies(u, []*http.Cookie{{Name: "passage_oidc_" + testProviderName, Value: "not-base64-json"}})
 		f.assertFailed(f.callback(state, testCode), "idp-failed")
 	})
 
@@ -913,4 +925,95 @@ func mustStart(t *testing.T, f *fixture) (string, string) {
 	t.Helper()
 	state, nonce := f.start("")
 	return state, nonce
+}
+
+// TestFlows_TwoProvidersDoNotShareStateCookie proves the flow cookie is scoped
+// per provider: starting a second provider's sign-in must not invalidate the
+// first one, which is what happened when both wrote one browser-wide cookie.
+func TestFlows_TwoProvidersDoNotShareStateCookie(t *testing.T) {
+	t.Parallel()
+	const secondProvider = "keycloak"
+
+	// A second provider can share the fake issuer and client: only the name
+	// (and therefore the cookie) is under test here. Providers are snapshotted
+	// when the handler is built, so the configuration is adjusted first.
+	f := newFixtureWith(t, true, func(cfg *config.Config, fake *fakeProvider) {
+		cfg.Auth.Providers = append(cfg.Auth.Providers, config.ProviderConfig{
+			Name:         secondProvider,
+			Label:        "Keycloak",
+			Issuer:       fake.server.URL,
+			ClientID:     testClientID,
+			ClientSecret: testClientSecret,
+		})
+	})
+
+	startFor := func(name string) string {
+		f.t.Helper()
+		resp, err := f.client.Get(f.server.URL + "/login/oidc/" + name + "/start")
+		if err != nil {
+			f.t.Fatalf("GET start (%s): %v", name, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusFound {
+			f.t.Fatalf("start (%s) status = %d, want 302", name, resp.StatusCode)
+		}
+		loc, err := url.Parse(resp.Header.Get("Location"))
+		if err != nil {
+			f.t.Fatalf("parse start Location (%s): %v", name, err)
+		}
+		return loc.Query().Get("state")
+	}
+
+	// Both flows are started before either completes.
+	firstState := startFor(testProviderName)
+	startFor(secondProvider)
+
+	u, err := url.Parse(f.server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	var names []string
+	for _, c := range f.client.Jar.Cookies(u) {
+		if strings.HasPrefix(c.Name, "passage_oidc") {
+			names = append(names, c.Name)
+		}
+	}
+	for _, want := range []string{"passage_oidc_" + testProviderName, "passage_oidc_" + secondProvider} {
+		found := false
+		for _, name := range names {
+			if name == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("state cookies = %v, want one named %q", names, want)
+		}
+	}
+
+	// Completing one flow consumes only its own cookie. The fake provider
+	// holds a single nonce, so the sign-in itself is not asserted here — the
+	// existing single-flow tests cover that; this test is about the cookies.
+	f.callback(firstState, testCode)
+
+	var remaining []string
+	for _, c := range f.client.Jar.Cookies(u) {
+		if strings.HasPrefix(c.Name, "passage_oidc") {
+			remaining = append(remaining, c.Name)
+		}
+	}
+	for _, name := range remaining {
+		if name == "passage_oidc_"+testProviderName {
+			t.Error("the completed flow left its own state cookie behind")
+		}
+	}
+	want := "passage_oidc_" + secondProvider
+	found := false
+	for _, name := range remaining {
+		if name == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("state cookies after the first callback = %v, want %q to survive", remaining, want)
+	}
 }

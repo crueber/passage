@@ -239,7 +239,7 @@ func issueKeyTestIDToken(t *testing.T, sc *testServiceContext) string {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	resp, err := sc.svc.ExchangeCode(ctx, code.Code, keyTestClientID, keyTestClientSecret, keyTestRedirectURI, "", "")
+	resp, err := sc.svc.ExchangeCode(ctx, code.Code, keyTestClientID, keyTestClientSecret, keyTestRedirectURI, "", "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}

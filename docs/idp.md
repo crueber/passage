@@ -58,7 +58,9 @@ PKCE instead).
 1. **Start** discovers the provider, generates 32 random bytes each for
    `state`, `nonce`, and the PKCE `code_verifier` with `crypto/rand`, and stores
    them in a short-lived (10 minute) HttpOnly, `SameSite=Lax`, `Path=/` cookie.
-   That cookie is provider-bound. The PKCE challenge is S256.
+   The cookie is provider-bound, and its name is scoped per provider, so two
+   sign-ins started in different tabs do not overwrite each other's flow. The
+   PKCE challenge is S256.
 2. **Callback** clears the cookie unconditionally (single use), then checks
    that the cookie exists, has not expired, names the same provider, and that
    its `state` equals the query `state` using `crypto/subtle`.
@@ -126,8 +128,10 @@ it applies; the external provider is responsible for its own MFA policy.
 
 - **`invalid_redirect_uri`** — the URI registered with the provider must be
   exactly `<server.base_url>/login/oidc/<name>/callback`.
-- **`id_token verification failed`** — check the provider's issuer URL (it must
-  match the discovery document exactly), the client id used as the audience,
-  and that the provider signs with RS256.
+- **`id_token verification failed`** — check the provider's issuer URL, the
+  client id used as the audience, and that the provider signs with RS256. The
+  `iss` claim must equal the configured `issuer` byte for byte, including a
+  trailing slash if the provider emits one (discovery tolerates a trailing
+  slash, the `iss` comparison does not).
 - **No sign-in button** — the provider list is empty or configuration failed
   validation. `cfg.Validate` reports every provider problem at once at startup.

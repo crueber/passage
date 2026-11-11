@@ -31,8 +31,8 @@ type oauthService interface {
 	// issuing a code, for authorization requests that must be answered before a
 	// session is resolved (prompt=none).
 	ValidateClientRedirectURI(ctx context.Context, clientID, redirectURI string) error
-	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier, resource string) (*TokenResponse, error)
-	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret, resource, scope string) (*TokenResponse, error)
+	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier, resource, clientIP string) (*TokenResponse, error)
+	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret, resource, scope, clientIP string) (*TokenResponse, error)
 	ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error)
 	// TokenAssignments resolves a user's app-scoped role names and effective
 	// (direct plus role-inherited) group names for the userinfo response.
@@ -309,22 +309,12 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 			Username: u.Username,
 			Detail:   authorizeDenyReason(err) + " client_id=" + clientID,
 		})
-		var denial *PolicyDenialError
+		// The app's access policy is the only denial that gets its own event;
+		// the shared helper records it and the fixed description below never
+		// names the failing rule.
+		policyDenied := h.recordPolicyDenial(r, err)
 		switch {
-		case errors.As(err, &denial):
-			// The app's access policy refused the user. The specific rule is
-			// recorded in the auth event and the log, never in the response:
-			// OAuth clients get the same fixed description as any other
-			// authorization denial.
-			h.logger.Info("oauth authorize: access policy denied",
-				"user_id", u.ID, "username", u.Username, "app_slug", denial.AppSlug, "reason", denial.Reason)
-			h.record(r, authlog.Event{
-				Event:    authlog.EventAccessDenied,
-				Outcome:  authlog.OutcomeFailure,
-				UserID:   u.ID,
-				Username: u.Username,
-				Detail:   "app=" + denial.AppSlug + " reason=" + denial.Reason,
-			})
+		case policyDenied:
 			h.writeJSONError(w, http.StatusForbidden, "access_denied",
 				"The resource owner or authorization server denied the request.")
 		case errors.Is(err, app.ErrOAuthNotEnabled),
@@ -424,13 +414,14 @@ func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter
 		return
 	}
 
-	resp, err := h.svc.ExchangeCode(ctx, code, clientID, clientSecret, redirectURI, codeVerifier, resource)
+	resp, err := h.svc.ExchangeCode(ctx, code, clientID, clientSecret, redirectURI, codeVerifier, resource, authlog.ClientIP(r))
 	if err != nil {
 		h.record(r, authlog.Event{
 			Event:   authlog.EventOAuthTokenFailed,
 			Outcome: authlog.OutcomeFailure,
 			Detail:  "authorization_code",
 		})
+		h.recordPolicyDenial(r, err)
 		h.writeTokenError(w, err)
 		return
 	}
@@ -451,7 +442,7 @@ func (h *Handler) handleRefreshTokenGrant(ctx context.Context, w http.ResponseWr
 		return
 	}
 
-	resp, err := h.svc.RefreshTokens(ctx, refreshToken, clientID, clientSecret, r.FormValue("resource"), r.FormValue("scope"))
+	resp, err := h.svc.RefreshTokens(ctx, refreshToken, clientID, clientSecret, r.FormValue("resource"), r.FormValue("scope"), authlog.ClientIP(r))
 	if err != nil {
 		// Refresh-token reuse is a security event, not an ordinary bad grant.
 		// Log it here (no token material) — the integrator hooks authentication
@@ -475,6 +466,7 @@ func (h *Handler) handleRefreshTokenGrant(ctx context.Context, w http.ResponseWr
 			Outcome: authlog.OutcomeFailure,
 			Detail:  "refresh_token",
 		})
+		h.recordPolicyDenial(r, err)
 		h.writeTokenError(w, err)
 		return
 	}
@@ -700,6 +692,7 @@ func (h *Handler) writeTokenError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrPKCEVerificationFailed),
 		errors.Is(err, ErrUserInactive),
 		errors.Is(err, ErrAccessRevoked),
+		errors.Is(err, ErrAccessDeniedByPolicy),
 		errors.Is(err, app.ErrRedirectURIMismatch):
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_grant",
 			"The provided authorization grant is invalid, expired, revoked, or does not match.")
@@ -918,6 +911,29 @@ func (h *Handler) writeAuthorizeClientError(w http.ResponseWriter, err error) {
 		h.writeJSONError(w, http.StatusForbidden, "access_denied",
 			"The resource owner or authorization server denied the request.")
 	}
+}
+
+// recordPolicyDenial logs and records an access-policy denial. It reports
+// whether err was one, so each caller can write the response the endpoint
+// calls for: access_denied at authorize, invalid_grant at the token endpoint.
+// The failing rule stays in the log and the event, never in the response.
+func (h *Handler) recordPolicyDenial(r *http.Request, err error) bool {
+	var denial *PolicyDenialError
+	if !errors.As(err, &denial) {
+		return false
+	}
+	h.logger.Info("oauth: access policy denied",
+		"user_id", denial.UserID, "username", denial.Username,
+		"app_slug", denial.AppSlug, "reason", denial.Reason,
+		"client_ip", authlog.ClientIP(r))
+	h.record(r, authlog.Event{
+		Event:    authlog.EventAccessDenied,
+		Outcome:  authlog.OutcomeFailure,
+		UserID:   denial.UserID,
+		Username: denial.Username,
+		Detail:   "app=" + denial.AppSlug + " reason=" + denial.Reason,
+	})
+	return true
 }
 
 // authorizeDenyReason maps an Authorize error to a stable, log-friendly reason

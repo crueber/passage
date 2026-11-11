@@ -6,7 +6,7 @@ required role, an IP range list, an admin-only flag, an allowed-hours window and
 an allowed-days list. Every rule is optional; an app with none set behaves
 exactly as it did before policies existed.
 
-Policies are enforced in two places:
+Policies are enforced wherever access is granted:
 
 - **Forward-auth** (`/auth/nginx`, `/auth/traefik`): a denial is `403 Forbidden`
   with a generic `Access denied` body. The upstream app is never reached and no
@@ -15,6 +15,14 @@ Policies are enforced in two places:
   `access_denied` error with the fixed description
   `The resource owner or authorization server denied the request.` No
   authorization code is issued.
+- **OAuth token endpoint** (`/oauth/token`, both grants): the policy is
+  re-evaluated when a code is exchanged and on every refresh, so a policy added
+  after a code or refresh token was issued cannot be outlived by it — refresh
+  chains can otherwise run for weeks. A denial is `invalid_grant`, no token is
+  returned, and the code or refresh token is consumed rather than left usable.
+
+The userinfo endpoint is not re-evaluated: it only reports claims for an access
+token that was already issued (and access tokens are short-lived).
 
 The dashboard (`/`) deliberately does **not** apply policies: a launch link may
 still be listed even when the app would refuse a forwarded request right now
@@ -93,8 +101,8 @@ apps.allowed_days    TEXT    NOT NULL DEFAULT ''
 A policy denial records an `access.denied` authentication event with
 `outcome=failure`, the username, the client address, and a detail of the form
 `app=<slug> reason=<rule>`. It never contains a credential, token or response
-body. The same detail is written to the server log at info level for forward-auth
-and for OAuth authorize.
+body. The same detail is written to the server log at info level for forward-auth,
+for OAuth authorize, and for a denial at the token endpoint.
 
 ## Related
 

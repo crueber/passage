@@ -191,11 +191,11 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		h.failure(w, r, p, nil, "state encoding failed", flashFailure)
 		return
 	}
-	h.setStateCookie(w, payload)
+	h.setStateCookie(w, p.Name, payload)
 
 	authURL, err := AuthCodeURL(doc, p, h.redirectURI(p.Name), state, nonce, PKCEChallenge(verifier))
 	if err != nil {
-		h.clearStateCookie(w)
+		h.clearStateCookie(w, p.Name)
 		h.logger.Error("idp start: build authorization URL", "provider", p.Name, "error", err)
 		h.failure(w, r, p, nil, "authorization URL failed", flashFailure)
 		return
@@ -208,14 +208,15 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 	p, ok := h.provider(r)
 	if !ok {
-		h.clearStateCookie(w)
+		// No provider means no cookie name to scope to; any flow cookie left
+		// over from an earlier attempt expires on its own.
 		h.failure(w, r, nil, nil, "unknown provider", flashFailure)
 		return
 	}
 
-	cookie, cookieErr := r.Cookie(h.stateCookieName())
+	cookie, cookieErr := r.Cookie(h.stateCookieName(p.Name))
 	// Single use: whatever happens, this flow state cannot be presented again.
-	h.clearStateCookie(w)
+	h.clearStateCookie(w, p.Name)
 
 	if cookieErr != nil || cookie.Value == "" {
 		h.failure(w, r, p, nil, "missing state cookie", flashFailure)
@@ -477,18 +478,24 @@ func (h *Handler) record(r *http.Request, e authlog.Event) {
 	h.authEvents.Record(r.Context(), e)
 }
 
-// stateCookieName applies the __Host- prefix when secure cookies are enabled,
-// matching the session and CSRF cookies.
-func (h *Handler) stateCookieName() string {
+// stateCookieName scopes the flow cookie to one provider, applying the
+// __Host- prefix when secure cookies are enabled (like the session and CSRF
+// cookies). Two sign-ins started
+// in different tabs (or with different providers) therefore do not overwrite
+// each other's flow state, which would otherwise make the first callback fail
+// with a state mismatch. Provider names are validated slugs, so they are safe
+// in a cookie name.
+func (h *Handler) stateCookieName(provider string) string {
+	name := stateCookieBase + "_" + provider
 	if h.cfg.Session.CookieSecure {
-		return "__Host-" + stateCookieBase
+		return "__Host-" + name
 	}
-	return stateCookieBase
+	return name
 }
 
-func (h *Handler) setStateCookie(w http.ResponseWriter, value string) {
+func (h *Handler) setStateCookie(w http.ResponseWriter, provider, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     h.stateCookieName(),
+		Name:     h.stateCookieName(provider),
 		Value:    value,
 		Path:     "/",
 		Expires:  h.now().Add(stateTTL),
@@ -499,9 +506,9 @@ func (h *Handler) setStateCookie(w http.ResponseWriter, value string) {
 	})
 }
 
-func (h *Handler) clearStateCookie(w http.ResponseWriter) {
+func (h *Handler) clearStateCookie(w http.ResponseWriter, provider string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     h.stateCookieName(),
+		Name:     h.stateCookieName(provider),
 		Value:    "",
 		Path:     "/",
 		Expires:  time.Unix(0, 0),

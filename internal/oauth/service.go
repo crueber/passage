@@ -169,6 +169,36 @@ func (s *Service) DeleteSigningKey(ctx context.Context, kid string) error {
 	return nil
 }
 
+// enforceAccessPolicy applies the app's per-app access policy to a token
+// grant. It is shared by authorize, code exchange, and refresh so a policy an
+// administrator adds after a code or refresh token was issued cannot be
+// outlived by it: refresh chains live for weeks, which is far longer than an
+// incident response. An app with no policy returns immediately, before any
+// assignment or user lookup.
+func (s *Service) enforceAccessPolicy(ctx context.Context, a *app.App, userID, clientIP string) error {
+	if a.Policy().IsEmpty() {
+		return nil
+	}
+
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("oauth enforce access policy: load user: %w", err)
+	}
+	decision, err := s.apps.EvaluateAccess(ctx, a, userID, u.IsAdmin, clientIP, time.Now())
+	if err != nil {
+		return fmt.Errorf("oauth enforce access policy: evaluate: %w", err)
+	}
+	if !decision.Allowed {
+		return &PolicyDenialError{
+			AppSlug:  a.Slug,
+			Reason:   decision.Reason,
+			UserID:   u.ID,
+			Username: u.Username,
+		}
+	}
+	return nil
+}
+
 // Authorize validates an authorization request and creates a code. clientIP is
 // the browser's address at the authorization endpoint (used only by the app's
 // access policy). resource is the RFC 8707 resource indicator, or "" when the
@@ -212,18 +242,8 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, r
 	// before. A malformed stored rule or an unparseable client address fails
 	// closed with the same opaque error the client sees for any other policy
 	// denial.
-	if !a.Policy().IsEmpty() {
-		u, err := s.users.GetByID(ctx, userID)
-		if err != nil {
-			return nil, fmt.Errorf("oauth authorize: load user for access policy: %w", err)
-		}
-		decision, err := s.apps.EvaluateAccess(ctx, a, userID, u.IsAdmin, clientIP, time.Now())
-		if err != nil {
-			return nil, fmt.Errorf("oauth authorize: evaluate access policy: %w", err)
-		}
-		if !decision.Allowed {
-			return nil, &PolicyDenialError{AppSlug: a.Slug, Reason: decision.Reason}
-		}
+	if err := s.enforceAccessPolicy(ctx, a, userID, clientIP); err != nil {
+		return nil, err
 	}
 
 	// Validate PKCE parameters per RFC 7636 §4.3.
@@ -323,7 +343,7 @@ func (s *Service) ValidateClientRedirectURI(ctx context.Context, clientID, redir
 // refresh token, and id_token. resource is the RFC 8707 resource indicator
 // echoed by the client, or "" when it sent none; when present it must match the
 // audience granted at authorization time.
-func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier, resource string) (*TokenResponse, error) {
+func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier, resource, clientIP string) (*TokenResponse, error) {
 	// Look up the authorization code.
 	codeRecord, err := s.store.GetCode(ctx, code)
 	if err != nil {
@@ -394,6 +414,14 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		return nil, ErrAccessRevoked
 	}
 
+	// Re-check the access policy as well: the code was minted up to ten
+	// minutes ago, and an administrator may have tightened the app since.
+	// Like a revoked grant, a denial here burns the code (it is already
+	// marked used above).
+	if err := s.enforceAccessPolicy(ctx, a, u.ID, clientIP); err != nil {
+		return nil, err
+	}
+
 	// Create access token. The audience is the resource granted at authorize
 	// time (re-validated against the current registry), otherwise the client
 	// id. The scope is re-checked as well: an admin may have tightened the
@@ -449,7 +477,7 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 // resource is the RFC 8707 resource indicator for the new access token (empty
 // means none); scope optionally narrows the grant and must be a subset of the
 // refresh token's scopes. Neither may exceed the app's registries.
-func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret, resource, scope string) (*TokenResponse, error) {
+func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret, resource, scope, clientIP string) (*TokenResponse, error) {
 	// Look up the refresh token.
 	rt, err := s.store.GetRefreshToken(ctx, refreshToken)
 	if err != nil {
@@ -523,6 +551,14 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 	}
 	if !hasAccess {
 		return nil, ErrAccessRevoked
+	}
+
+	// Access policies are re-evaluated here for the same reason as the grant
+	// above: a refresh chain can outlive the authorization by weeks, so a
+	// policy added since must terminate it. The client IP is the one making
+	// this request, which is what a CIDR rule is about.
+	if err := s.enforceAccessPolicy(ctx, a, u.ID, clientIP); err != nil {
+		return nil, err
 	}
 
 	// Work out the scope of the new grant. A refresh may narrow the original

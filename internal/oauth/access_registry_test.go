@@ -82,7 +82,7 @@ func TestService_ScopeRegistry(t *testing.T) {
 				t.Fatalf("Authorize: %v", err)
 			}
 
-			resp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+			resp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 			if err != nil {
 				t.Fatalf("ExchangeCode: %v", err)
 			}
@@ -189,7 +189,7 @@ func TestService_ResourceIndicator(t *testing.T) {
 				t.Fatalf("Authorize: %v", err)
 			}
 
-			resp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", tc.exchange)
+			resp, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", tc.exchange, "")
 			if err != nil {
 				t.Fatalf("ExchangeCode: %v", err)
 			}
@@ -221,7 +221,7 @@ func TestService_ExchangeCode_ResourceMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	_, err = sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "https://other.example.com")
+	_, err = sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "https://other.example.com", "")
 	if !errors.Is(err, oauth.ErrInvalidTarget) {
 		t.Errorf("ExchangeCode with a different resource = %v, want ErrInvalidTarget", err)
 	}
@@ -268,12 +268,12 @@ func TestService_RefreshToken_ScopeAndResource(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Authorize: %v", err)
 			}
-			first, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+			first, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 			if err != nil {
 				t.Fatalf("ExchangeCode: %v", err)
 			}
 
-			resp, err := sc.svc.RefreshTokens(ctx, first.RefreshToken, clientID, plainSecret, tc.resource, tc.scope)
+			resp, err := sc.svc.RefreshTokens(ctx, first.RefreshToken, clientID, plainSecret, tc.resource, tc.scope, "")
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {
 					t.Fatalf("RefreshTokens error = %v, want %v", err, tc.wantErr)
@@ -355,7 +355,7 @@ func TestService_JWTIntrospectionAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestService_ClientForIDTokenHint_RejectsAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}

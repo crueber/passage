@@ -400,7 +400,7 @@ func TestHandler_Token_Refresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestHandler_UserInfo_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
+	tokenResp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}

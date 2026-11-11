@@ -372,7 +372,9 @@ func (h *Handler) PostToggleFavorite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
-		h.logger.Warn("dashboard: favorite for app without access", "user_id", u.ID, "app_id", appID)
+		// A stale dashboard (access revoked while the page was open) or a
+		// hand-made request. Nothing changed, so this is not worth a warning.
+		h.logger.Debug("dashboard: favorite for app without access", "user_id", u.ID, "app_id", appID)
 	}
 	h.logger.Debug("dashboard: favorite toggled", "user_id", u.ID, "app_id", appID, "favorite", favorite)
 	http.Redirect(w, r, "/", http.StatusFound)

@@ -75,6 +75,10 @@ var (
 type PolicyDenialError struct {
 	AppSlug string
 	Reason  string
+	// UserID and Username identify the denied user so the security event
+	// names them. They carry no credential material.
+	UserID   string
+	Username string
 }
 
 func (e *PolicyDenialError) Error() string {
