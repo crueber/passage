@@ -197,7 +197,7 @@ func run() error {
 	challenges := webauthn.NewSQLiteChallengeStore(database, logger)
 
 	// Build the go-webauthn instance from configuration.
-	wa, err := buildWebAuthn(cfg)
+	wa, err := buildWebAuthn(cfg, logger)
 	if err != nil {
 		return fmt.Errorf("configure webauthn: %w", err)
 	}
@@ -581,7 +581,7 @@ func buildLogger(cfg *config.Config) *slog.Logger {
 // buildWebAuthn constructs a go-webauthn WebAuthn instance from the server configuration.
 // The relying party ID is derived from the BaseURL hostname. If BaseURL is not set,
 // it falls back to "localhost" for development.
-func buildWebAuthn(cfg *config.Config) (*gowebauthn.WebAuthn, error) {
+func buildWebAuthn(cfg *config.Config, logger *slog.Logger) (*gowebauthn.WebAuthn, error) {
 	rpID := "localhost"
 	rpOrigins := []string{"http://localhost:8080"}
 
@@ -593,6 +593,11 @@ func buildWebAuthn(cfg *config.Config) (*gowebauthn.WebAuthn, error) {
 		rpID = u.Hostname()
 		rpOrigins = []string{cfg.Server.BaseURL}
 	}
+
+	// The RP ID must be the site's registrable domain and the origin must match
+	// exactly, or the browser will not offer a registered passkey. Logging both
+	// makes that class of failure diagnosable without a debugger.
+	logger.Info("webauthn relying party", "rp_id", rpID, "origins", rpOrigins)
 
 	return gowebauthn.New(&gowebauthn.Config{
 		RPID:          rpID,

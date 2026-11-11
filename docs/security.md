@@ -50,9 +50,35 @@ Downstream apps receive identity via headers injected by the reverse proxy after
 
 ## Section 3 — Known Limitations
 
-### 1. WebAuthn Requires HTTPS
+### 1. Passkeys: HTTPS, origin, and relying party
 
-The WebAuthn API is disabled by browsers on non-HTTPS origins (except `localhost`). Passage must be served over HTTPS in production for passkeys to work.
+The WebAuthn API is disabled by browsers on non-HTTPS origins (except
+`localhost`). Passage must be served over HTTPS in production for passkeys to
+work.
+
+The relying party ID and allowed origin come from `server.base_url`: `rp_id` is
+its hostname — a registrable domain, **not an IP address** (`localhost` is the
+one exception) — and the origin must match the address bar exactly, scheme and
+port included. If they do not, the browser will not offer a registered passkey
+and either registration or sign-in fails. Passage logs both at startup, so this
+is the first thing to check:
+
+```
+level=INFO msg="webauthn relying party" rp_id=auth.example.com origins=[https://auth.example.com]
+```
+
+Password managers index passkeys by relying party ID, so a passkey created for
+one hostname will not appear for another.
+
+**Passkeys created before Passage requested discoverable credentials** may be
+non-resident. They still work in either of these ways:
+
+- type the username in the login form, then click *Sign in with a passkey* —
+  Passage sends that account's credentials as `allowCredentials`, which a
+  non-resident credential can satisfy;
+- or delete the passkey and register it again: new registrations request a
+  resident (discoverable) credential, which is what the username-less button
+  needs.
 
 ### 2. Per-IP Rate Limiting Is In-Memory
 

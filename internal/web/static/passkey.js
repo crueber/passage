@@ -186,7 +186,19 @@
 
       try {
         // 1. Fetch the assertion options from the server.
-        var beginResp = await fetch('/login/passkey/begin', { credentials: 'same-origin' });
+        // If the username field is filled in, ask for that account's
+        // credentials (allowCredentials). That works with credentials that are
+        // not discoverable — including every passkey created before the server
+        // started requiring resident keys. Empty means the username-less
+        // discoverable ceremony.
+        var usernameInput = document.getElementById('username');
+        var username = usernameInput && usernameInput.value ? usernameInput.value.trim() : '';
+        var beginResp = await fetch('/login/passkey/begin', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: username })
+        });
         if (!beginResp.ok) {
           var err = await beginResp.json();
           throw new Error(err.error || 'Failed to begin login');

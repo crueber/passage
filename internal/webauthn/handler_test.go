@@ -3,6 +3,7 @@ package webauthn_test
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -369,7 +370,8 @@ func TestGetBeginLogin_ReturnsJSON(t *testing.T) {
 	f := newHandlerFixture(t)
 	router := buildPasskeyRouter(f)
 
-	req := httptest.NewRequest(http.MethodGet, "/login/passkey/begin", nil)
+	req := httptest.NewRequest(http.MethodPost, "/login/passkey/begin", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -427,6 +429,14 @@ func (fakeWebAuthn) BeginDiscoverableLogin(opts ...gowebauthn.LoginOption) (*pro
 
 func (fakeWebAuthn) FinishPasskeyLogin(handler gowebauthn.DiscoverableUserHandler, session gowebauthn.SessionData, r *http.Request) (gowebauthn.User, *gowebauthn.Credential, error) {
 	return nil, nil, errors.New("not implemented in fake")
+}
+
+func (fakeWebAuthn) BeginLogin(u gowebauthn.User, opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
+	return nil, nil, errors.New("not implemented in fake")
+}
+
+func (fakeWebAuthn) FinishLogin(u gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (*gowebauthn.Credential, error) {
+	return nil, errors.New("not implemented in fake")
 }
 
 // capturingCredStore implements CredentialStore; it captures the credential
@@ -612,7 +622,8 @@ func TestGetBeginLogin_PasskeyDisabled(t *testing.T) {
 	h := webauthn.NewHandler(wa, f.credStore, challenges, f.userStore, f.sessionSvc,
 		f.cfg.Session.CookieName, f.cfg.Session.CookieSecure, tmpl, logger, disabledPasskeySettings{}, nil, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/login/passkey/begin", nil)
+	req := httptest.NewRequest(http.MethodPost, "/login/passkey/begin", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.GetBeginLogin(rec, req)
 
@@ -777,4 +788,127 @@ func getPasskeysPage(t *testing.T, f *handlerFixture, token string) *httptest.Re
 		t.Fatalf("GET /passkeys status = %d; want 200", rec.Result().StatusCode)
 	}
 	return rec
+}
+
+// TestGetBeginRegistration_RequestsDiscoverableCredential pins the fix for
+// passkeys that registered successfully and could never authenticate: the login
+// page is username-less, so registration must ask for a resident credential.
+func TestGetBeginRegistration_RequestsDiscoverableCredential(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+
+	if _, err := f.userSvc.Register(context.Background(), "resident", "resident@example.com", "password123"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u, err := f.userStore.GetByUsername(context.Background(), "resident")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	token, _, err := f.sessionSvc.CreateSession(context.Background(), u.ID, nil, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/passkeys/register/begin", nil)
+	req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: token})
+	rec := httptest.NewRecorder()
+	buildPasskeyRouter(f).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+
+	var opts struct {
+		PublicKey struct {
+			AuthenticatorSelection struct {
+				ResidentKey      string `json:"residentKey"`
+				UserVerification string `json:"userVerification"`
+			} `json:"authenticatorSelection"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &opts); err != nil {
+		t.Fatalf("decode options: %v", err)
+	}
+	if got := opts.PublicKey.AuthenticatorSelection.ResidentKey; got != "required" {
+		t.Errorf("residentKey = %q; want \"required\" (a passkey must be discoverable for username-less login)", got)
+	}
+	if got := opts.PublicKey.AuthenticatorSelection.UserVerification; got != "preferred" {
+		t.Errorf("userVerification = %q; want \"preferred\"", got)
+	}
+}
+
+// TestGetBeginLogin_UsernameAllowsNonDiscoverableCredentials covers the second
+// half of the fix: with a username, the credentials are sent as
+// allowCredentials, so a credential created before resident keys were required
+// still works.
+func TestGetBeginLogin_UsernameAllowsNonDiscoverableCredentials(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+
+	if _, err := f.userSvc.Register(context.Background(), "legacy", "legacy@example.com", "password123"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u, err := f.userStore.GetByUsername(context.Background(), "legacy")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+
+	raw := gowebauthn.Credential{ID: []byte{1, 2, 3, 4}}
+	pub, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal credential: %v", err)
+	}
+	if err := f.credStore.Create(context.Background(), &webauthn.Credential{
+		ID:        base64.RawURLEncoding.EncodeToString(raw.ID),
+		UserID:    u.ID,
+		PublicKey: pub,
+	}); err != nil {
+		t.Fatalf("create credential: %v", err)
+	}
+
+	assertAllowCredentials := func(t *testing.T, body []byte, want int) {
+		t.Helper()
+		var opts struct {
+			PublicKey struct {
+				AllowCredentials []struct {
+					ID string `json:"id"`
+				} `json:"allowCredentials"`
+			} `json:"publicKey"`
+		}
+		if err := json.Unmarshal(body, &opts); err != nil {
+			t.Fatalf("decode options: %v", err)
+		}
+		if len(opts.PublicKey.AllowCredentials) != want {
+			t.Errorf("allowCredentials = %d; want %d", len(opts.PublicKey.AllowCredentials), want)
+		}
+	}
+
+	// Username given: allow-list the account's credentials.
+	req := httptest.NewRequest(http.MethodPost, "/login/passkey/begin", strings.NewReader(`{"username":"legacy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	buildPasskeyRouter(f).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("username begin status = %d; want 200: %s", rec.Code, rec.Body.String())
+	}
+	assertAllowCredentials(t, rec.Body.Bytes(), 1)
+
+	// No username: the original discoverable ceremony (no allow-list).
+	req = httptest.NewRequest(http.MethodPost, "/login/passkey/begin", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	buildPasskeyRouter(f).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discoverable begin status = %d; want 200", rec.Code)
+	}
+	assertAllowCredentials(t, rec.Body.Bytes(), 0)
+
+	// Unknown account and account without credentials answer identically.
+	req = httptest.NewRequest(http.MethodPost, "/login/passkey/begin", strings.NewReader(`{"username":"nobody"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	buildPasskeyRouter(f).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown user status = %d; want 400", rec.Code)
+	}
 }

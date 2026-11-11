@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -27,6 +28,7 @@ import (
 // Defined at the consumer boundary per Go convention.
 type userLookup interface {
 	GetByID(ctx context.Context, id string) (*user.User, error)
+	GetByUsername(ctx context.Context, username string) (*user.User, error)
 }
 
 // webAuthnCeremony is the minimal interface for the WebAuthn library operations
@@ -36,6 +38,10 @@ type webAuthnCeremony interface {
 	FinishRegistration(user gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (credential *gowebauthn.Credential, err error)
 	BeginDiscoverableLogin(opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error)
 	FinishPasskeyLogin(handler gowebauthn.DiscoverableUserHandler, session gowebauthn.SessionData, r *http.Request) (gowebauthn.User, *gowebauthn.Credential, error)
+	// BeginLogin/FinishLogin run a user-bound ceremony (allowCredentials), which
+	// is what makes a credential that is not discoverable usable.
+	BeginLogin(user gowebauthn.User, opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error)
+	FinishLogin(user gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (*gowebauthn.Credential, error)
 }
 
 // sessionCreator is the minimal interface for creating a session after passkey login.
@@ -154,7 +160,7 @@ func (h *Handler) ProfileRoutes(r chi.Router) {
 
 // AuthRoutes registers the passkey login routes (public, no session required).
 func (h *Handler) AuthRoutes(r chi.Router) {
-	r.Get("/login/passkey/begin", h.GetBeginLogin)
+	r.Post("/login/passkey/begin", h.GetBeginLogin)
 	r.Post("/login/passkey/finish", h.PostFinishLogin)
 }
 
@@ -294,7 +300,16 @@ func (h *Handler) GetBeginRegistration(w http.ResponseWriter, r *http.Request) {
 
 	waUser := NewWebAuthnUser(u, waCreds)
 
-	options, sessionData, err := h.wa.BeginRegistration(waUser)
+	// The login page offers a username-less "Sign in with a passkey", which can
+	// only find a *discoverable* (resident) credential. Without this selection
+	// KeePassXC, Bitwarden and friends create an ordinary non-resident
+	// credential: registration succeeds and the passkey can never be used.
+	options, sessionData, err := h.wa.BeginRegistration(waUser,
+		gowebauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
+			ResidentKey:      protocol.ResidentKeyRequirementRequired,
+			UserVerification: protocol.VerificationPreferred,
+		}),
+	)
 	if err != nil {
 		h.logger.Error("webauthn: begin registration", "user_id", u.ID, "error", err)
 		jsonError(w, "failed to begin registration", http.StatusInternalServerError)
@@ -422,11 +437,40 @@ func (h *Handler) GetBeginLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	options, sessionData, err := h.wa.BeginDiscoverableLogin()
-	if err != nil {
-		h.logger.Error("webauthn: begin login", "error", err)
-		jsonError(w, "failed to begin passkey login", http.StatusInternalServerError)
-		return
+	// The body is optional. A username means "use that account's credentials"
+	// (allowCredentials), which works with a credential that is not discoverable
+	// — including every passkey created before registration required resident
+	// keys. No username means the original discoverable/username-less ceremony.
+	var req struct {
+		Username string `json:"username"`
+	}
+	if r.Body != nil {
+		// A malformed or empty body is not an error: fall back to discoverable.
+		_ = json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req)
+	}
+	username := strings.TrimSpace(req.Username)
+
+	var options *protocol.CredentialAssertion
+	var sessionData *gowebauthn.SessionData
+	var err error
+
+	if username != "" {
+		options, sessionData, err = h.beginForUsername(r.Context(), username)
+		if err != nil {
+			// Same answer for an unknown account and an account without
+			// credentials, so the endpoint is not a membership oracle.
+			jsonError(w, "No passkey is registered for that account.", http.StatusBadRequest)
+			return
+		}
+	} else {
+		options, sessionData, err = h.wa.BeginDiscoverableLogin(
+			gowebauthn.WithUserVerification(protocol.VerificationPreferred),
+		)
+		if err != nil {
+			h.logger.Error("webauthn: begin login", "error", err)
+			jsonError(w, "failed to begin passkey login", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	sessionID := sessionIDFromChallenge(sessionData.Challenge)
@@ -446,6 +490,35 @@ func (h *Handler) GetBeginLogin(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(options); err != nil {
 		h.logger.Error("webauthn: encode login options", "error", err)
 	}
+}
+
+// beginForUsername starts a user-bound assertion ceremony: the credentials are
+// sent as allowCredentials, so the authenticator does not have to hold a
+// discoverable credential.
+func (h *Handler) beginForUsername(ctx context.Context, username string) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
+	u, err := h.users.GetByUsername(ctx, username)
+	if err != nil {
+		return nil, nil, fmt.Errorf("lookup user: %w", err)
+	}
+	if !u.IsActive {
+		return nil, nil, fmt.Errorf("user account is inactive")
+	}
+
+	dbCreds, err := h.credStore.ListByUser(ctx, u.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list credentials: %w", err)
+	}
+	if len(dbCreds) == 0 {
+		return nil, nil, fmt.Errorf("no credentials")
+	}
+
+	waCreds, err := dbCredsToWACreds(dbCreds)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decode credentials: %w", err)
+	}
+
+	waUser := NewWebAuthnUser(u, waCreds)
+	return h.wa.BeginLogin(waUser, gowebauthn.WithUserVerification(protocol.VerificationPreferred))
 }
 
 // PostFinishLogin completes a passkey login ceremony.
@@ -513,7 +586,40 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 		return NewWebAuthnUser(u, waCreds), nil
 	}
 
-	waUser, credential, err := h.wa.FinishPasskeyLogin(handler, sessionData, r)
+	// A session started with a username carries that user's ID in the session
+	// data; finish it as a user-bound ceremony (allowCredentials). Otherwise it
+	// was the discoverable ceremony and the authenticator tells us who it is.
+	var waUser gowebauthn.User
+	var credential *gowebauthn.Credential
+	if len(sessionData.UserID) > 0 {
+		u, uerr := h.users.GetByID(ctx, string(sessionData.UserID))
+		if uerr != nil {
+			h.logger.Warn("webauthn: finish login user lookup failed", "error", uerr)
+			jsonError(w, "passkey authentication failed", http.StatusUnauthorized)
+			return
+		}
+		if !u.IsActive {
+			h.logger.Warn("webauthn: finish login for inactive user", "user_id", u.ID)
+			jsonError(w, "passkey authentication failed", http.StatusUnauthorized)
+			return
+		}
+		dbCreds, cerr := h.credStore.ListByUser(ctx, u.ID)
+		if cerr != nil {
+			h.logger.Error("webauthn: list credentials for finish", "user_id", u.ID, "error", cerr)
+			jsonError(w, "passkey authentication failed", http.StatusInternalServerError)
+			return
+		}
+		waCreds, derr := dbCredsToWACreds(dbCreds)
+		if derr != nil {
+			h.logger.Error("webauthn: decode credentials for finish", "user_id", u.ID, "error", derr)
+			jsonError(w, "passkey authentication failed", http.StatusInternalServerError)
+			return
+		}
+		waUser = NewWebAuthnUser(u, waCreds)
+		credential, err = h.wa.FinishLogin(waUser, sessionData, r)
+	} else {
+		waUser, credential, err = h.wa.FinishPasskeyLogin(handler, sessionData, r)
+	}
 	if err != nil {
 		h.logger.Warn("webauthn: finish login failed", "error", err)
 		e := authlog.Event{
