@@ -242,6 +242,7 @@ type loginData struct {
 	AllowMagicLink    bool
 	AllowProviders    []providerButton
 	Tagline           string
+	Wordmark          string
 	CSRFToken         string
 }
 
@@ -257,17 +258,54 @@ const (
 
 	// MaxTaglineLength bounds the setting: it is a caption, not a paragraph.
 	MaxTaglineLength = 120
+
+	// SettingHeaderPhrase is the custom word or phrase shown in the sign-in
+	// header, and SettingHeaderStyle says how it is combined with the name.
+	SettingHeaderPhrase = "login_header_phrase"
+	SettingHeaderStyle  = "login_header_style"
+
+	// HeaderStyleFor renders "passage for <phrase>"; HeaderStylePlain renders
+	// the phrase on its own.
+	HeaderStyleFor   = "for"
+	HeaderStylePlain = "plain"
+
+	// DefaultWordmark is the header when no phrase is configured.
+	DefaultWordmark = "passage"
+
+	// MaxHeaderPhraseLength keeps the header a wordmark rather than a sentence.
+	MaxHeaderPhraseLength = 60
 )
+
+// settingString reads one settings-store value, trimmed, with a fallback for a
+// missing key or store error.
+func (h *Handler) settingString(ctx context.Context, key, fallback string) string {
+	if h.settings == nil {
+		return fallback
+	}
+	if v, err := h.settings.Get(ctx, key); err == nil {
+		return strings.TrimSpace(v)
+	}
+	return fallback
+}
 
 // tagline returns the configured text under the sign-in card. A stored empty
 // value hides it; a missing setting falls back to the default.
 func (h *Handler) tagline(ctx context.Context) string {
-	if h.settings != nil {
-		if v, err := h.settings.Get(ctx, SettingTagline); err == nil {
-			return strings.TrimSpace(v)
-		}
+	return h.settingString(ctx, SettingTagline, DefaultTagline)
+}
+
+// wordmark returns the text next to the logo in the sign-in header: "passage",
+// "passage for <phrase>", or the phrase alone when the operator chose the plain
+// style.
+func (h *Handler) wordmark(ctx context.Context) string {
+	phrase := h.settingString(ctx, SettingHeaderPhrase, "")
+	if phrase == "" {
+		return DefaultWordmark
 	}
-	return DefaultTagline
+	if h.settingString(ctx, SettingHeaderStyle, HeaderStyleFor) == HeaderStylePlain {
+		return phrase
+	}
+	return DefaultWordmark + " for " + phrase
 }
 
 // providerButtons returns one button per configured upstream provider, in
@@ -337,6 +375,7 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
 		AllowProviders:    providerButtons(h.cfg),
 		Tagline:           h.tagline(r.Context()),
+		Wordmark:          h.wordmark(r.Context()),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
@@ -827,6 +866,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
 		AllowProviders:    providerButtons(h.cfg),
 		Tagline:           h.tagline(r.Context()),
+		Wordmark:          h.wordmark(r.Context()),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }

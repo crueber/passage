@@ -78,6 +78,7 @@ type mfaLoginData struct {
 	CSRFToken string
 	Username  string
 	Tagline   string
+	Wordmark  string
 	// PasskeyAvailable is decided server-side: the passkey button renders only
 	// when a passkey can actually complete this challenge.
 	PasskeyAvailable bool
@@ -342,6 +343,7 @@ func (h *Handler) renderMFALogin(w http.ResponseWriter, r *http.Request, usernam
 		Username:         username,
 		PasskeyAvailable: passkey,
 		Tagline:          h.tagline(r.Context()),
+		Wordmark:         h.wordmark(r.Context()),
 	})
 }
 

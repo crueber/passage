@@ -76,6 +76,36 @@
           </div>
 
           <div>
+            <label class="label" for="login_header_phrase">Sign-in header phrase</label>
+            <input class="input sm:max-w-md" type="text" id="login_header_phrase" name="login_header_phrase"
+                   maxlength="60" value="{{.HeaderPhrase}}" placeholder="e.g. the Rueber lab">
+            <p class="help">
+              A word or short phrase for the sign-in header. With a phrase set,
+              the header reads <span class="td-mono">passage for &lt;phrase&gt;</span>.
+              Leave it empty to show just <span class="td-mono">passage</span>.
+            </p>
+          </div>
+
+          <fieldset class="space-y-2">
+            <legend class="label">Sign-in header style</legend>
+            <label class="checkbox" for="login_header_style_for">
+              <input type="radio" id="login_header_style_for" name="login_header_style" value="for"
+                     {{if eq .HeaderStyle "for"}}checked{{end}}>
+              <span>Keep the name first:
+                <span class="td-mono">passage for {{if .HeaderPhrase}}{{.HeaderPhrase}}{{else}}&lt;phrase&gt;{{end}}</span>
+              </span>
+            </label>
+            <label class="checkbox" for="login_header_style_plain">
+              <input type="radio" id="login_header_style_plain" name="login_header_style" value="plain"
+                     {{if eq .HeaderStyle "plain"}}checked{{end}}>
+              <span>Drop &ldquo;passage for&rdquo;:
+                <span class="td-mono">{{if .HeaderPhrase}}{{.HeaderPhrase}}{{else}}&lt;phrase&gt;{{end}}</span>
+              </span>
+            </label>
+            <p class="help">Applies to the sign-in page and its second-factor step.</p>
+          </fieldset>
+
+          <div>
             <label class="label" for="smtp_from">SMTP from address</label>
             <input class="input sm:max-w-xs" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
                    value="{{.SMTPFrom}}">

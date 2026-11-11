@@ -1835,7 +1835,10 @@ type settingsData struct {
 	// TaglineDefault is the placeholder shown when the field is empty; an empty
 	// saved value hides the line instead.
 	TaglineDefault string
-	SMTPFrom       string
+	// Sign-in header: a custom phrase and how it combines with the name.
+	HeaderPhrase string
+	HeaderStyle  string
+	SMTPFrom     string
 	// Locked flags mark settings the configuration file or environment
 	// supplied. Those win over the stored value, so the control is rendered
 	// read-only with a note instead of silently ignoring the operator's save.
@@ -1920,6 +1923,8 @@ func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base
 		SessionDurationHours:    sessionDuration,
 		Tagline:                 all[user.SettingTagline],
 		TaglineDefault:          user.DefaultTagline,
+		HeaderPhrase:            all[user.SettingHeaderPhrase],
+		HeaderStyle:             headerStyle(all[user.SettingHeaderStyle]),
 		SMTPFrom:                all["smtp_from"],
 		AllowRegistrationLocked: h.cfg.Auth.AllowRegistrationSet,
 		SessionDurationLocked:   h.cfg.Session.DurationHoursSet,
@@ -1931,6 +1936,16 @@ func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base
 		AuthRequireMFA:          authRequireMFA,
 		SMTPConfigured:          h.cfg.SMTP.Host != "",
 	}
+}
+
+// headerStyle normalizes the stored header style. Anything that is not the
+// explicit "plain" choice renders "passage for <phrase>", so a missing or
+// unrecognized value behaves like the default.
+func headerStyle(raw string) string {
+	if strings.TrimSpace(raw) == user.HeaderStylePlain {
+		return user.HeaderStylePlain
+	}
+	return user.HeaderStyleFor
 }
 
 // settingLockedByConfig reports whether the configuration file or environment
@@ -1996,9 +2011,15 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("The sign-in tagline must be at most %d characters.", user.MaxTaglineLength))
 		return
 	}
+	if len(values[user.SettingHeaderPhrase]) > user.MaxHeaderPhraseLength {
+		h.renderSettingsForm(w, r, values,
+			fmt.Sprintf("The sign-in header phrase must be at most %d characters.", user.MaxHeaderPhraseLength))
+		return
+	}
 
 	keys := []string{
-		"allow_registration", "session_duration_hours", user.SettingTagline, "smtp_from",
+		"allow_registration", "session_duration_hours", user.SettingTagline,
+		user.SettingHeaderPhrase, user.SettingHeaderStyle, "smtp_from",
 		"auth_password_enabled", "auth_passkey_enabled", "auth_magic_link_enabled", "auth_require_mfa",
 	}
 	for _, key := range keys {
@@ -2039,6 +2060,8 @@ func (h *Handler) settingsFromForm(r *http.Request) map[string]string {
 		"allow_registration":      on("allow_registration"),
 		"session_duration_hours":  strings.TrimSpace(r.FormValue("session_duration_hours")),
 		user.SettingTagline:       strings.TrimSpace(r.FormValue("login_tagline")),
+		user.SettingHeaderPhrase:  strings.TrimSpace(r.FormValue("login_header_phrase")),
+		user.SettingHeaderStyle:   headerStyle(r.FormValue("login_header_style")),
 		"smtp_from":               strings.TrimSpace(r.FormValue("smtp_from")),
 		"auth_password_enabled":   on("auth_password_enabled"),
 		"auth_passkey_enabled":    on("auth_passkey_enabled"),

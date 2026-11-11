@@ -3021,6 +3021,87 @@ func TestSettings_TaglineRoundTrip(t *testing.T) {
 	})
 }
 
+// TestSettings_HeaderPhraseAndStyle covers the sign-in header settings: the
+// phrase saves, the style radio round-trips, an unknown style falls back to the
+// "passage for" form, and an over-long phrase is rejected.
+func TestSettings_HeaderPhraseAndStyle(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	base := url.Values{}
+	base.Set("session_duration_hours", "24")
+	base.Set("smtp_from", "")
+	base.Set("auth_password_enabled", "on")
+	base.Set("auth_passkey_enabled", "on")
+
+	save := func(t *testing.T, phrase, style string) *httptest.ResponseRecorder {
+		t.Helper()
+		form := url.Values{}
+		for k, v := range base {
+			form[k] = v
+		}
+		form.Set("login_header_phrase", phrase)
+		form.Set("login_header_style", style)
+		return adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	}
+	stored := func(t *testing.T, key string) string {
+		t.Helper()
+		v, err := f.settings.Get(context.Background(), key)
+		if err != nil {
+			t.Fatalf("read %s: %v", key, err)
+		}
+		return v
+	}
+
+	t.Run("saves phrase and plain style", func(t *testing.T) {
+		if rec := save(t, "the Rueber lab", user.HeaderStylePlain); rec.Result().StatusCode != http.StatusFound {
+			t.Fatalf("status = %d; want 302 (%s)", rec.Result().StatusCode, rec.Body.String())
+		}
+		if got := stored(t, user.SettingHeaderPhrase); got != "the Rueber lab" {
+			t.Errorf("phrase = %q", got)
+		}
+		if got := stored(t, user.SettingHeaderStyle); got != user.HeaderStylePlain {
+			t.Errorf("style = %q, want plain", got)
+		}
+
+		body := adminRequest(t, router, http.MethodGet, "/admin/settings", token, f.cfg.Session.CookieName, nil, "").Body.String()
+		if !strings.Contains(body, `value="the Rueber lab"`) {
+			t.Error("settings page does not show the saved phrase")
+		}
+		if !strings.Contains(body, `value="plain"
+                     checked`) {
+			t.Error("plain radio is not checked")
+		}
+	})
+
+	t.Run("unknown style falls back to for", func(t *testing.T) {
+		if rec := save(t, "the Rueber lab", "something-else"); rec.Result().StatusCode != http.StatusFound {
+			t.Fatalf("status = %d; want 302", rec.Result().StatusCode)
+		}
+		if got := stored(t, user.SettingHeaderStyle); got != user.HeaderStyleFor {
+			t.Errorf("style = %q, want for", got)
+		}
+	})
+
+	t.Run("over-long phrase is rejected", func(t *testing.T) {
+		before := stored(t, user.SettingHeaderPhrase)
+		rec := save(t, strings.Repeat("x", user.MaxHeaderPhraseLength+1), user.HeaderStyleFor)
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("status = %d; want 200 (re-rendered form)", rec.Result().StatusCode)
+		}
+		if !strings.Contains(rec.Body.String(), "at most 60 characters") {
+			t.Error("rejected form does not explain the limit")
+		}
+		if after := stored(t, user.SettingHeaderPhrase); after != before {
+			t.Errorf("phrase changed to %q after a rejected save", after)
+		}
+	})
+}
+
 // TestPostSettings_RejectedFormPreservesValues makes sure a validation error
 // does not silently discard everything the operator just typed.
 func TestPostSettings_RejectedFormPreservesValues(t *testing.T) {

@@ -95,9 +95,11 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		AllowProviders    []struct{ Name, Label string }
 		AllowRegistration bool
 		Tagline           string
+		Wordmark          string
 	}{
 		AllowPassword: true,
 		Tagline:       "Self-hosted authentication for your home lab",
+		Wordmark:      "passage",
 	}
 
 	settings := struct {
@@ -108,6 +110,8 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		SessionDurationHours    string
 		Tagline                 string
 		TaglineDefault          string
+		HeaderPhrase            string
+		HeaderStyle             string
 		SMTPFrom                string
 		AllowRegistrationLocked bool
 		SessionDurationLocked   bool
@@ -125,6 +129,18 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		AuthRequireMFA:      "false",
 	}
 
+	mfa := struct {
+		Flash            any
+		CSRFToken        string
+		Username         string
+		PasskeyAvailable bool
+		Tagline          string
+		Wordmark         string
+	}{
+		Tagline:  "Self-hosted authentication for your home lab",
+		Wordmark: "passage for the Rueber lab",
+	}
+
 	tests := []struct {
 		template string
 		data     any
@@ -137,6 +153,17 @@ func TestRender_ThemeAttributes(t *testing.T) {
 				`data-theme="` + theme.Default() + `"`,
 				`/static/themes.css`,
 				`<script src="/static/theme.js"></script>`,
+			},
+		},
+		{
+			template: "login_mfa.html",
+			data:     mfa,
+			needles: []string{
+				`data-theme="` + theme.Default() + `"`,
+				`/static/themes.css`,
+				`<script src="/static/theme.js"></script>`,
+				`<span class="break-words">passage for the Rueber lab</span>`,
+				`Self-hosted authentication for your home lab`,
 			},
 		},
 		{

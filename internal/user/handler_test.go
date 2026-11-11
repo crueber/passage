@@ -493,6 +493,51 @@ func TestHandler_GetRegister_ExplicitConfigWins(t *testing.T) {
 	}
 }
 
+// TestHandler_Wordmark covers the sign-in header: the plain name, the phrase
+// combined with it, and the plain style that drops the prefix.
+func TestHandler_Wordmark(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		phrase   string
+		style    string
+		setStyle bool
+		want     string
+	}{
+		{name: "no phrase", want: "passage"},
+		{name: "phrase appends", phrase: "the Rueber lab", want: "passage for the Rueber lab"},
+		{name: "plain style drops the prefix", phrase: "the Rueber lab", style: "plain", setStyle: true, want: "the Rueber lab"},
+		{name: "phrase is trimmed", phrase: "  the Rueber lab  ", want: "passage for the Rueber lab"},
+		{name: "plain with no phrase is just the name", style: "plain", setStyle: true, want: "passage"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFullHandlerFixture(t, true)
+			if tt.phrase != "" {
+				f.settings.values["login_header_phrase"] = tt.phrase
+			}
+			if tt.setStyle {
+				f.settings.values["login_header_style"] = tt.style
+			}
+
+			rec := httptest.NewRecorder()
+			f.handler.GetLogin(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+			body := rec.Body.String()
+			if !strings.Contains(body, `<span class="break-words">`+tt.want+"</span>") {
+				t.Errorf("login header = %q not found in body", tt.want)
+			}
+			if tt.setStyle && tt.style == "plain" && tt.phrase != "" {
+				if strings.Contains(body, "passage for") {
+					t.Error("plain style still rendered the \"passage for\" prefix")
+				}
+			}
+		})
+	}
+}
+
 // TestHandler_PostRegister_Success verifies that a valid POST /register creates
 // a user and sets a session cookie (auto-login after registration).
 func TestHandler_PostRegister_Success(t *testing.T) {
