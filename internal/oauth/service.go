@@ -668,10 +668,11 @@ func (s *Service) buildIDToken(ctx context.Context, u *user.User, appID, clientI
 		"email":              u.Email,
 		"preferred_username": u.Username,
 		"is_admin":           u.IsAdmin,
-		// email_verified is required by OIDC Core §5.1. Passage is a
-		// self-hosted IdP where all accounts are admin-created, so all
-		// stored addresses are considered administratively verified.
-		"email_verified": true,
+		// email_verified reports the stored flag, which verification links
+		// set. It is never used to gate authentication (a broken mail server
+		// must not lock anyone out); clients that require a verified address
+		// can enforce that themselves.
+		"email_verified": u.EmailVerified,
 	}
 	// auth_time is included only when the original authentication time is known.
 	// On token refresh, authTime is zero and the claim is deliberately omitted.

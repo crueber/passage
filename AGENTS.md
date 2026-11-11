@@ -198,7 +198,9 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 
 ## Database Conventions
 
-- All migrations live in `internal/db/migrations/` as numbered SQL files: `001_initial.sql` … `010_magic_link_tokens.sql`. New migrations are the next number; never edit an applied migration.
+- All migrations live in `internal/db/migrations/` as numbered SQL files: `001_initial.sql` … `018_session_last_used.sql`. New migrations are the next number; never edit an applied migration.
+- **Additive only.** `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE … ADD COLUMN` with a `NOT NULL DEFAULT`, `CREATE INDEX IF NOT EXISTS`. No `DROP`, no table rebuilds, no column renames, and a new column must default to "behaves like before" so an upgrade can never take auth down. Include a best-effort `Down` and a test that reopens a *populated* database.
+- Migrations must stay **independent of each other's ordering**: `db.Open` runs goose with `WithAllowOutofOrder(true)` because parallel branches merge files out of numeric order, and a database that has already recorded a higher version must still start when a lower one appears. Never make one migration depend on another running first.
 - SQLite is opened via `db.Open(ctx, path, logger)` which runs migrations and sets `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`. Do not open the driver directly.
 - `db.Open` calls `SetMaxOpenConns(1)` — a single writer connection avoids `SQLITE_BUSY` under concurrent load. Don't raise it casually.
 - goose runs via the **non-global Provider API** (`goose.NewProvider`), safe for concurrent test use. Never use goose global functions.

@@ -769,6 +769,8 @@ func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
 		Email:    "claims@example.com",
 		Name:     "Claims User",
 		IsAdmin:  false,
+		// A normal account: registration auto-verifies when SMTP is unset.
+		EmailVerified: true,
 	}
 	sc := newTestServiceWithDB(t, db, testApp, testUser)
 
@@ -857,13 +859,13 @@ func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
 	} else if isAdmin != testUser.IsAdmin {
 		t.Errorf("id_token is_admin: got %v, want %v", isAdmin, testUser.IsAdmin)
 	}
-	// email_verified must be the JSON boolean true (not a string).
-	// Grist and other OIDC clients use a strict === true check.
+	// email_verified must be a JSON boolean (not a string) and must mirror the
+	// stored flag. Grist and other OIDC clients use a strict === true check.
 	emailVerified, ok := claims["email_verified"].(bool)
 	if !ok {
 		t.Errorf("id_token email_verified: expected bool, got %T", claims["email_verified"])
-	} else if !emailVerified {
-		t.Errorf("id_token email_verified: got false, want true")
+	} else if emailVerified != testUser.EmailVerified {
+		t.Errorf("id_token email_verified: got %v, want %v", emailVerified, testUser.EmailVerified)
 	}
 
 	// Step 5: Verify the RS256 signature using the service's public key.

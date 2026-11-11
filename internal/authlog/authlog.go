@@ -11,14 +11,20 @@ import "time"
 // and the admin security-log page (via Names), so the filter cannot drift from
 // what is actually recorded.
 const (
-	EventLoginSuccess     = "login.success"
-	EventLoginFailure     = "login.failure"
-	EventLogout           = "logout"
-	EventPasskeyLogin     = "passkey.login"
-	EventPasskeyFailure   = "passkey.failure"
-	EventMagicLinkLogin   = "magiclink.login"
-	EventMagicLinkFailure = "magiclink.failure"
-	EventRegisterSuccess  = "register.success"
+	EventLoginSuccess      = "login.success"
+	EventLoginFailure      = "login.failure"
+	EventLogout            = "logout"
+	EventPasskeyLogin      = "passkey.login"
+	EventPasskeyFailure    = "passkey.failure"
+	EventMagicLinkLogin    = "magiclink.login"
+	EventMagicLinkFailure  = "magiclink.failure"
+	EventRegisterSuccess   = "register.success"
+	EventOAuthAuthorize    = "oauth.authorize"
+	EventOAuthToken        = "oauth.token"
+	EventOAuthTokenFailed  = "oauth.token_failure"
+	EventOAuthRefreshReuse = "oauth.refresh_reuse"
+	EventOAuthRevoke       = "oauth.revoke"
+	EventOAuthLogout       = "oauth.logout"
 )
 
 // Outcomes describe how an event ended.
@@ -56,6 +62,12 @@ func Names() []string {
 		EventMagicLinkLogin,
 		EventMagicLinkFailure,
 		EventRegisterSuccess,
+		EventOAuthAuthorize,
+		EventOAuthToken,
+		EventOAuthTokenFailed,
+		EventOAuthRefreshReuse,
+		EventOAuthRevoke,
+		EventOAuthLogout,
 	}
 }
 

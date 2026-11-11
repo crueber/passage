@@ -83,7 +83,7 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 		t.Fatalf("buildHandlerTestStack: NewService: %v", err)
 	}
 
-	h := oauth.NewHandler(svc, sv, svc.PrivateKey().Public().(*rsa.PublicKey), svc.KeyID(), "https://auth.example.com", testConfig(), slog.Default())
+	h := oauth.NewHandler(svc, sv, svc.PrivateKey().Public().(*rsa.PublicKey), svc.KeyID(), "https://auth.example.com", nil, testConfig(), slog.Default())
 	return &handlerTestStack{
 		handler: h,
 		svc:     svc,
@@ -472,7 +472,7 @@ func TestHandler_UserInfo_Valid(t *testing.T) {
 		RedirectURIs:     []string{redirectURI},
 		OAuthEnabled:     true,
 	}
-	testUser := &user.User{Username: "dave", Email: "dave@example.com", Name: "Dave"}
+	testUser := &user.User{Username: "dave", Email: "dave@example.com", Name: "Dave", EmailVerified: true}
 	sv := &fakeSessionValidator{}
 	stack := buildHandlerTestStack(t, sv, testApp, testUser)
 
@@ -511,13 +511,13 @@ func TestHandler_UserInfo_Valid(t *testing.T) {
 	if username, _ := info["preferred_username"].(string); username != testUser.Username {
 		t.Errorf("UserInfo preferred_username: got %q, want %q", username, testUser.Username)
 	}
-	// email_verified must be the JSON boolean true — Grist and other OIDC
-	// clients use a strict === true check; a string "true" is not sufficient.
+	// email_verified must be a JSON boolean mirroring the stored flag — Grist
+	// and other OIDC clients use a strict === true check; a string is not enough.
 	emailVerified, ok := info["email_verified"].(bool)
 	if !ok {
 		t.Errorf("UserInfo email_verified: expected bool, got %T", info["email_verified"])
-	} else if !emailVerified {
-		t.Errorf("UserInfo email_verified: got false, want true")
+	} else if emailVerified != testUser.EmailVerified {
+		t.Errorf("UserInfo email_verified: got %v, want %v", emailVerified, testUser.EmailVerified)
 	}
 }
 

@@ -163,7 +163,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("init oauth service: %w", err)
 	}
-	oauthHandler := oauth.NewHandler(oauthSvc, sessionSvc, oauthSvc.PrivateKey().Public().(*rsa.PublicKey), oauthSvc.KeyID(), cfg.Server.BaseURL, cfg, logger)
+	oauthHandler := oauth.NewHandler(oauthSvc, sessionSvc, oauthSvc.PrivateKey().Public().(*rsa.PublicKey), oauthSvc.KeyID(), cfg.Server.BaseURL, authRecorder, cfg, logger)
 
 	// Build WebAuthn credential store and challenge store.
 	credStore := webauthn.NewSQLiteCredentialStore(database)

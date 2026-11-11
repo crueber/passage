@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
@@ -49,28 +50,48 @@ type sessionValidator interface {
 	RevokeSession(ctx context.Context, token string) error
 }
 
+// authEventRecorder records authentication events for the admin security log.
+// Defined at the consumer boundary; backed by *authlog.Recorder in run.go.
+// Recording is best-effort: the Recorder never returns an error.
+type authEventRecorder interface {
+	Record(ctx context.Context, e authlog.Event)
+}
+
 // Handler handles OAuth2/OIDC HTTP requests.
 type Handler struct {
-	svc       oauthService
-	sessions  sessionValidator
-	publicKey *rsa.PublicKey
-	keyID     string // kid included in JWKS and id_token header
-	baseURL   string
-	cfg       *config.Config
-	logger    *slog.Logger
+	svc        oauthService
+	sessions   sessionValidator
+	publicKey  *rsa.PublicKey
+	keyID      string // kid included in JWKS and id_token header
+	baseURL    string
+	authEvents authEventRecorder
+	cfg        *config.Config
+	logger     *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(svc oauthService, sessions sessionValidator, publicKey *rsa.PublicKey, keyID, baseURL string, cfg *config.Config, logger *slog.Logger) *Handler {
+func NewHandler(svc oauthService, sessions sessionValidator, publicKey *rsa.PublicKey, keyID, baseURL string, authEvents authEventRecorder, cfg *config.Config, logger *slog.Logger) *Handler {
 	return &Handler{
-		svc:       svc,
-		sessions:  sessions,
-		publicKey: publicKey,
-		keyID:     keyID,
-		baseURL:   baseURL,
-		cfg:       cfg,
-		logger:    logger,
+		svc:        svc,
+		sessions:   sessions,
+		publicKey:  publicKey,
+		keyID:      keyID,
+		baseURL:    baseURL,
+		authEvents: authEvents,
+		cfg:        cfg,
+		logger:     logger,
 	}
+}
+
+// record emits an authentication event for r, filling in the client address
+// and user agent. It is a no-op when no recorder is wired (unit tests).
+func (h *Handler) record(r *http.Request, e authlog.Event) {
+	if h.authEvents == nil {
+		return
+	}
+	e.IP = authlog.ClientIP(r)
+	e.UserAgent = r.UserAgent()
+	h.authEvents.Record(r.Context(), e)
 }
 
 // Routes registers the OAuth2/OIDC routes on the given router.
@@ -196,6 +217,13 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	// Attempt to authorize.
 	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod, sess.CreatedAt, u.ID)
 	if err != nil {
+		h.record(r, authlog.Event{
+			Event:    authlog.EventOAuthAuthorize,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   u.ID,
+			Username: u.Username,
+			Detail:   authorizeDenyReason(err) + " client_id=" + clientID,
+		})
 		switch {
 		case errors.Is(err, app.ErrOAuthNotEnabled):
 			h.writeJSONError(w, http.StatusBadRequest, "unauthorized_client",
@@ -215,6 +243,14 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	h.record(r, authlog.Event{
+		Event:    authlog.EventOAuthAuthorize,
+		Outcome:  authlog.OutcomeSuccess,
+		UserID:   u.ID,
+		Username: u.Username,
+		Detail:   "client_id=" + clientID,
+	})
 
 	// Redirect to the redirect_uri with the authorization code.
 	redirectURL, err := url.Parse(redirectURI)
@@ -282,10 +318,20 @@ func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter
 
 	resp, err := h.svc.ExchangeCode(ctx, code, clientID, clientSecret, redirectURI, codeVerifier)
 	if err != nil {
+		h.record(r, authlog.Event{
+			Event:   authlog.EventOAuthTokenFailed,
+			Outcome: authlog.OutcomeFailure,
+			Detail:  "authorization_code",
+		})
 		h.writeTokenError(w, err)
 		return
 	}
 
+	h.record(r, authlog.Event{
+		Event:   authlog.EventOAuthToken,
+		Outcome: authlog.OutcomeSuccess,
+		Detail:  "authorization_code",
+	})
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
@@ -309,11 +355,27 @@ func (h *Handler) handleRefreshTokenGrant(ctx context.Context, w http.ResponseWr
 				"app_id", reuseErr.AppID,
 				"user_id", reuseErr.UserID,
 			)
+			h.record(r, authlog.Event{
+				Event:   authlog.EventOAuthRefreshReuse,
+				Outcome: authlog.OutcomeFailure,
+				UserID:  reuseErr.UserID,
+				Detail:  "refresh token replay; family revoked app_id=" + reuseErr.AppID,
+			})
 		}
+		h.record(r, authlog.Event{
+			Event:   authlog.EventOAuthTokenFailed,
+			Outcome: authlog.OutcomeFailure,
+			Detail:  "refresh_token",
+		})
 		h.writeTokenError(w, err)
 		return
 	}
 
+	h.record(r, authlog.Event{
+		Event:   authlog.EventOAuthToken,
+		Outcome: authlog.OutcomeSuccess,
+		Detail:  "refresh_token",
+	})
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
@@ -398,6 +460,16 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	detail := "no id_token_hint"
+	if idTokenHint != "" {
+		detail = "id_token_hint"
+	}
+	h.record(r, authlog.Event{
+		Event:   authlog.EventOAuthLogout,
+		Outcome: authlog.OutcomeSuccess,
+		Detail:  detail,
+	})
+
 	h.redirectWithState(w, r, target, state)
 }
 
@@ -433,6 +505,11 @@ func (h *Handler) Revoke(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("oauth revoke: unexpected error", "error", err)
 	}
 
+	h.record(r, authlog.Event{
+		Event:   authlog.EventOAuthRevoke,
+		Outcome: authlog.OutcomeSuccess,
+		Detail:  "token_type_hint=" + r.FormValue("token_type_hint"),
+	})
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -570,11 +647,9 @@ func (h *Handler) UserInfo(w http.ResponseWriter, r *http.Request) {
 		"name":               u.Name,
 		"email":              u.Email,
 		"preferred_username": u.Username,
-		// email_verified is required by OIDC Core §5.1 and checked by many
-		// OIDC clients (e.g. Grist). Passage is a self-hosted IdP where an
-		// admin creates and controls all accounts, so all stored addresses
-		// are considered administratively verified.
-		"email_verified": true,
+		// Reports the stored verification flag. Many OIDC clients (e.g. Grist)
+		// read this claim; it is informational and never gates sign-in.
+		"email_verified": u.EmailVerified,
 		"roles":          roles,
 		"groups":         groups,
 	})
@@ -586,6 +661,22 @@ func (h *Handler) redirectToLogin(w http.ResponseWriter, r *http.Request) {
 	rd := r.URL.RequestURI()
 	loginURL := "/auth/start?rd=" + url.QueryEscape(rd)
 	http.Redirect(w, r, loginURL, http.StatusFound)
+}
+
+// authorizeDenyReason maps an Authorize error to a stable, log-friendly reason
+// string. It deliberately does not include the wrapped error text, which can
+// carry internal detail.
+func authorizeDenyReason(err error) string {
+	switch {
+	case errors.Is(err, app.ErrOAuthNotEnabled):
+		return "oauth_not_enabled"
+	case errors.Is(err, app.ErrRedirectURIMismatch):
+		return "redirect_uri_mismatch"
+	case errors.Is(err, ErrPKCEVerificationFailed):
+		return "pkce_failed"
+	default:
+		return "access_denied"
+	}
 }
 
 // extractClientCredentials returns the client_id and client_secret from the

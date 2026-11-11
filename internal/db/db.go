@@ -68,6 +68,13 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*sql.DB, error
 		database,
 		migrationsFS,
 		goose.WithSlog(logger),
+		// Parallel feature branches can merge migration files out of numeric
+		// order (e.g. 017 lands before 016). Without this, a database that has
+		// already recorded the higher version refuses to start when the lower
+		// one appears — an auth outage caused by bookkeeping, not by schema.
+		// Safe here because every migration in this project is additive and
+		// independent: see the migration rules in AGENTS.md.
+		goose.WithAllowOutofOrder(true),
 	)
 	if err != nil {
 		database.Close()
