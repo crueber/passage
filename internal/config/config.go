@@ -126,6 +126,15 @@ type SMTPConfig struct {
 type AuthConfig struct {
 	AllowRegistration bool `yaml:"allow_registration"`
 	BcryptCost        int  `yaml:"bcrypt_cost"`
+
+	// MaxLoginFailures is the number of consecutive invalid password attempts
+	// that locks an account. Zero disables per-account throttling.
+	// Env: PASSAGE_AUTH_MAX_LOGIN_FAILURES.
+	MaxLoginFailures int `yaml:"max_login_failures"`
+	// LockoutMinutes is how long an account stays locked once it reaches
+	// MaxLoginFailures. Zero disables per-account throttling.
+	// Env: PASSAGE_AUTH_LOCKOUT_MINUTES.
+	LockoutMinutes int `yaml:"lockout_minutes"`
 }
 
 // LogConfig holds logging settings.
@@ -156,6 +165,8 @@ func defaults() *Config {
 		Auth: AuthConfig{
 			AllowRegistration: true,
 			BcryptCost:        12,
+			MaxLoginFailures:  5,
+			LockoutMinutes:    15,
 		},
 		Log: LogConfig{
 			Level:  "info",
@@ -219,6 +230,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.BcryptCost < 10 || c.Auth.BcryptCost > 31 {
 		errs = append(errs, fmt.Errorf("auth.bcrypt_cost must be between 10 and 31, got %d", c.Auth.BcryptCost))
+	}
+	if c.Auth.MaxLoginFailures < 0 {
+		errs = append(errs, fmt.Errorf("auth.max_login_failures must be zero or positive, got %d", c.Auth.MaxLoginFailures))
+	}
+	if c.Auth.LockoutMinutes < 0 {
+		errs = append(errs, fmt.Errorf("auth.lockout_minutes must be zero or positive, got %d", c.Auth.LockoutMinutes))
 	}
 	if c.Database.Path == "" {
 		errs = append(errs, fmt.Errorf("database.path must not be empty"))
@@ -364,6 +381,20 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Auth.BcryptCost = n
 		} else {
 			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_BCRYPT_COST", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_AUTH_MAX_LOGIN_FAILURES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Auth.MaxLoginFailures = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_MAX_LOGIN_FAILURES", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_AUTH_LOCKOUT_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Auth.LockoutMinutes = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_LOCKOUT_MINUTES", v, err)
 		}
 	}
 

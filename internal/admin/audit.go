@@ -16,6 +16,7 @@ const (
 	AuditActionUserUpdate           = "user.update"
 	AuditActionUserDelete           = "user.delete"
 	AuditActionUserPasswordReset    = "user.password_reset"
+	AuditActionUserUnlock           = "user.unlock"
 	AuditActionAppCreate            = "app.create"
 	AuditActionAppUpdate            = "app.update"
 	AuditActionAppDelete            = "app.delete"

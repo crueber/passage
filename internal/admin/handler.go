@@ -20,6 +20,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
+	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/theme"
 	"github.com/crueber/passage/internal/user"
@@ -108,6 +109,13 @@ type auditLogger interface {
 	List(ctx context.Context, f AuditFilter) ([]*AuditEvent, error)
 }
 
+// loginThrottleAdmin is the admin-facing view of per-account login throttling.
+// Defined at the consumer boundary; backed by *ratelimit.AccountService in run.go.
+type loginThrottleAdmin interface {
+	ListLocked(ctx context.Context) ([]*ratelimit.AccountState, error)
+	Unlock(ctx context.Context, username string) error
+}
+
 // Handler holds all admin HTTP handlers in one struct.
 type Handler struct {
 	userStore   userStore
@@ -118,6 +126,7 @@ type Handler struct {
 	credentials credentialCounter
 	audit       auditLogger
 	authEvents  authLogReader
+	throttle    loginThrottleAdmin
 	mailer      email.Sender
 	tmpl        *template.Template
 	cfg         *config.Config
@@ -138,6 +147,7 @@ func NewHandler(
 	logger *slog.Logger,
 	audit auditLogger,
 	authEvents authLogReader,
+	throttle loginThrottleAdmin,
 ) *Handler {
 	return &Handler{
 		userStore:   userStore,
@@ -148,6 +158,7 @@ func NewHandler(
 		credentials: credentials,
 		audit:       audit,
 		authEvents:  authEvents,
+		throttle:    throttle,
 		mailer:      mailer,
 		tmpl:        tmpl,
 		cfg:         cfg,
@@ -169,6 +180,7 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/users/{id}", h.PostUpdateUser)
 	r.Post("/users/{id}/delete", h.PostDeleteUser)
 	r.Post("/users/{id}/reset-password", h.PostResetUserPassword)
+	r.Post("/users/{id}/unlock", h.PostUnlockUser)
 	r.Post("/users/{id}/sessions/revoke-all", h.PostRevokeAllUserSessions)
 	r.Get("/users/{id}/apps", h.GetUserApps)
 	r.Post("/users/{id}/apps", h.PostUserApps)
@@ -257,6 +269,8 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "All sessions revoked."}
 	case "reset-sent":
 		return &Flash{Type: "success", Message: "Password reset email sent."}
+	case "unlocked":
+		return &Flash{Type: "success", Message: "Account unlocked."}
 	case "access-granted":
 		return &Flash{Type: "success", Message: "Access granted."}
 	case "access-revoked":
@@ -336,7 +350,14 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 
 type usersData struct {
 	basePage
-	Users []*user.User
+	Users  []*user.User
+	locked map[string]bool // lower-cased username -> currently locked
+}
+
+// IsLocked reports whether username has an active login lock. Templates cannot
+// lower-case, so the lookup normalises here.
+func (d usersData) IsLocked(username string) bool {
+	return d.locked[strings.ToLower(strings.TrimSpace(username))]
 }
 
 // GetUsers renders the user list page.
@@ -349,6 +370,20 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One query for the whole page, not one per row. A throttle failure must
+	// not take down the user list: render it without badges and log.
+	locked := make(map[string]bool)
+	if h.throttle != nil {
+		states, err := h.throttle.ListLocked(ctx)
+		if err != nil {
+			h.logger.Warn("admin: list locked accounts", "error", err)
+		} else {
+			for _, state := range states {
+				locked[strings.ToLower(state.Username)] = true
+			}
+		}
+	}
+
 	var flash *Flash
 	if code := r.URL.Query().Get("flash"); code != "" {
 		flash = flashFromQuery(code)
@@ -357,6 +392,7 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-users", usersData{
 		basePage: h.baseFlash(r, "users", flash),
 		Users:    users,
+		locked:   locked,
 	})
 }
 
@@ -598,6 +634,35 @@ func (h *Handler) PostResetUserPassword(w http.ResponseWriter, r *http.Request) 
 
 	h.logAudit(r, AuditActionUserPasswordReset, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=reset-sent", http.StatusFound)
+}
+
+// PostUnlockUser clears a per-account login lock and records an audit entry.
+// The lock is temporary on its own; this is the operator's "let them back in
+// now" action.
+func (h *Handler) PostUnlockUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	u, err := h.userStore.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			http.Redirect(w, r, "/admin/users", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get user for unlock", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if h.throttle != nil {
+		if err := h.throttle.Unlock(r.Context(), u.Username); err != nil {
+			h.logger.Error("admin: unlock user", "user_id", id, "error", err)
+			http.Redirect(w, r, "/admin/users?flash=error", http.StatusFound)
+			return
+		}
+	}
+
+	h.logAudit(r, AuditActionUserUnlock, "user", u.ID, u.Username)
+	http.Redirect(w, r, "/admin/users?flash=unlocked", http.StatusFound)
 }
 
 // PostRevokeAllUserSessions revokes all active sessions for a user.

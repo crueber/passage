@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/theme"
@@ -51,18 +53,20 @@ func (l *recordingAuditLogger) List(_ context.Context, _ admin.AuditFilter) ([]*
 
 // fixture holds the full dependency graph for admin handler tests.
 type fixture struct {
-	db           interface{ Close() error }
-	userStore    *user.SQLiteStore
-	userSvc      *user.Service
-	sessionStore *session.SQLiteStore
-	sessionSvc   *session.Service
-	appStore     *app.SQLiteStore
-	appSvc       *app.Service
-	settings     admin.SettingsStore
-	handler      *admin.Handler
-	cfg          *config.Config
-	audit        *recordingAuditLogger
-	authStore    *authlog.Store
+	db            interface{ Close() error }
+	userStore     *user.SQLiteStore
+	userSvc       *user.Service
+	sessionStore  *session.SQLiteStore
+	sessionSvc    *session.Service
+	appStore      *app.SQLiteStore
+	appSvc        *app.Service
+	settings      admin.SettingsStore
+	handler       *admin.Handler
+	cfg           *config.Config
+	audit         *recordingAuditLogger
+	authStore     *authlog.Store
+	throttle      *ratelimit.AccountService
+	throttleStore *ratelimit.AccountStore
 }
 
 // newFixture builds all dependencies wired to an in-memory SQLite database.
@@ -108,21 +112,28 @@ func newFixture(t *testing.T) *fixture {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	auditLog := &recordingAuditLogger{}
 	authStore := authlog.NewStore(database)
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, auditLog, authStore)
+	throttleStore := ratelimit.NewAccountStore(database)
+	throttle := ratelimit.NewAccountService(throttleStore, ratelimit.AccountConfig{
+		MaxFailures: 5,
+		Lockout:     15 * time.Minute,
+	}, time.Now)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, throttle)
 
 	return &fixture{
-		db:           database,
-		userStore:    userStore,
-		userSvc:      userSvc,
-		sessionStore: sessionStore,
-		sessionSvc:   sessionSvc,
-		appStore:     appStore,
-		appSvc:       appSvc,
-		settings:     settings,
-		handler:      h,
-		cfg:          cfg,
-		audit:        auditLog,
-		authStore:    authStore,
+		db:            database,
+		userStore:     userStore,
+		userSvc:       userSvc,
+		sessionStore:  sessionStore,
+		sessionSvc:    sessionSvc,
+		appStore:      appStore,
+		appSvc:        appSvc,
+		settings:      settings,
+		handler:       h,
+		cfg:           cfg,
+		audit:         auditLog,
+		authStore:     authStore,
+		throttle:      throttle,
+		throttleStore: throttleStore,
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/session"
@@ -42,14 +43,30 @@ func (noopSettings) Get(_ context.Context, _ string) (string, error) {
 
 // handlerFixture holds all wired dependencies for user handler tests.
 type handlerFixture struct {
-	db        *sql.DB
-	handler   *user.Handler
-	userSvc   *user.Service
-	userStore *user.SQLiteStore
-	appSvc    *app.Service
-	cfg       *config.Config
-	authStore *authlog.Store
+	db            *sql.DB
+	handler       *user.Handler
+	userSvc       *user.Service
+	userStore     *user.SQLiteStore
+	appSvc        *app.Service
+	cfg           *config.Config
+	authStore     *authlog.Store
+	throttleStore *ratelimit.AccountStore
+	throttle      *ratelimit.AccountService
+	clock         *testClock
 }
+
+// testClock is a manually advanced clock so throttle tests never sleep.
+type testClock struct {
+	t time.Time
+}
+
+func newTestClock() *testClock {
+	return &testClock{t: time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)}
+}
+
+func (c *testClock) Now() time.Time { return c.t }
+
+func (c *testClock) Advance(d time.Duration) { c.t = c.t.Add(d) }
 
 // newHandlerFixture builds a Handler wired to a real in-memory DB.
 // It returns the handler and cfg so tests can inspect cookie names.
@@ -63,6 +80,13 @@ func newHandlerFixture(t *testing.T, allowRegistration bool) (*user.Handler, *co
 // so tests can access the DB and service for setup and assertions.
 func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture {
 	t.Helper()
+	return newFullHandlerFixtureWithThrottle(t, allowRegistration, 5, 15)
+}
+
+// newFullHandlerFixtureWithThrottle is newFullHandlerFixture with explicit
+// per-account throttle settings. Zero for either value disables throttling.
+func newFullHandlerFixtureWithThrottle(t *testing.T, allowRegistration bool, maxFailures, lockoutMinutes int) *handlerFixture {
+	t.Helper()
 
 	db := testutil.NewTestDB(t)
 	userStore := user.NewStore(db)
@@ -71,6 +95,8 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 		Auth: config.AuthConfig{
 			AllowRegistration: allowRegistration,
 			BcryptCost:        10,
+			MaxLoginFailures:  maxFailures,
+			LockoutMinutes:    lockoutMinutes,
 		},
 		Session: config.SessionConfig{
 			DurationHours: 24,
@@ -97,16 +123,25 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	appSvc := app.NewService(appStore, appStore, logger)
 	authStore := authlog.NewStore(db)
 	authRecorder := authlog.NewRecorder(authStore, logger)
-	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, authRecorder, tmpl, cfg, logger)
+	clock := newTestClock()
+	throttleStore := ratelimit.NewAccountStore(db)
+	throttle := ratelimit.NewAccountService(throttleStore, ratelimit.AccountConfig{
+		MaxFailures: maxFailures,
+		Lockout:     time.Duration(lockoutMinutes) * time.Minute,
+	}, clock.Now)
+	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, authRecorder, throttle, tmpl, cfg, logger)
 
 	return &handlerFixture{
-		db:        db,
-		handler:   h,
-		userSvc:   userSvc,
-		userStore: userStore,
-		appSvc:    appSvc,
-		cfg:       cfg,
-		authStore: authStore,
+		db:            db,
+		handler:       h,
+		userSvc:       userSvc,
+		userStore:     userStore,
+		appSvc:        appSvc,
+		cfg:           cfg,
+		authStore:     authStore,
+		throttleStore: throttleStore,
+		throttle:      throttle,
+		clock:         clock,
 	}
 }
 
@@ -190,7 +225,7 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "loginuser")
@@ -245,7 +280,7 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "rduser")
@@ -1157,7 +1192,7 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "pwuser")
@@ -1277,7 +1312,7 @@ func TestHandler_GetDashboard_ListerError(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(session.WithUser(req.Context(), u))

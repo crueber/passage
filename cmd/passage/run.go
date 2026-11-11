@@ -253,6 +253,15 @@ func run() error {
 	registerLimiter := ratelimit.New(rl.RegisterRequests, time.Duration(rl.RegisterWindowMinutes)*time.Minute)
 	magicLinkLimiter := ratelimit.New(rl.MagicLinkRequests, time.Duration(rl.MagicLinkWindowMinutes)*time.Minute)
 
+	// Per-account password-login throttling. SQLite-backed so it survives a
+	// restart, unlike the in-memory per-IP limiters above. Both values are
+	// validated as non-negative; zero disables the feature.
+	accountThrottleStore := ratelimit.NewAccountStore(database)
+	accountThrottle := ratelimit.NewAccountService(accountThrottleStore, ratelimit.AccountConfig{
+		MaxFailures: cfg.Auth.MaxLoginFailures,
+		Lockout:     time.Duration(cfg.Auth.LockoutMinutes) * time.Minute,
+	}, time.Now)
+
 	// Start rate limiter cleanup goroutines (every 5 minutes each).
 	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter, registerLimiter, magicLinkLimiter} {
 		go func() {
@@ -272,13 +281,13 @@ func run() error {
 	// Build admin handler.
 	auditStore := admin.NewSQLiteAuditStore(database)
 	auditSvc := admin.NewAuditService(auditStore, logger)
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger, auditSvc, authStore)
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mailer, tmpl, cfg, logger, auditSvc, authStore, accountThrottle)
 
 	// Build forward-auth handler.
 	faHandler := forwardauth.NewHandler(sessionSvc, appSvc, cfg, logger)
 
 	// Build user handler.
-	userHandler := user.NewHandler(userSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, tmpl, cfg, logger)
+	userHandler := user.NewHandler(userSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
 
 	// If no admin user exists, generate a one-time setup token so the operator
 	// can bootstrap the first admin account via /setup. The token is logged to

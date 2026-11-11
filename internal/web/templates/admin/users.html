@@ -42,9 +42,20 @@
           <td><a class="font-medium link" href="/admin/users/{{.ID}}">{{.Username}}</a></td>
           <td class="td-muted">{{.Email}}</td>
           <td>{{.Name}}</td>
-          <td>{{if .IsAdmin}}<span class="badge badge-green">Admin</span> {{end}}{{if not .IsActive}}<span class="badge badge-red">Inactive</span>{{else if not .IsAdmin}}<span class="text-faint">&mdash;</span>{{end}}</td>
+          <td>
+            {{if .IsAdmin}}<span class="badge badge-green">Admin</span>{{end}}
+            {{if not .IsActive}}<span class="badge badge-red">Inactive</span>{{end}}
+            {{if $.IsLocked .Username}}<span class="badge badge-red">Locked</span>{{end}}
+            {{if and (not .IsAdmin) .IsActive (not ($.IsLocked .Username))}}<span class="text-faint">&mdash;</span>{{end}}
+          </td>
           <td>
             <div class="flex justify-end gap-1.5">
+              {{if $.IsLocked .Username}}
+              <form method="POST" action="/admin/users/{{.ID}}/unlock">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-outline btn-sm" data-confirm="Unlock this account?">Unlock</button>
+              </form>
+              {{end}}
               <a class="btn btn-outline btn-sm" href="/admin/users/{{.ID}}/apps">{{template "ic-apps"}}Access</a>
               <form method="POST" action="/admin/users/{{.ID}}/reset-password">
                 {{csrfField $.CSRFToken}}

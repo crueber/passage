@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
+	"github.com/crueber/passage/internal/ratelimit"
 )
 
 // Flash represents a flash message rendered above a form.
@@ -60,6 +62,16 @@ type authEventRecorder interface {
 	Record(ctx context.Context, e authlog.Event)
 }
 
+// loginThrottle is the per-account password-login throttle.
+// Defined at the consumer boundary; backed by *ratelimit.AccountService in run.go.
+// Checks and writes are best-effort: an error is logged and the login proceeds
+// so a database problem can never lock an operator out.
+type loginThrottle interface {
+	Status(ctx context.Context, username string) (ratelimit.AccountStatus, error)
+	RecordFailure(ctx context.Context, username string) (ratelimit.AccountStatus, error)
+	Reset(ctx context.Context, username string) error
+}
+
 // Handler handles user-facing HTTP flows: login, register, password reset, logout.
 type Handler struct {
 	users      *Service
@@ -69,6 +81,7 @@ type Handler struct {
 	mailer     email.Sender
 	userCtx    userContextReader
 	authEvents authEventRecorder
+	throttle   loginThrottle
 	tmpl       *template.Template
 	cfg        *config.Config
 	logger     *slog.Logger
@@ -83,6 +96,7 @@ func NewHandler(
 	mailer email.Sender,
 	userCtx userContextReader,
 	authEvents authEventRecorder,
+	throttle loginThrottle,
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
@@ -95,6 +109,7 @@ func NewHandler(
 		mailer:     mailer,
 		userCtx:    userCtx,
 		authEvents: authEvents,
+		throttle:   throttle,
 		tmpl:       tmpl,
 		cfg:        cfg,
 		logger:     logger,
@@ -226,9 +241,38 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 	rd := r.FormValue("rd")
 
+	// Per-account throttle check runs before password verification. A locked
+	// account — real or unknown — gets the same generic page and never reaches
+	// bcrypt, so the lock is not an account-existence oracle.
+	if h.throttle != nil {
+		status, err := h.throttle.Status(r.Context(), username)
+		if err != nil {
+			// Fail open: a throttle-store problem must not block every login.
+			h.logger.Warn("login throttle status", "error", err)
+		} else if status.Locked {
+			h.record(r, authlog.Event{
+				Event:    authlog.EventLoginThrottled,
+				Outcome:  authlog.OutcomeThrottled,
+				Username: username,
+				Detail:   "account locked",
+			})
+			h.renderLoginError(w, r, lockedLoginMessage(status.Remaining), rd, username)
+			return
+		}
+	}
+
 	u, err := h.users.Authenticate(r.Context(), username, password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) || errors.Is(err, ErrUserInactive) {
+			// Count every rejected credential pair the same way, including
+			// unknown usernames. A best-effort failure here must not change the
+			// response: the login is already invalid.
+			if h.throttle != nil {
+				if _, throttleErr := h.throttle.RecordFailure(r.Context(), username); throttleErr != nil {
+					h.logger.Warn("login throttle record failure", "error", throttleErr)
+				}
+			}
+
 			detail := "invalid credentials"
 			if errors.Is(err, ErrUserInactive) {
 				detail = "account inactive"
@@ -251,6 +295,14 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		h.renderLoginError(w, r, "An error occurred. Please try again.", rd, username)
 		return
+	}
+
+	// Correct password: clear any accumulated failures. Best-effort, like the
+	// failure path — a store error must not fail a valid login.
+	if h.throttle != nil {
+		if err := h.throttle.Reset(r.Context(), username); err != nil {
+			h.logger.Warn("login throttle reset", "error", err)
+		}
 	}
 
 	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, nil, r.RemoteAddr, r.UserAgent())
@@ -527,6 +579,16 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, da
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = buf.WriteTo(w)
+}
+
+// lockedLoginMessage is the generic message shown while an account is locked.
+// The wording is identical for known and unknown usernames.
+func lockedLoginMessage(remaining time.Duration) string {
+	minutes := int((remaining + time.Minute - 1) / time.Minute)
+	if minutes < 1 {
+		minutes = 1
+	}
+	return fmt.Sprintf("Too many failed attempts. Try again in %d minutes.", minutes)
 }
 
 // renderLoginError is a convenience wrapper for re-rendering the login form with an error.
