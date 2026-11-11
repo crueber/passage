@@ -38,6 +38,13 @@ const (
 	EventMFADisabled         = "mfa.disabled"
 	EventMFACodesRegenerated = "mfa.codes_regenerated"
 	EventMFAReset            = "mfa.reset"
+
+	// Upstream OIDC/OAuth identity providers. One event per sign-in path: an
+	// external sign-in records idp.login, never login.success. Detail names the
+	// configured provider slug (or a short failure reason), never a token,
+	// authorization code, or id_token claim.
+	EventIDPLogin   = "idp.login"
+	EventIDPFailure = "idp.failure"
 )
 
 // Outcomes describe how an event ended.
@@ -89,6 +96,8 @@ func Names() []string {
 		EventMFADisabled,
 		EventMFACodesRegenerated,
 		EventMFAReset,
+		EventIDPLogin,
+		EventIDPFailure,
 	}
 }
 
