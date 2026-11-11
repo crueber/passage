@@ -99,6 +99,29 @@
     for (var i = 0; i < nodes.length; i++) nodes[i].style.display = 'none';
   }
 
+  /** An Error whose message is already written for the person reading it. */
+  function humanError(message) {
+    var e = new Error(message);
+    e.human = true;
+    return e;
+  }
+
+  /**
+   * One short sentence for a failed ceremony. Server messages are passed
+   * through; browser/DOM errors ("Cannot read properties of null…",
+   * DOMException stacks) are not, so they get a plain explanation instead.
+   */
+  function passkeyErrorText(e, fallback) {
+    if (e && e.human) return e.message;
+    if (e && e.name === 'NotAllowedError') {
+      return 'No passkey was used. Try again, or unlock your password manager.';
+    }
+    if (e && e.name === 'NotSupportedError') {
+      return 'This browser or device cannot use passkeys.';
+    }
+    return fallback;
+  }
+
   // ── Registration ─────────────────────────────────────────────────────────
 
   function initRegistration() {
@@ -122,7 +145,7 @@
         var beginResp = await fetch('/passkeys/register/begin', { credentials: 'same-origin' });
         if (!beginResp.ok) {
           var err = await beginResp.json();
-          throw new Error(err.error || 'Failed to begin registration');
+          throw humanError(err.error || 'Failed to begin registration');
         }
         var optionsJSON = await beginResp.json();
 
@@ -153,14 +176,14 @@
 
         if (!finishResp.ok) {
           var ferr = await finishResp.json();
-          throw new Error(ferr.error || 'Registration failed');
+          throw humanError(ferr.error || 'Registration failed');
         }
 
         if (status) status.textContent = 'Passkey registered! Reloading…';
         window.location.reload();
 
       } catch (e) {
-        if (status) status.textContent = 'Error: ' + e.message;
+        if (status) status.textContent = passkeyErrorText(e, 'Passkey setup failed. Try again.');
         btn.disabled = false;
       }
     });
@@ -179,20 +202,37 @@
     }
 
     var status = document.getElementById('passkey-login-status');
+    var usernameInput = document.getElementById('username');
+
+    // Typing a username should clear the "enter your username" hint below.
+    if (usernameInput) {
+      usernameInput.addEventListener('input', function () {
+        if (status && !btn.disabled && status.textContent.indexOf('Enter your username') === 0) {
+          status.textContent = '';
+        }
+      });
+    }
 
     btn.addEventListener('click', async function () {
+      // This button asks the server for *that account's* credentials
+      // (allowCredentials), which is what makes a passkey registered before
+      // discoverable credentials were required still work. So the username has
+      // to be there. On a passkey-only instance there is no username field at
+      // all; the username-less discoverable ceremony is used in that case.
+      if (usernameInput && !usernameInput.value.trim()) {
+        if (status) {
+          status.textContent = 'Enter your username first, then choose “Sign in with a passkey”.';
+        }
+        usernameInput.focus();
+        return;
+      }
+
       btn.disabled = true;
       if (status) status.textContent = 'Waiting for passkey…';
 
       try {
         // 1. Fetch the assertion options from the server.
-        // If the username field is filled in, ask for that account's
-        // credentials (allowCredentials). That works with credentials that are
-        // not discoverable — including every passkey created before the server
-        // started requiring resident keys. Empty means the username-less
-        // discoverable ceremony.
-        var usernameInput = document.getElementById('username');
-        var username = usernameInput && usernameInput.value ? usernameInput.value.trim() : '';
+        var username = usernameInput ? usernameInput.value.trim() : '';
         var beginResp = await fetch('/login/passkey/begin', {
           method: 'POST',
           credentials: 'same-origin',
@@ -201,7 +241,7 @@
         });
         if (!beginResp.ok) {
           var err = await beginResp.json();
-          throw new Error(err.error || 'Failed to begin login');
+          throw humanError(err.error || 'Failed to begin login');
         }
         var optionsJSON = await beginResp.json();
         var publicKey = preparePublicKeyOptions(optionsJSON.publicKey || optionsJSON);
@@ -219,14 +259,14 @@
 
         if (!finishResp.ok) {
           var ferr = await finishResp.json();
-          throw new Error(ferr.error || 'Login failed');
+          throw humanError(ferr.error || 'Login failed');
         }
 
         var result = await finishResp.json();
         window.location.href = result.redirect || '/';
 
       } catch (e) {
-        if (status) status.textContent = 'Error: ' + e.message;
+        if (status) status.textContent = passkeyErrorText(e, 'Passkey sign-in failed. Try again, or use your password.');
         btn.disabled = false;
       }
     });
@@ -270,7 +310,7 @@
         });
         if (!beginResp.ok) {
           var err = await beginResp.json();
-          throw new Error(err.error || 'Failed to begin passkey sign-in');
+          throw humanError(err.error || 'Failed to begin passkey sign-in');
         }
         var optionsJSON = await beginResp.json();
         var publicKey = preparePublicKeyOptions(optionsJSON.publicKey || optionsJSON);
@@ -288,14 +328,14 @@
 
         if (!finishResp.ok) {
           var ferr = await finishResp.json();
-          throw new Error(ferr.error || 'Passkey sign-in failed');
+          throw humanError(ferr.error || 'Passkey sign-in failed');
         }
 
         var result = await finishResp.json();
         window.location.href = result.redirect || '/';
 
       } catch (e) {
-        if (status) status.textContent = 'Error: ' + e.message;
+        if (status) status.textContent = passkeyErrorText(e, 'Passkey sign-in failed. Try again, or use your code.');
         btn.disabled = false;
       }
     });
