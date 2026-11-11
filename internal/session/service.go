@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -100,6 +101,19 @@ func (s *Service) CreateSession(ctx context.Context, userID string, appID *strin
 	return sess.ID, sess.ExpiresAt, nil
 }
 
+// clientIP strips the source port from an address like "192.168.1.5:54321", so
+// session lists show the device's address rather than a fresh port per sign-in.
+// A bare host (or anything unparseable) is returned unchanged.
+func clientIP(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
+}
+
 // lastUsedTouchInterval is the minimum time between two last_used_at writes
 // for one session. It caps the write load of idle tracking at one UPDATE per
 // session per interval, no matter how many requests the session makes.
@@ -129,7 +143,7 @@ func (s *Service) NewSession(ctx context.Context, userID string, appID *string, 
 		PublicID:   publicID,
 		UserID:     userID,
 		AppID:      appID,
-		IPAddress:  ip,
+		IPAddress:  clientIP(ip),
 		UserAgent:  ua,
 		ExpiresAt:  now.Add(time.Duration(hours) * time.Hour),
 		CreatedAt:  now,

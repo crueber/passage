@@ -347,7 +347,7 @@
     @apply mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6;
   }
   .toplink {
-    @apply inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted transition-colors hover:bg-raised hover:text-ink;
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:bg-raised hover:text-ink sm:px-2.5;
   }
   .toplink-active {
     @apply bg-primary-soft font-medium text-on-primary-soft;

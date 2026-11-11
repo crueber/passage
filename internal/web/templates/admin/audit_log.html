@@ -70,8 +70,7 @@
           <td class="font-medium">{{.ActorName}}</td>
           <td><code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.Action}}</code></td>
           <td class="td-muted">
-            {{if .TargetType}}<span class="badge badge-gray">{{.TargetType}}</span> {{end}}
-            {{if .TargetName}}{{.TargetName}}{{else if .TargetID}}<span class="td-mono">{{.TargetID}}</span>{{end}}
+            {{if .TargetName}}{{.TargetName}}{{else if .TargetID}}<span class="td-mono">{{.TargetID}}</span>{{else}}&mdash;{{end}}
           </td>
           <td class="td-mono">{{.IPAddress}}</td>
         </tr>

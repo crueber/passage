@@ -29,7 +29,7 @@
         <tr>
           <th scope="col">Username</th>
           <th scope="col">IP Address</th>
-          <th scope="col">User Agent</th>
+          <th scope="col">Device</th>
           <th scope="col">Created</th>
           <th scope="col">Expires</th>
           <th scope="col" class="text-right">Actions</th>
@@ -40,7 +40,7 @@
         <tr>
           <td class="font-medium">{{.Username}}</td>
           <td class="td-mono">{{.Session.IPAddress}}</td>
-          <td class="td-muted max-w-xs truncate" title="{{.Session.UserAgent}}">{{.Session.UserAgent}}</td>
+          <td class="text-ink" title="{{.Session.UserAgent}}">{{.Device}}</td>
           <td class="td-mono">{{.Session.CreatedAt.Format "2006-01-02 15:04"}}</td>
           <td class="td-mono">{{.Session.ExpiresAt.Format "2006-01-02 15:04"}}</td>
           <td>

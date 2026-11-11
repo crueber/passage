@@ -40,7 +40,6 @@
       <h1 class="page-title">My Apps</h1>
       <p class="page-sub">Applications you can access through Passage.</p>
     </div>
-    <a href="/passkeys" class="btn btn-outline btn-sm">{{template "ic-key"}}Manage passkeys</a>
   </div>
 
   <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -55,8 +54,9 @@
           <p class="mt-0.5 text-sm text-muted">Manage users, apps, and settings</p>
         </div>
       </div>
-      <div class="mt-auto border-t border-line p-4 pt-3.5">
-        <a href="/admin" class="card-link">{{template "ic-arrow-up-right"}}Open admin</a>
+      <div class="mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
+        <span class="td-mono text-faint">Admin console</span>
+        <a href="/admin" class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</a>
       </div>
     </div>
     {{end}}
@@ -74,10 +74,10 @@
           {{end}}
         </div>
       </div>
-      <div class="mt-auto border-t border-line p-4 pt-3.5">
-        <p class="td-mono text-faint">{{.HostPattern}}</p>
+      <div class="mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
+        <span class="td-mono truncate text-faint" title="{{.HostPattern}}">{{.HostPattern}}</span>
         {{if .DefaultURL}}
-        <a href="{{.DefaultURL}}" class="card-link mt-2 inline-flex items-center gap-1" target="_blank" rel="noopener noreferrer">
+        <a href="{{.DefaultURL}}" class="card-link inline-flex shrink-0 items-center gap-1" target="_blank" rel="noopener noreferrer">
           Open {{template "ic-arrow-up-right"}}
         </a>
         {{end}}

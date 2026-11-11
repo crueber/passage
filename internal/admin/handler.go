@@ -1522,6 +1522,9 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 type sessionRow struct {
 	Session  *session.Session
 	Username string
+	// Device is the parsed "Browser on Platform" label, so the admin table is
+	// scannable; the raw user agent stays available as a tooltip.
+	Device string
 }
 
 type sessionsData struct {
@@ -1557,6 +1560,7 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 		rows[i] = sessionRow{
 			Session:  s,
 			Username: userMap[s.UserID],
+			Device:   session.DeviceSummary(s.UserAgent),
 		}
 	}
 

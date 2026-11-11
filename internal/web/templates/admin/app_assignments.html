@@ -17,7 +17,7 @@
 
   <div class="page-head">
     <div>
-      <h1 class="page-title"><a class="link" href="/admin/apps/{{.App.ID}}">{{.App.Name}}</a> <span class="text-faint">/</span> {{.User.Username}}</h1>
+      <h1 class="page-title">{{.App.Name}} <span class="text-faint">/</span> {{.User.Username}}</h1>
       <p class="page-sub">Roles and groups assigned to this user for this app.</p>
     </div>
     <a class="btn btn-ghost btn-sm" href="/admin/apps/{{.App.ID}}/access">{{template "ic-chevron-left"}}Back to access</a>

@@ -89,6 +89,16 @@
     return obj;
   }
 
+  /**
+   * Hide every element marked as part of the passkey UI. The login page marks
+   * the "or" divider as well as the button, so an unsupported browser does not
+   * get a divider that introduces nothing.
+   */
+  function hidePasskeyUI() {
+    var nodes = document.querySelectorAll('[data-passkey-section]');
+    for (var i = 0; i < nodes.length; i++) nodes[i].style.display = 'none';
+  }
+
   // ── Registration ─────────────────────────────────────────────────────────
 
   function initRegistration() {
@@ -96,6 +106,7 @@
     if (!btn) return;
 
     if (!window.PublicKeyCredential) {
+      hidePasskeyUI();
       btn.style.display = 'none';
       return;
     }
@@ -162,6 +173,7 @@
     if (!btn) return;
 
     if (!window.PublicKeyCredential) {
+      hidePasskeyUI();
       btn.style.display = 'none';
       return;
     }

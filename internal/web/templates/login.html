@@ -44,13 +44,13 @@
     {{end}}
 
     {{if and .AllowPasskey .AllowPassword}}
-    <div class="my-5 flex items-center gap-3 text-xs text-faint" aria-hidden="true">
+    <div class="my-5 flex items-center gap-3 text-xs text-faint" aria-hidden="true" data-passkey-section>
       <span class="h-px flex-1 bg-line"></span>or<span class="h-px flex-1 bg-line"></span>
     </div>
     {{end}}
 
     {{if .AllowPasskey}}
-    <div class="space-y-2.5">
+    <div class="space-y-2.5" data-passkey-section>
       <button type="button" id="passkey-login-btn" class="btn btn-outline w-full">
         {{template "ic-key"}}Sign in with a passkey
       </button>

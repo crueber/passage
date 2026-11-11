@@ -59,7 +59,7 @@
               <a class="btn btn-outline btn-sm" href="/admin/users/{{.ID}}/apps">{{template "ic-apps"}}Access</a>
               <form method="POST" action="/admin/users/{{.ID}}/reset-password">
                 {{csrfField $.CSRFToken}}
-                <button type="submit" class="btn btn-outline btn-sm">Send Reset</button>
+                <button type="submit" class="btn btn-ghost btn-sm">Send reset</button>
               </form>
               <form method="POST" action="/admin/users/{{.ID}}/delete">
                 {{csrfField $.CSRFToken}}
