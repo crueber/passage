@@ -171,9 +171,15 @@ func (s *Service) DeleteSigningKey(ctx context.Context, kid string) error {
 
 // Authorize validates an authorization request and creates a code. clientIP is
 // the browser's address at the authorization endpoint (used only by the app's
-// access policy). It returns a *PolicyDenialError when the app's group, role,
-// CIDR, admin-only, hour or day rules refuse the user.
-func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID, clientIP string) (*Code, error) {
+// access policy). resource is the RFC 8707 resource indicator, or "" when the
+// client requested none.
+//
+// It returns a *PolicyDenialError when the app's group, role, CIDR, admin-only,
+// hour or day rules refuse the user, ErrInvalidScope when the request escalates
+// beyond the app's scope registry, and ErrInvalidTarget when a resource
+// indicator is not one of the app's registered audiences. No code is created in
+// any of those cases.
+func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, resource, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID, clientIP string) (*Code, error) {
 	// Look up app by clientID.
 	a, err := s.apps.GetByClientID(ctx, clientID)
 	if err != nil {
@@ -242,9 +248,23 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 		}
 	}
 
-	// Normalize scope.
+	// Normalize the requested scope and enforce the app's scope registry.
+	// An empty registry keeps the pre-registry behaviour: whatever the client
+	// asks for is granted, and an absent scope still means openid.
+	scope = normalizeScope(scope)
 	if scope == "" {
 		scope = "openid"
+	}
+	if err := validateRequestedScopes(a.AllowedScopes, scope); err != nil {
+		return nil, err
+	}
+
+	// Validate the RFC 8707 resource indicator. The granted audience is stored
+	// with the code so the token endpoint cannot issue a token for a different
+	// one.
+	grantedResource, err := resolveResource(a, resource)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create authorization code.
@@ -253,6 +273,7 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 		UserID:              userID,
 		RedirectURI:         redirectURI,
 		Scopes:              scope,
+		Resource:            grantedResource,
 		Nonce:               nonce,
 		AuthTime:            sessionCreatedAt.UTC(),
 		CodeChallenge:       codeChallenge,
@@ -298,9 +319,11 @@ func (s *Service) ValidateClientRedirectURI(ctx context.Context, clientID, redir
 	return checkRedirectURI(a, redirectURI)
 }
 
-// ExchangeCode validates an authorization code and issues an access token,
-// refresh token, and id_token.
-func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier string) (*TokenResponse, error) {
+// ExchangeCode validates an authorization code and issues a JWT access token,
+// refresh token, and id_token. resource is the RFC 8707 resource indicator
+// echoed by the client, or "" when it sent none; when present it must match the
+// audience granted at authorization time.
+func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier, resource string) (*TokenResponse, error) {
 	// Look up the authorization code.
 	codeRecord, err := s.store.GetCode(ctx, code)
 	if err != nil {
@@ -371,15 +394,24 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		return nil, ErrAccessRevoked
 	}
 
-	// Create access token.
-	accessToken := &Token{
-		AppID:     a.ID,
-		UserID:    u.ID,
-		Scopes:    codeRecord.Scopes,
-		ExpiresAt: time.Now().UTC().Add(accessTokenTTL),
+	// Create access token. The audience is the resource granted at authorize
+	// time (re-validated against the current registry), otherwise the client
+	// id. The scope is re-checked as well: an admin may have tightened the
+	// registry since the code was issued, and the code must not outlive that.
+	grantedScope := normalizeScope(codeRecord.Scopes)
+	if grantedScope == "" {
+		grantedScope = "openid"
 	}
-	if err := s.store.CreateToken(ctx, accessToken); err != nil {
-		return nil, fmt.Errorf("oauth exchange code: create token: %w", err)
+	if err := validateRequestedScopes(a.AllowedScopes, grantedScope); err != nil {
+		return nil, err
+	}
+	grantedResource, err := reconcileResource(a, codeRecord.Resource, resource)
+	if err != nil {
+		return nil, err
+	}
+	_, accessToken, err := s.buildAccessToken(u, a, grantedScope, grantedResource)
+	if err != nil {
+		return nil, fmt.Errorf("oauth exchange code: issue access token: %w", err)
 	}
 
 	// Create refresh token. FamilyID is left empty so the store starts a new
@@ -387,7 +419,7 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 	refreshToken := &RefreshToken{
 		AppID:     a.ID,
 		UserID:    u.ID,
-		Scopes:    codeRecord.Scopes,
+		Scopes:    grantedScope,
 		ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
 	}
 	if err := s.store.CreateRefreshToken(ctx, refreshToken); err != nil {
@@ -406,14 +438,18 @@ func (s *Service) ExchangeCode(ctx context.Context, code, clientID, clientSecret
 		ExpiresIn:    3600,
 		RefreshToken: refreshToken.Token,
 		IDToken:      idToken,
-		Scope:        codeRecord.Scopes,
+		Scope:        grantedScope,
 	}, nil
 }
 
 // RefreshTokens validates a refresh token and issues a new access token,
 // new refresh token (rotation), and new id_token. The old refresh token is
 // marked as used and cannot be reused.
-func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret string) (*TokenResponse, error) {
+//
+// resource is the RFC 8707 resource indicator for the new access token (empty
+// means none); scope optionally narrows the grant and must be a subset of the
+// refresh token's scopes. Neither may exceed the app's registries.
+func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret, resource, scope string) (*TokenResponse, error) {
 	// Look up the refresh token.
 	rt, err := s.store.GetRefreshToken(ctx, refreshToken)
 	if err != nil {
@@ -489,15 +525,34 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		return nil, ErrAccessRevoked
 	}
 
-	// Create new access token.
-	accessToken := &Token{
-		AppID:     a.ID,
-		UserID:    u.ID,
-		Scopes:    rt.Scopes,
-		ExpiresAt: time.Now().UTC().Add(accessTokenTTL),
+	// Work out the scope of the new grant. A refresh may narrow the original
+	// scope (RFC 6749 §6) but never widen it, and an app registry that has
+	// since been tightened still applies.
+	grantedScope := normalizeScope(scope)
+	if grantedScope == "" {
+		grantedScope = normalizeScope(rt.Scopes)
+		if grantedScope == "" {
+			grantedScope = "openid"
+		}
+	} else if !scopeSubset(grantedScope, rt.Scopes) {
+		return nil, fmt.Errorf("oauth refresh tokens: requested scope exceeds the refresh grant: %w", ErrInvalidScope)
 	}
-	if err := s.store.CreateToken(ctx, accessToken); err != nil {
-		return nil, fmt.Errorf("oauth refresh tokens: create token: %w", err)
+	if err := validateRequestedScopes(a.AllowedScopes, grantedScope); err != nil {
+		return nil, err
+	}
+
+	// The refresh token does not carry the original resource, so the audience
+	// is whatever the client asks for now: none (the client id) or one of the
+	// app's registered resources.
+	grantedResource, err := resolveResource(a, resource)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create new access token.
+	_, accessToken, err := s.buildAccessToken(u, a, grantedScope, grantedResource)
+	if err != nil {
+		return nil, fmt.Errorf("oauth refresh tokens: issue access token: %w", err)
 	}
 
 	// Create new refresh token (rotation). The child inherits the parent's
@@ -505,7 +560,7 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 	newRefreshToken := &RefreshToken{
 		AppID:     a.ID,
 		UserID:    u.ID,
-		Scopes:    rt.Scopes,
+		Scopes:    grantedScope,
 		FamilyID:  rt.FamilyID,
 		ExpiresAt: time.Now().UTC().Add(refreshTokenTTL),
 	}
@@ -529,13 +584,23 @@ func (s *Service) RefreshTokens(ctx context.Context, refreshToken, clientID, cli
 		ExpiresIn:    3600,
 		RefreshToken: newRefreshToken.Token,
 		IDToken:      idToken,
-		Scope:        rt.Scopes,
+		Scope:        grantedScope,
 	}, nil
 }
 
-// ValidateAccessToken looks up an access token and returns the associated user
-// and token record. Returns ErrTokenNotFound or ErrTokenExpired on failure.
+// ValidateAccessToken resolves an access token and returns the associated user
+// and token record. Returns ErrTokenNotFound, ErrTokenExpired, ErrTokenRevoked,
+// or ErrUserInactive on failure.
+//
+// A JWT is verified against the current keyring (RS256 only) and the
+// revocation denylist. An opaque token already in oauth_tokens keeps the
+// database path, so sessions issued before JWTs existed survive an upgrade
+// without forcing anyone to sign in again.
 func (s *Service) ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error) {
+	if looksLikeJWT(token) {
+		return s.validateJWTAccessToken(ctx, token)
+	}
+
 	t, err := s.store.GetToken(ctx, token)
 	if err != nil {
 		return nil, nil, err // already a sentinel error (ErrTokenNotFound)
@@ -593,16 +658,8 @@ func (s *Service) authenticateClient(ctx context.Context, clientID, clientSecret
 // expired). Nothing else from the hint is trusted.
 func (s *Service) ClientForIDTokenHint(ctx context.Context, idTokenHint string) (*app.App, error) {
 	claims := jwtlib.MapClaims{}
-	_, err := jwtlib.ParseWithClaims(idTokenHint, claims, func(t *jwtlib.Token) (any, error) {
-		// Only RS256 is allowed, which also rejects an HS256 token that tries to
-		// use the public key as an HMAC secret (algorithm confusion).
-		kid, _ := t.Header["kid"].(string)
-		key, ok := s.keyring().ByKID(kid)
-		if !ok {
-			return nil, fmt.Errorf("unknown or retired kid %q", kid)
-		}
-		return key.PublicKey(), nil
-	}, jwtlib.WithValidMethods([]string{"RS256"}), jwtlib.WithoutClaimsValidation())
+	_, err := jwtlib.ParseWithClaims(idTokenHint, claims, s.verifySigningKey,
+		jwtlib.WithValidMethods([]string{"RS256"}), jwtlib.WithoutClaimsValidation())
 	if err != nil {
 		// The parse error is not returned to the client; it is kept in the
 		// wrapped chain for logs while the sentinel drives the response.
@@ -650,10 +707,11 @@ func tokenKinds(tokenTypeHint string) []string {
 }
 
 // RevokeToken implements RFC 7009 token revocation. Revoking a refresh token
-// revokes its whole rotation family; revoking an access token deletes that one
-// token. Unknown tokens, tokens owned by a different client, and hints that do
-// not match are all silent no-ops so the endpoint never reveals whether a token
-// exists. Only client authentication failures are reported to the caller.
+// revokes its whole rotation family; revoking an opaque access token deletes
+// that one row; revoking a JWT access token denylists its jti. Unknown tokens,
+// tokens owned by a different client, and hints that do not match are all
+// silent no-ops so the endpoint never reveals whether a token exists. Only
+// client authentication failures are reported to the caller.
 func (s *Service) RevokeToken(ctx context.Context, token, tokenTypeHint, clientID, clientSecret string) error {
 	a, err := s.authenticateClient(ctx, clientID, clientSecret)
 	if err != nil {
@@ -661,6 +719,11 @@ func (s *Service) RevokeToken(ctx context.Context, token, tokenTypeHint, clientI
 	}
 	if token == "" {
 		return nil
+	}
+	// A JWT is shape-distinguishable, and the hint is advisory, so its
+	// revocation path does not depend on token_type_hint.
+	if looksLikeJWT(token) {
+		return s.revokeJWTAccessToken(ctx, a, token)
 	}
 
 	for _, kind := range tokenKinds(tokenTypeHint) {
@@ -701,10 +764,11 @@ func (s *Service) RevokeToken(ctx context.Context, token, tokenTypeHint, clientI
 }
 
 // IntrospectToken implements RFC 7662 token introspection. It returns nil for
-// any token that is unknown, expired, used, owned by a different client, or
-// whose user is deactivated — the handler renders that as {"active": false}.
-// The token value itself is never echoed back. Only client authentication
-// failures and infrastructure errors are reported to the caller.
+// any token that is unknown, expired, used, revoked, owned by a different
+// client, or whose user is deactivated — the handler renders that as
+// {"active": false}. Both JWT and opaque access tokens are supported. The
+// token value itself is never echoed back. Only client authentication failures
+// and infrastructure errors are reported to the caller.
 func (s *Service) IntrospectToken(ctx context.Context, token, tokenTypeHint, clientID, clientSecret string) (*TokenInfo, error) {
 	a, err := s.authenticateClient(ctx, clientID, clientSecret)
 	if err != nil {
@@ -712,6 +776,9 @@ func (s *Service) IntrospectToken(ctx context.Context, token, tokenTypeHint, cli
 	}
 	if token == "" {
 		return nil, nil
+	}
+	if looksLikeJWT(token) {
+		return s.introspectJWTAccessToken(ctx, a, token)
 	}
 
 	for _, kind := range tokenKinds(tokenTypeHint) {
@@ -733,7 +800,7 @@ func (s *Service) IntrospectToken(ctx context.Context, token, tokenTypeHint, cli
 			if !u.IsActive {
 				return nil, nil
 			}
-			return s.tokenInfo(a, u, t.Scopes, t.CreatedAt, t.ExpiresAt, "Bearer"), nil
+			return s.tokenInfo(a, u, t.Scopes, t.CreatedAt, t.ExpiresAt, "Bearer", a.ClientID), nil
 		}
 
 		rt, err := s.store.GetRefreshToken(ctx, token)
@@ -753,13 +820,14 @@ func (s *Service) IntrospectToken(ctx context.Context, token, tokenTypeHint, cli
 		if !u.IsActive {
 			return nil, nil
 		}
-		return s.tokenInfo(a, u, rt.Scopes, rt.CreatedAt, rt.ExpiresAt, tokenKindRefresh), nil
+		return s.tokenInfo(a, u, rt.Scopes, rt.CreatedAt, rt.ExpiresAt, tokenKindRefresh, a.ClientID), nil
 	}
 	return nil, nil
 }
 
-// tokenInfo assembles the RFC 7662 response for an active token.
-func (s *Service) tokenInfo(a *app.App, u *user.User, scope string, issuedAt, expiresAt time.Time, tokenType string) *TokenInfo {
+// tokenInfo assembles the RFC 7662 response for an active token. audience is
+// the resource the token was granted for, or the client id when there is none.
+func (s *Service) tokenInfo(a *app.App, u *user.User, scope string, issuedAt, expiresAt time.Time, tokenType, audience string) *TokenInfo {
 	return &TokenInfo{
 		Active:    true,
 		ClientID:  a.ClientID,
@@ -770,7 +838,7 @@ func (s *Service) tokenInfo(a *app.App, u *user.User, scope string, issuedAt, ex
 		IssuedAt:  issuedAt.Unix(),
 		TokenType: tokenType,
 		Issuer:    s.baseURL,
-		Audience:  a.ClientID,
+		Audience:  audience,
 	}
 }
 

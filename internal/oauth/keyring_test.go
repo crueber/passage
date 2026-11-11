@@ -235,11 +235,11 @@ func TestHandler_JWKS_ServesEveryActiveKey(t *testing.T) {
 func issueKeyTestIDToken(t *testing.T, sc *testServiceContext) string {
 	t.Helper()
 	ctx := context.Background()
-	code, err := sc.svc.Authorize(ctx, keyTestClientID, keyTestRedirectURI, "openid", "", "", "", "", time.Now(), sc.userID, "127.0.0.1")
+	code, err := sc.svc.Authorize(ctx, keyTestClientID, keyTestRedirectURI, "openid", "", "", "", "", "", time.Now(), sc.userID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	resp, err := sc.svc.ExchangeCode(ctx, code.Code, keyTestClientID, keyTestClientSecret, keyTestRedirectURI, "")
+	resp, err := sc.svc.ExchangeCode(ctx, code.Code, keyTestClientID, keyTestClientSecret, keyTestRedirectURI, "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
