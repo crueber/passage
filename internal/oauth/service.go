@@ -115,15 +115,8 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 	}
 
 	// Validate redirectURI: exact string match against registered URIs.
-	matched := false
-	for _, uri := range a.RedirectURIs {
-		if uri == redirectURI {
-			matched = true
-			break
-		}
-	}
-	if !matched {
-		return nil, app.ErrRedirectURIMismatch
+	if err := checkRedirectURI(a, redirectURI); err != nil {
+		return nil, err
 	}
 
 	// Check that the user has access to this app.
@@ -198,6 +191,38 @@ func (s *Service) Authorize(ctx context.Context, clientID, redirectURI, scope, s
 	}
 
 	return code, nil
+}
+
+// checkRedirectURI reports whether redirectURI is one of the app's registered
+// redirect URIs. The comparison is an exact string match: no prefix, suffix, or
+// wildcard matching.
+func checkRedirectURI(a *app.App, redirectURI string) error {
+	for _, uri := range a.RedirectURIs {
+		if uri == redirectURI {
+			return nil
+		}
+	}
+	return app.ErrRedirectURIMismatch
+}
+
+// ValidateClientRedirectURI performs the client and redirect_uri checks of
+// Authorize without issuing a code. It exists for authorization requests that
+// must be answered before a session is resolved (prompt=none, which may not
+// show UI): an error response may only be redirected to a redirect_uri that is
+// registered to the client, otherwise the endpoint would be an open
+// redirector. The sentinels are the same ones Authorize returns.
+func (s *Service) ValidateClientRedirectURI(ctx context.Context, clientID, redirectURI string) error {
+	a, err := s.apps.GetByClientID(ctx, clientID)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			return app.ErrOAuthNotEnabled
+		}
+		return fmt.Errorf("oauth validate client redirect: get app by client id: %w", err)
+	}
+	if !a.OAuthEnabled {
+		return app.ErrOAuthNotEnabled
+	}
+	return checkRedirectURI(a, redirectURI)
 }
 
 // ExchangeCode validates an authorization code and issues an access token,
