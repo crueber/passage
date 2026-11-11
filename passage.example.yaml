@@ -82,6 +82,18 @@ csrf:
   # anonymous forms to survive a restart.
   key: ""
 
+metrics:
+  # Prometheus metrics at GET /metrics. Enabled by default; set to false to make
+  # the endpoint answer 404. Only methods and status codes are counted, never
+  # paths, so cardinality stays bounded. Gauges are COUNT queries, so a scrape
+  # never scans the event log.
+  enabled: true
+  # Optional bearer token. When set, every scrape must send
+  # "Authorization: Bearer <token>". Leave empty when the endpoint is reachable
+  # only from a trusted network or an authenticating reverse proxy. The token is
+  # compared in constant time, never logged, and must not contain whitespace.
+  token: ""
+
 rate_limit:
   # In-memory sliding-window limits per client IP. Cleared on restart.
   login_requests: 10

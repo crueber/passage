@@ -400,6 +400,32 @@ func TestValidate(t *testing.T) {
 			mutate:  func(c *config.Config) { c.RateLimit.SetupWindowMinutes = 0 },
 			wantErr: true,
 		},
+		// Metrics validation
+		{
+			name:    "metrics token unset is valid (unauthenticated endpoint)",
+			mutate:  func(c *config.Config) { c.Metrics.Token = "" },
+			wantErr: false,
+		},
+		{
+			name:    "metrics token with a space fails",
+			mutate:  func(c *config.Config) { c.Metrics.Token = "two words" },
+			wantErr: true,
+		},
+		{
+			name:    "metrics token with a newline fails",
+			mutate:  func(c *config.Config) { c.Metrics.Token = "line\nbreak" },
+			wantErr: true,
+		},
+		{
+			name:    "metrics token with a tab fails",
+			mutate:  func(c *config.Config) { c.Metrics.Token = "tab\there" },
+			wantErr: true,
+		},
+		{
+			name:    "printable metrics token passes",
+			mutate:  func(c *config.Config) { c.Metrics.Token = "s3cret-scrape-token" },
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -877,6 +903,88 @@ func TestSessionIdleTimeout(t *testing.T) {
 			}
 			if !tt.wantZero && got != tt.wantDur {
 				t.Errorf("IdleTimeout() = %v, want %v", got, tt.wantDur)
+			}
+		})
+	}
+}
+
+// TestMetrics covers the Prometheus endpoint configuration: enabled by
+// default, disabled by an explicit value, and the optional bearer token from
+// YAML or the environment.
+func TestMetrics(t *testing.T) {
+	writeConfig := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "passage.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		return path
+	}
+
+	tests := []struct {
+		name        string
+		yaml        string
+		envEnabled  string
+		envToken    string
+		wantEnabled bool
+		wantToken   string
+	}{
+		{
+			name:        "enabled by default",
+			wantEnabled: true,
+		},
+		{
+			name:        "explicitly disabled in yaml",
+			yaml:        "metrics:\n  enabled: false\n",
+			wantEnabled: false,
+		},
+		{
+			name:        "token from yaml",
+			yaml:        "metrics:\n  token: from-yaml\n",
+			wantEnabled: true,
+			wantToken:   "from-yaml",
+		},
+		{
+			name:        "disabled by environment",
+			envEnabled:  "false",
+			wantEnabled: false,
+		},
+		{
+			name:        "enabled again by environment",
+			yaml:        "metrics:\n  enabled: false\n",
+			envEnabled:  "true",
+			wantEnabled: true,
+		},
+		{
+			name:        "token from environment overrides yaml",
+			yaml:        "metrics:\n  token: from-yaml\n",
+			envToken:    "from-env",
+			wantEnabled: true,
+			wantToken:   "from-env",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("PASSAGE_METRICS_ENABLED", tt.envEnabled)
+			t.Setenv("PASSAGE_METRICS_TOKEN", tt.envToken)
+
+			var path string
+			if tt.yaml != "" {
+				path = writeConfig(t, tt.yaml)
+			}
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Metrics.Enabled != tt.wantEnabled {
+				t.Errorf("Metrics.Enabled = %v; want %v", cfg.Metrics.Enabled, tt.wantEnabled)
+			}
+			if cfg.Metrics.Token != tt.wantToken {
+				t.Errorf("Metrics.Token = %q; want %q", cfg.Metrics.Token, tt.wantToken)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate: unexpected error: %v", err)
 			}
 		})
 	}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -27,6 +28,23 @@ type Config struct {
 	Security  SecurityConfig  `yaml:"security"`
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
 	UI        UIConfig        `yaml:"ui"`
+	Metrics   MetricsConfig   `yaml:"metrics"`
+}
+
+// MetricsConfig holds the Prometheus endpoint settings.
+type MetricsConfig struct {
+	// Enabled serves GET /metrics. It defaults to true so an operator who has
+	// not thought about metrics still gets them; setting it to false makes the
+	// endpoint answer 404.
+	// Env: PASSAGE_METRICS_ENABLED.
+	Enabled bool `yaml:"enabled"`
+
+	// Token, when set, requires scrapes to send
+	// "Authorization: Bearer <token>". Optional: leave empty when the endpoint
+	// is reachable only from a trusted network or an authenticating proxy.
+	// The token is never logged.
+	// Env: PASSAGE_METRICS_TOKEN.
+	Token string `yaml:"token"`
 }
 
 // SecurityConfig holds optional security integrations.
@@ -247,6 +265,9 @@ func defaults() *Config {
 		UI: UIConfig{
 			Theme: theme.Default(),
 		},
+		Metrics: MetricsConfig{
+			Enabled: true,
+		},
 	}
 }
 
@@ -348,6 +369,17 @@ func (c *Config) Validate() error {
 	// Validate the UI theme against the registry.
 	if _, ok := theme.Lookup(c.UI.Theme); !ok {
 		errs = append(errs, fmt.Errorf("ui.theme %q is not a known theme (valid: %s)", c.UI.Theme, strings.Join(theme.Names(), ", ")))
+	}
+
+	// A metrics token is presented as a Bearer credential, so whitespace or
+	// control characters would make it unusable. The message never includes the
+	// value — the token is a secret.
+	if c.Metrics.Token != "" {
+		if strings.ContainsFunc(c.Metrics.Token, func(r rune) bool {
+			return unicode.IsSpace(r) || unicode.IsControl(r)
+		}) {
+			errs = append(errs, fmt.Errorf("metrics.token must not contain whitespace or control characters"))
+		}
 	}
 
 	// Validate rate limit values — all must be positive.
@@ -535,6 +567,18 @@ func applyEnvOverrides(cfg *Config) {
 	// UI
 	if v := os.Getenv("PASSAGE_UI_THEME"); v != "" {
 		cfg.UI.Theme = v
+	}
+
+	// Metrics
+	if v := os.Getenv("PASSAGE_METRICS_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Metrics.Enabled = b
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_METRICS_ENABLED", v, err)
+		}
+	}
+	if v := os.Getenv("PASSAGE_METRICS_TOKEN"); v != "" {
+		cfg.Metrics.Token = v
 	}
 
 	// RateLimit
