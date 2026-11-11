@@ -363,6 +363,13 @@ func TestLooksLikeTOTP(t *testing.T) {
 		{"12345", false},
 		{"1234567", false},
 		{"ABCDE-23456", false},
+		{"123-456", true},
+		{" 123456 ", true},
+		// A ten-character recovery code can contain exactly six digits. Counting
+		// digits after stripping separators would classify it as TOTP and make it
+		// permanently unusable, because the TOTP path does not fall through.
+		{"01AE2-7C22P", false},
+		{"0123456789", false},
 		{"", false},
 	}
 	for _, tt := range tests {

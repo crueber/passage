@@ -185,11 +185,27 @@ func FormatSecret(secret string) string {
 	return sb.String()
 }
 
-// LooksLikeTOTP reports whether code is shaped like a TOTP code (exactly Digits
-// decimal digits). Recovery codes are longer and alphanumeric, so this is the
-// unambiguous discriminator between the two factors.
+// LooksLikeTOTP reports whether code is shaped like a TOTP code: exactly Digits
+// decimal digits, optionally grouped with spaces or hyphens ("123 456").
+//
+// Anything containing a letter is a recovery code. It is not enough to count the
+// digits after stripping separators: a ten-character recovery code whose
+// letters happen to mask the digits (for example "01AE2-7C22P") also contains
+// six digits, and classifying it as TOTP would make it permanently unusable
+// because the TOTP check never falls through to the recovery path.
 func LooksLikeTOTP(code string) bool {
-	return len(normalizeCode(code)) == Digits
+	digits := 0
+	for _, r := range strings.TrimSpace(code) {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == ' ' || r == '-':
+			// Grouping is allowed in a typed code.
+		default:
+			return false
+		}
+	}
+	return digits == Digits
 }
 
 // hotp is RFC 4226 HOTP: HMAC-SHA-1 over the big-endian counter, dynamic
