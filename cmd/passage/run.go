@@ -151,8 +151,7 @@ func run() error {
 	// Two-factor authentication: TOTP secrets, recovery codes, and pending
 	// login challenges. Built here so the user handler, the security page, and
 	// the admin reset all share one service (and one clock).
-	mfaStore := mfa.NewStore(database)
-	mfaSvc := mfa.NewService(mfaStore, "Passage", nil)
+	mfaSvc := mfa.NewService(mfa.NewStore(database), "Passage", nil)
 
 	// Build email sender.
 	mailer, err := email.NewSMTPSender(cfg, logger)

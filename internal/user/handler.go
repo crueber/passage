@@ -445,16 +445,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 
 	if clearReturnCookie {
 		// Clear the passage_rd cookie now that we've consumed it.
-		http.SetCookie(w, &http.Cookie{
-			Name:     "passage_rd",
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			Expires:  time.Unix(0, 0),
-			HttpOnly: true,
-			Secure:   h.cfg.Session.CookieSecure,
-			SameSite: http.SameSiteLaxMode,
-		})
+		clearReturnCookieIfPresent(w, r, h.cfg)
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
 }

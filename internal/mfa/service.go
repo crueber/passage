@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ type Enrollment struct {
 func (s *Service) Status(ctx context.Context, userID string) (Status, error) {
 	c, err := s.store.Get(ctx, userID)
 	if err != nil {
-		if err == ErrNotFound {
+		if errors.Is(err, ErrNotFound) {
 			return Status{}, nil
 		}
 		return Status{}, fmt.Errorf("mfa status: %w", err)
@@ -150,7 +151,7 @@ func (s *Service) ConfirmEnrollment(ctx context.Context, userID, code string) ([
 func (s *Service) Verify(ctx context.Context, userID, code string) (string, error) {
 	c, err := s.store.Get(ctx, userID)
 	if err != nil {
-		if err == ErrNotFound {
+		if errors.Is(err, ErrNotFound) {
 			return "", ErrNotEnabled
 		}
 		return "", fmt.Errorf("mfa verify: %w", err)

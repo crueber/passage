@@ -110,7 +110,9 @@ func ProvisioningURI(issuer, account, secret string) string {
 	v.Set("algorithm", "SHA1")
 	v.Set("digits", fmt.Sprintf("%d", Digits))
 	v.Set("period", fmt.Sprintf("%d", int(Period/time.Second)))
-	return "otpauth://totp/" + escapePathSegment(label) + "?" + v.Encode()
+	// PathEscape keeps ':' (the issuer/account separator) and escapes spaces and
+	// other reserved characters, which is the form authenticator apps expect.
+	return "otpauth://totp/" + url.PathEscape(label) + "?" + v.Encode()
 }
 
 // GenerateRecoveryCodes returns n formatted recovery codes ("xxxxx-xxxxx").
@@ -245,11 +247,4 @@ func normalizeCode(code string) string {
 		}
 	}
 	return sb.String()
-}
-
-// escapePathSegment escapes the otpauth label the way authenticator apps expect:
-// everything except unreserved characters and ':' is percent-encoded. Go's
-// url.PathEscape keeps ':' in a path segment, which is exactly what we want.
-func escapePathSegment(s string) string {
-	return url.PathEscape(s)
 }

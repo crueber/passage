@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"io"
 	"log/slog"
@@ -13,12 +14,14 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-webauthn/webauthn/protocol"
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/theme"
@@ -34,6 +37,7 @@ type handlerFixture struct {
 	sessionStore *session.SQLiteStore
 	sessionSvc   *session.Service
 	credStore    *webauthn.SQLiteCredentialStore
+	mfaSvc       *mfa.Service
 	cfg          *config.Config
 	handler      *webauthn.Handler
 }
@@ -73,8 +77,9 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 		t.Fatalf("create webauthn: %v", err)
 	}
 
+	mfaSvc := mfa.NewService(mfa.NewStore(db), "Passage", nil)
 	h := webauthn.NewHandler(wa, credStore, challenges, userStore, sessionSvc,
-		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil, nil, nil)
+		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil, nil, mfaSvc)
 
 	return &handlerFixture{
 		db:           db,
@@ -83,6 +88,7 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 		sessionStore: sessionStore,
 		sessionSvc:   sessionSvc,
 		credStore:    credStore,
+		mfaSvc:       mfaSvc,
 		cfg:          cfg,
 		handler:      h,
 	}
@@ -625,4 +631,150 @@ func TestGetBeginLogin_PasskeyDisabled(t *testing.T) {
 	if body["error"] == "" {
 		t.Errorf("GetBeginLogin with passkey disabled: missing error field in JSON response")
 	}
+}
+
+// TestGetPasskeys_ShowsTwoFactorSection renders the Security page in both
+// states. The enabled half is inserted straight into the store so the test
+// exercises template execution (including the formatted date) without needing
+// to derive a TOTP code here.
+func TestGetPasskeys_ShowsTwoFactorSection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("disabled offers enrollment", func(t *testing.T) {
+		t.Parallel()
+		f := newHandlerFixture(t)
+		if _, err := f.userSvc.Register(ctx, "plain", "plain@example.com", "password123"); err != nil {
+			t.Fatalf("register: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "plain")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+		token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
+		if err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+
+		rec := getPasskeysPage(t, f, token)
+		body := rec.Body.String()
+		for _, want := range []string{
+			"Two-factor authentication",
+			"Set up two-factor",
+			`href="/mfa/setup"`,
+			"<title>Security — Passage</title>",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("disabled state missing %q", want)
+			}
+		}
+		if strings.Contains(body, "Enabled since") {
+			t.Error("disabled state renders the enabled block")
+		}
+	})
+
+	t.Run("enabled shows status and actions", func(t *testing.T) {
+		t.Parallel()
+		f := newHandlerFixture(t)
+		if _, err := f.userSvc.Register(ctx, "secure", "secure@example.com", "password123"); err != nil {
+			t.Fatalf("register: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "secure")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+		if _, err := f.db.ExecContext(ctx,
+			`INSERT INTO user_mfa (user_id, secret, enabled_at) VALUES (?, 'JBSWY3DPEHPK3PXP', ?)`,
+			u.ID, time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)); err != nil {
+			t.Fatalf("insert credential: %v", err)
+		}
+		for i := 0; i < 10; i++ {
+			if _, err := f.db.ExecContext(ctx,
+				`INSERT INTO user_mfa_recovery_codes (user_id, hash) VALUES (?, ?)`,
+				u.ID, fmt.Sprintf("hash-%02d", i)); err != nil {
+				t.Fatalf("insert recovery code: %v", err)
+			}
+		}
+		token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
+		if err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+
+		rec := getPasskeysPage(t, f, token)
+		body := rec.Body.String()
+		for _, want := range []string{
+			"Enabled since",
+			"2026-11-01",
+			"10 of 10",
+			`action="/mfa/recovery-codes"`,
+			`action="/mfa/disable"`,
+			`name="password"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("enabled state missing %q", want)
+			}
+		}
+		if strings.Contains(body, "Set up two-factor") {
+			t.Error("enabled state still offers enrollment")
+		}
+	})
+}
+
+// TestGetPasskeys_FlashCodes pins the MFA flash codes the Security page
+// understands, so a typo in a redirect target cannot silently drop the message.
+func TestGetPasskeys_FlashCodes(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+	if _, err := f.userSvc.Register(context.Background(), "flashed", "flashed@example.com", "password123"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u, err := f.userStore.GetByUsername(context.Background(), "flashed")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	token, _, err := f.sessionSvc.CreateSession(context.Background(), u.ID, nil, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	tests := []struct {
+		code string
+		want string
+	}{
+		{"mfa-enabled", "Two-factor authentication is on"},
+		{"mfa-disabled", "Two-factor authentication is off"},
+		{"mfa-codes-regenerated", "New recovery codes generated"},
+		{"mfa-on", "already enabled"},
+		{"mfa-required", "requires two-factor authentication"},
+		{"mfa-password-invalid", "password was incorrect"},
+		{"deleted", "Passkey removed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/passkeys?flash="+tt.code, nil)
+			req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: token})
+			rec := httptest.NewRecorder()
+			buildPasskeyRouter(f).ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d; want 200", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), tt.want) {
+				t.Errorf("flash %q did not render %q", tt.code, tt.want)
+			}
+		})
+	}
+}
+
+// getPasskeysPage performs GET /passkeys through the session middleware, which
+// is what puts the user in the request context.
+func getPasskeysPage(t *testing.T, f *handlerFixture, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/passkeys", nil)
+	req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: token})
+	rec := httptest.NewRecorder()
+	buildPasskeyRouter(f).ServeHTTP(rec, req)
+	if rec.Result().StatusCode != http.StatusOK {
+		t.Fatalf("GET /passkeys status = %d; want 200", rec.Result().StatusCode)
+	}
+	return rec
 }

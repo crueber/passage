@@ -187,9 +187,13 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(r.FormValue("code"))
 	method, err := h.mfa.Verify(r.Context(), ch.UserID, code)
 	if err != nil {
+		// Log only the unexpected failures; a wrong, spent, or replayed code is
+		// routine and must not fill the log. The code itself is never logged.
+		if !isExpectedMFAFailure(err) {
+			h.logger.Error("mfa: verify code", "user_id", u.ID, "error", err)
+		}
 		// A generic message: an unknown code, a spent code, and a replayed TOTP
-		// step must be indistinguishable to the caller. Nothing about the code
-		// is logged.
+		// step must be indistinguishable to the caller.
 		h.record(r, authlog.Event{
 			Event:    authlog.EventMFAFailure,
 			Outcome:  authlog.OutcomeFailure,
@@ -260,10 +264,12 @@ type mfaSetupData struct {
 	User      *User
 	Flash     *Flash
 	CSRFToken string
-	Secret    string
-	Display   string
-	URI       string
-	Required  bool
+	// Display is the base32 secret grouped in fours for manual entry; URI is
+	// the same value as an otpauth:// link. The raw ungrouped secret is not
+	// rendered: neither form needs it.
+	Display  string
+	URI      string
+	Required bool
 }
 
 // mfaCodesData is the one-time recovery-code page.
@@ -365,6 +371,8 @@ func (h *Handler) PostMFASetup(w http.ResponseWriter, r *http.Request) {
 			// Pending row vanished (admin reset mid-enrollment): start over.
 			http.Redirect(w, r, "/mfa/setup", http.StatusFound)
 			return
+		case !errors.Is(err, mfa.ErrInvalidCode):
+			h.logger.Error("mfa: confirm enrollment", "user_id", u.ID, "error", err)
 		}
 		h.record(r, authlog.Event{
 			Event:    authlog.EventMFAFailure,
@@ -404,7 +412,6 @@ func (h *Handler) renderMFASetup(w http.ResponseWriter, r *http.Request, u *User
 		User:      u,
 		Flash:     flash,
 		CSRFToken: csrf.TokenFromContext(r.Context()),
-		Secret:    enr.Secret,
 		Display:   enr.Display,
 		URI:       enr.URI,
 		Required:  required,
@@ -503,6 +510,14 @@ func (h *Handler) PostMFARecoveryCodes(w http.ResponseWriter, r *http.Request) {
 		Codes:       codes,
 		Regenerated: true,
 	})
+}
+
+// isExpectedMFAFailure reports whether err is one of the routine "the code was
+// wrong" outcomes, as opposed to a store or clock problem worth logging.
+func isExpectedMFAFailure(err error) bool {
+	return errors.Is(err, mfa.ErrInvalidCode) ||
+		errors.Is(err, mfa.ErrReplay) ||
+		errors.Is(err, mfa.ErrNotEnabled)
 }
 
 // reauthenticate verifies the signed-in user's password before a sensitive MFA
