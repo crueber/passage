@@ -27,7 +27,7 @@ func issueTokens(t *testing.T, stack *handlerTestStack, clientID, plainSecret, r
 	t.Helper()
 	ctx := context.Background()
 
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid profile", "", "", "", "", time.Now(), userID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid profile", "", "", "", "", time.Now(), userID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("issueTokens: Authorize: %v", err)
 	}
@@ -733,7 +733,7 @@ func TestService_RefreshTokenReuse_ErrorType(t *testing.T) {
 	sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 	ctx := context.Background()
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}

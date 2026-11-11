@@ -25,7 +25,7 @@ import (
 // oauthService is the interface the Handler uses for OAuth operations.
 // Defined here at the consumer boundary, per Go convention.
 type oauthService interface {
-	Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID string) (*Code, error)
+	Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID, clientIP string) (*Code, error)
 	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier string) (*TokenResponse, error)
 	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret string) (*TokenResponse, error)
 	ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error)
@@ -215,7 +215,7 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Attempt to authorize.
-	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod, sess.CreatedAt, u.ID)
+	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod, sess.CreatedAt, u.ID, authlog.ClientIP(r))
 	if err != nil {
 		h.record(r, authlog.Event{
 			Event:    authlog.EventOAuthAuthorize,
@@ -224,7 +224,24 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 			Username: u.Username,
 			Detail:   authorizeDenyReason(err) + " client_id=" + clientID,
 		})
+		var denial *PolicyDenialError
 		switch {
+		case errors.As(err, &denial):
+			// The app's access policy refused the user. The specific rule is
+			// recorded in the auth event and the log, never in the response:
+			// OAuth clients get the same fixed description as any other
+			// authorization denial.
+			h.logger.Info("oauth authorize: access policy denied",
+				"user_id", u.ID, "username", u.Username, "app_slug", denial.AppSlug, "reason", denial.Reason)
+			h.record(r, authlog.Event{
+				Event:    authlog.EventAccessDenied,
+				Outcome:  authlog.OutcomeFailure,
+				UserID:   u.ID,
+				Username: u.Username,
+				Detail:   "app=" + denial.AppSlug + " reason=" + denial.Reason,
+			})
+			h.writeJSONError(w, http.StatusForbidden, "access_denied",
+				"The resource owner or authorization server denied the request.")
 		case errors.Is(err, app.ErrOAuthNotEnabled):
 			h.writeJSONError(w, http.StatusBadRequest, "unauthorized_client",
 				"OAuth is not enabled for this client")

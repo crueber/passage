@@ -52,6 +52,7 @@ type handlerTestStack struct {
 	handler *oauth.Handler
 	svc     *oauth.Service
 	store   *oauth.SQLiteStore
+	apps    *fakeAppClient
 	db      *sql.DB
 	appID   string
 	userID  string
@@ -88,6 +89,7 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 		handler: h,
 		svc:     svc,
 		store:   store,
+		apps:    apps,
 		db:      db,
 		appID:   appID,
 		userID:  userID,
@@ -337,7 +339,7 @@ func TestHandler_Token_AuthCode(t *testing.T) {
 
 	// Get a code via the service.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-1", "", "", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-1", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -400,7 +402,7 @@ func TestHandler_Token_Refresh(t *testing.T) {
 
 	// Get initial tokens.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -480,7 +482,7 @@ func TestHandler_UserInfo_Valid(t *testing.T) {
 
 	// Get an access token.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -608,7 +610,7 @@ func TestHandler_Token_BasicAuth(t *testing.T) {
 
 	// Obtain a code via the service directly.
 	ctx := context.Background()
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-basic", "", "", "", time.Now(), testUser.ID)
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid", "state-basic", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
