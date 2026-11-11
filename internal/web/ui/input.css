@@ -459,6 +459,74 @@
     @apply text-on-primary-soft underline decoration-primary/30 underline-offset-2 hover:decoration-primary;
   }
 
+  /* ── Dashboard cards ─────────────────────────────────────────────────── */
+  /* Pin button. It is a sibling of the card link (a button cannot live inside
+     an anchor), so it needs its own hit area above the card. */
+  .favorite-toggle {
+    @apply grid size-7 place-items-center rounded-md text-faint transition-colors;
+  }
+  .favorite-toggle:hover {
+    @apply bg-raised text-ink;
+  }
+  .favorite-toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .favorite-toggle .ic {
+    @apply size-3.5;
+  }
+  .favorite-toggle.is-favorite {
+    color: var(--color-warn);
+  }
+  /* The star icon is fill="currentColor", so a pinned app reads solid and an
+     unpinned one reads as an outline. */
+  .favorite-toggle.is-favorite .ic {
+    @apply size-4;
+  }
+
+  /* Density switch in the page head. The checkbox is visually hidden but still
+     focusable; the track is the control. */
+  .density-switch {
+    @apply inline-flex cursor-pointer items-center gap-2 text-xs font-medium
+      text-muted select-none;
+  }
+  .density-input {
+    @apply sr-only;
+  }
+  .density-track {
+    @apply relative h-5 w-9 shrink-0 rounded-full border border-line bg-raised
+      transition-colors;
+  }
+  .density-track::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0.125rem;
+    width: 0.875rem;
+    height: 0.875rem;
+    transform: translateY(-50%);
+    border-radius: 9999px;
+    background: var(--color-faint);
+    transition:
+      transform 150ms ease,
+      background-color 150ms ease;
+  }
+  .density-switch:hover .density-track {
+    background: var(--color-line);
+  }
+  #density-toggle:checked ~ .page-head .density-track {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+  }
+  #density-toggle:checked ~ .page-head .density-track::after {
+    transform: translate(1rem, -50%);
+    background: var(--color-on-primary);
+  }
+  #density-toggle:focus-visible ~ .page-head .density-track {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
   /* ── Misc ────────────────────────────────────────────────────────────── */
   .ic {
     @apply inline-block size-4 shrink-0 align-[-0.125em];
@@ -569,4 +637,40 @@
   .table-wrap-cards td:last-child:not(:first-child) {
     padding-top: 0.6rem;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 6. Condensed dashboard view.
+ * The switch is an ordinary checkbox placed just before the grid, so the
+ * layout responds with no JavaScript at all; app.js only remembers the choice
+ * for next time. A sibling combinator is used instead of :has() so the rules
+ * work in every browser that renders the rest of the page.
+ *
+ * These rules are unlayered on purpose: they have to beat the p-5 / text-sm
+ * utilities on the cards, and Tailwind utilities live in a layer.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+#density-toggle:checked ~ .app-grid {
+  gap: 0.5rem;
+}
+#density-toggle:checked ~ .app-grid .app-card-body {
+  /* Keep the room on the right that the pin button sits over. */
+  padding: 0.5rem 2.5rem 0.5rem 0.75rem;
+}
+#density-toggle:checked ~ .app-grid .app-card-footer {
+  padding: 0.4rem 0.75rem;
+}
+#density-toggle:checked ~ .app-grid .app-card-title {
+  font-size: 0.875rem;
+  line-height: 1.2;
+}
+#density-toggle:checked ~ .app-grid .app-card-desc {
+  margin-top: 0.1rem;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+#density-toggle:checked ~ .app-grid .app-card-icon {
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.75rem;
 }

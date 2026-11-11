@@ -1261,6 +1261,14 @@ func (failingAppLister) GetByClientID(_ context.Context, _ string) (*app.App, er
 	return nil, errors.New("lister boom")
 }
 
+func (failingAppLister) FavoriteIDs(_ context.Context, _ string) (map[string]bool, error) {
+	return nil, errors.New("lister boom")
+}
+
+func (failingAppLister) ToggleFavorite(_ context.Context, _, _ string) (bool, bool, error) {
+	return false, false, errors.New("lister boom")
+}
+
 // TestHandler_GetDashboard_EmptyState verifies the dashboard renders 200 for a
 // non-admin user with no apps (this branch does not reach the flash partial;
 // see TestHandler_GetDashboard_AppsWithFlash for the .Flash regression pin).
@@ -1329,6 +1337,199 @@ func TestHandler_GetDashboard_AppsWithFlash(t *testing.T) {
 	}
 	if !strings.Contains(body, "Account created. Please sign in.") {
 		t.Error("GetDashboard: body missing flash message")
+	}
+}
+
+// withChiParam injects one chi route URL parameter into the request context.
+func withChiParam(r *http.Request, key, value string) *http.Request {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add(key, value)
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+}
+
+// seedFavoriteApps creates three apps in name order for the user and returns
+// them in that order.
+func seedFavoriteApps(t *testing.T, f *handlerFixture, userID string) []*app.App {
+	t.Helper()
+	ctx := context.Background()
+	apps := []*app.App{
+		{Slug: "alpha", Name: "Alpha", HostPattern: "alpha.lab.local", IsActive: true},
+		{Slug: "bravo", Name: "Bravo", HostPattern: "bravo.lab.local", IsActive: true},
+		{Slug: "charlie", Name: "Charlie", HostPattern: "charlie.lab.local", IsActive: true},
+	}
+	for _, a := range apps {
+		if err := f.appSvc.Create(ctx, a); err != nil {
+			t.Fatalf("seed app %q: %v", a.Slug, err)
+		}
+		if err := f.appSvc.GrantAccess(ctx, userID, a.ID); err != nil {
+			t.Fatalf("grant access to %q: %v", a.Slug, err)
+		}
+	}
+	return apps
+}
+
+// TestHandler_GetDashboard_PinnedFirst pins the last app in name order and
+// proves it moves to the top while the other two keep their order.
+func TestHandler_GetDashboard_PinnedFirst(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newFullHandlerFixture(t, true)
+	u, err := f.userSvc.Register(ctx, "dashpin", "dashpin@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	apps := seedFavoriteApps(t, f, u.ID)
+
+	if _, _, err := f.appSvc.ToggleFavorite(ctx, u.ID, apps[2].ID); err != nil {
+		t.Fatalf("ToggleFavorite: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	rec := httptest.NewRecorder()
+	f.handler.GetDashboard(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetDashboard: got status %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	charlie := strings.Index(body, "Charlie")
+	alpha := strings.Index(body, "Alpha")
+	bravo := strings.Index(body, "Bravo")
+	if charlie < 0 || alpha < 0 || bravo < 0 {
+		t.Fatalf("GetDashboard: missing app names (charlie=%d alpha=%d bravo=%d)", charlie, alpha, bravo)
+	}
+	if !(charlie < alpha && alpha < bravo) {
+		t.Errorf("GetDashboard: order charlie=%d alpha=%d bravo=%d, want pinned Charlie first then Alpha, Bravo", charlie, alpha, bravo)
+	}
+}
+
+// TestHandler_GetDashboard_FavoriteMarkup pins one app and checks both the
+// star state and the POST target for every card.
+func TestHandler_GetDashboard_FavoriteMarkup(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newFullHandlerFixture(t, true)
+	u, err := f.userSvc.Register(ctx, "dashstar", "dashstar@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	apps := seedFavoriteApps(t, f, u.ID)
+	if _, _, err := f.appSvc.ToggleFavorite(ctx, u.ID, apps[0].ID); err != nil {
+		t.Fatalf("ToggleFavorite: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	rec := httptest.NewRecorder()
+	f.handler.GetDashboard(rec, req)
+
+	body := rec.Body.String()
+	for _, a := range apps {
+		if !strings.Contains(body, `action="/apps/`+a.ID+`/favorite"`) {
+			t.Errorf("GetDashboard: missing pin form for %q", a.Slug)
+		}
+	}
+	if !strings.Contains(body, "favorite-toggle is-favorite") {
+		t.Error("GetDashboard: pinned app is missing the is-favorite state")
+	}
+	if strings.Count(body, "favorite-toggle is-favorite") != 1 {
+		t.Errorf("GetDashboard: got %d pinned stars, want 1", strings.Count(body, "favorite-toggle is-favorite"))
+	}
+	if !strings.Contains(body, `aria-label="Unpin Alpha"`) {
+		t.Error("GetDashboard: pinned star is missing the unpin label")
+	}
+	if !strings.Contains(body, `aria-label="Pin Bravo to the top"`) {
+		t.Error("GetDashboard: unpinned star is missing the pin label")
+	}
+}
+
+// TestHandler_PostToggleFavorite flips a pin through the handler and proves the
+// redirect target plus the stored state, twice, so pin and unpin both work.
+func TestHandler_PostToggleFavorite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newFullHandlerFixture(t, true)
+	u, err := f.userSvc.Register(ctx, "dashtoggle", "dashtoggle@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	apps := seedFavoriteApps(t, f, u.ID)
+	target := apps[1]
+
+	for _, want := range []bool{true, false} {
+		req := httptest.NewRequest(http.MethodPost, "/apps/"+target.ID+"/favorite", nil)
+		req = req.WithContext(session.WithUser(req.Context(), u))
+		req = withChiParam(req, "id", target.ID)
+		rec := httptest.NewRecorder()
+		f.handler.PostToggleFavorite(rec, req)
+
+		if rec.Code != http.StatusFound {
+			t.Fatalf("PostToggleFavorite: got status %d, want %d", rec.Code, http.StatusFound)
+		}
+		if loc := rec.Header().Get("Location"); loc != "/" {
+			t.Errorf("PostToggleFavorite: Location = %q, want %q", loc, "/")
+		}
+		ids, err := f.appSvc.FavoriteIDs(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("FavoriteIDs: %v", err)
+		}
+		if ids[target.ID] != want {
+			t.Errorf("after toggle: pinned = %v, want %v", ids[target.ID], want)
+		}
+	}
+}
+
+// TestHandler_PostToggleFavorite_NoAccess proves a toggle for an app the user
+// cannot reach still redirects and changes nothing.
+func TestHandler_PostToggleFavorite_NoAccess(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newFullHandlerFixture(t, true)
+	u, err := f.userSvc.Register(ctx, "dashnoaccess", "dashnoaccess@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	apps := seedFavoriteApps(t, f, u.ID)
+	target := apps[0]
+	if err := f.appSvc.RevokeAccess(ctx, u.ID, target.ID); err != nil {
+		t.Fatalf("RevokeAccess: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/apps/"+target.ID+"/favorite", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	req = withChiParam(req, "id", target.ID)
+	rec := httptest.NewRecorder()
+	f.handler.PostToggleFavorite(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("PostToggleFavorite: got status %d, want %d", rec.Code, http.StatusFound)
+	}
+	ids, err := f.appSvc.FavoriteIDs(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("FavoriteIDs: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("FavoriteIDs = %v, want empty", ids)
+	}
+}
+
+// TestHandler_PostToggleFavorite_Unauthenticated proves the route refuses to
+// act without a user in context.
+func TestHandler_PostToggleFavorite_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+
+	req := httptest.NewRequest(http.MethodPost, "/apps/whatever/favorite", nil)
+	req = withChiParam(req, "id", "whatever")
+	rec := httptest.NewRecorder()
+	f.handler.PostToggleFavorite(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("PostToggleFavorite: got status %d, want %d", rec.Code, http.StatusFound)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/login" {
+		t.Errorf("PostToggleFavorite: Location = %q, want %q", loc, "/login")
 	}
 }
 

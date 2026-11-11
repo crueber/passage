@@ -153,4 +153,11 @@ type AccessStore interface {
 	// avoid a cross-package dependency on the user domain type.
 	ListUsersWithAccess(ctx context.Context, appID string) ([]*UserAccess, error)
 	ListAppsForUser(ctx context.Context, userID string) ([]*App, error)
+
+	// Dashboard pins. FavoriteIDs is the set of apps this user pinned; a pin
+	// lives on the access row, so losing access loses the pin.
+	FavoriteIDs(ctx context.Context, userID string) (map[string]bool, error)
+	// ToggleFavorite flips one pin and reports the new state. found is false when
+	// the user has no access row for the app, in which case nothing changes.
+	ToggleFavorite(ctx context.Context, userID, appID string) (favorite, found bool, err error)
 }

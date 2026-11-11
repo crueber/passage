@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,6 +54,10 @@ type settingsReader interface {
 type AppLister interface {
 	ListAppsForUser(ctx context.Context, userID string) ([]*app.App, error)
 	GetByClientID(ctx context.Context, clientID string) (*app.App, error)
+	// FavoriteIDs returns the apps this user pinned to the top of the dashboard.
+	FavoriteIDs(ctx context.Context, userID string) (map[string]bool, error)
+	// ToggleFavorite flips a pin. found is false when the user has no access.
+	ToggleFavorite(ctx context.Context, userID, appID string) (favorite, found bool, err error)
 }
 
 // userContextReader extracts the authenticated user from the request context.
@@ -286,6 +291,9 @@ type dashboardData struct {
 	Apps      []*app.App
 	Flash     *Flash
 	CSRFToken string
+	// FavoriteIDs drives the pinned star; Apps is already ordered with pinned
+	// apps first, so the template only needs the set.
+	FavoriteIDs map[string]bool
 }
 
 // GetLogin renders the login form.
@@ -324,12 +332,50 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.render(w, r, "user-dashboard", dashboardData{
-		User:      u,
-		Apps:      apps,
-		Flash:     flashFromCode(r.URL.Query().Get("flash")),
-		CSRFToken: csrf.TokenFromContext(r.Context()),
+	favorites, err := h.apps.FavoriteIDs(r.Context(), u.ID)
+	if err != nil {
+		h.logger.Error("dashboard: list favorites", "user_id", u.ID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Pinned apps first, then the name order the store already applied. The sort
+	// is stable so pinning does not reshuffle anything else.
+	sort.SliceStable(apps, func(i, j int) bool {
+		return favorites[apps[i].ID] && !favorites[apps[j].ID]
 	})
+
+	h.render(w, r, "user-dashboard", dashboardData{
+		User:        u,
+		Apps:        apps,
+		Flash:       flashFromCode(r.URL.Query().Get("flash")),
+		CSRFToken:   csrf.TokenFromContext(r.Context()),
+		FavoriteIDs: favorites,
+	})
+}
+
+// PostToggleFavorite flips the dashboard pin for one app and returns to the
+// dashboard. A user who has no access row gets the same redirect and no change:
+// the pin belongs to the access grant, so there is nothing to toggle.
+func (h *Handler) PostToggleFavorite(w http.ResponseWriter, r *http.Request) {
+	u, ok := h.userCtx(r.Context())
+	if !ok || u == nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	appID := chi.URLParam(r, "id")
+	favorite, found, err := h.apps.ToggleFavorite(r.Context(), u.ID, appID)
+	if err != nil {
+		h.logger.Error("dashboard: toggle favorite", "user_id", u.ID, "app_id", appID, "error", err)
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	if !found {
+		h.logger.Warn("dashboard: favorite for app without access", "user_id", u.ID, "app_id", appID)
+	}
+	h.logger.Debug("dashboard: favorite toggled", "user_id", u.ID, "app_id", appID, "favorite", favorite)
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 // PostLogin handles credential submission.

@@ -649,6 +649,9 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(userHandler.RequireMFA)
 			r.Get("/", userHandler.GetDashboard)
+			// Dashboard pin ("favourite"): a POST that flips one access row, then
+			// returns to the list. CSRF comes from the group middleware.
+			r.Post("/apps/{id}/favorite", userHandler.PostToggleFavorite)
 			r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/verify-email/resend", userHandler.PostVerifyEmailResend)
 
 			// Self-service session management (list, revoke one, sign out

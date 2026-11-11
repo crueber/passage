@@ -45,6 +45,7 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **Two-factor authentication** — TOTP authenticator apps (enrol by QR code) plus single-use recovery codes; enforced on password sign-in, and optionally mandatory for every account
 - **Per-account lockout** — after N invalid passwords the account is locked for a configurable window; an admin can unlock it, and the same counter bounds second-factor guessing
 - **Per-app access control** — grant or revoke each user's access to each application independently, with app-scoped roles and groups
+- **Favourites and a condensed view** — pin the apps you use most to the top of your dashboard, and switch the list to a tighter layout
 - **Self-service sessions** — users see their devices, can revoke one or sign out everywhere; optional idle timeout
 - **Upstream identity providers** — sign in with an existing OIDC provider (Authentik, Keycloak, Google, …) and link it to a local account
 - **Step-up authentication** — `prompt=login`, `max_age` and `acr_values` force a fresh sign-in for sensitive apps

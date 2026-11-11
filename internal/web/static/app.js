@@ -30,6 +30,30 @@
     }
   });
 
+  // #density-toggle (dashboard): remember the standard/condensed view. The
+  // layout itself is pure CSS (:has on this checkbox), so this only restores
+  // and persists the choice — with no localStorage the switch still works for
+  // the page you are on.
+  var density = document.getElementById("density-toggle");
+  if (density) {
+    var DENSITY_KEY = "passage.density";
+    var stored = null;
+    try {
+      stored = window.localStorage.getItem(DENSITY_KEY);
+    } catch (err) {
+      stored = null;
+    }
+    if (stored === "condensed") density.checked = true;
+    else if (stored === "standard") density.checked = false;
+    density.addEventListener("change", function () {
+      try {
+        window.localStorage.setItem(DENSITY_KEY, density.checked ? "condensed" : "standard");
+      } catch (err) {
+        /* storage unavailable: the switch still applies to this page */
+      }
+    });
+  }
+
   // #select-all-btn (user manage-access page): toggle every app_id checkbox.
   var selectAll = document.getElementById("select-all-btn");
   if (selectAll) {

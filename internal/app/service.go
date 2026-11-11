@@ -31,6 +31,17 @@ func NewService(store Store, access AccessStore, logger *slog.Logger) *Service {
 	}
 }
 
+// FavoriteIDs returns the app IDs this user pinned on their dashboard.
+func (s *Service) FavoriteIDs(ctx context.Context, userID string) (map[string]bool, error) {
+	return s.access.FavoriteIDs(ctx, userID)
+}
+
+// ToggleFavorite flips a dashboard pin. found is false when the user has no
+// access to the app, in which case nothing changes.
+func (s *Service) ToggleFavorite(ctx context.Context, userID, appID string) (favorite, found bool, err error) {
+	return s.access.ToggleFavorite(ctx, userID, appID)
+}
+
 // ResolveFromHost resolves the app registered for the given host. The host
 // may include a port suffix which is stripped before matching. It iterates
 // all active apps and returns the first one whose HostPattern matches using

@@ -35,7 +35,7 @@ passage/
   internal/
     config/             # config loading — YAML file + PASSAGE_* env var overrides
     db/                 # SQLite open + goose migrations
-      migrations/       # *.sql embedded migration files (001_*.sql … 010_*.sql)
+      migrations/       # *.sql embedded migration files (001_*.sql … 025_*.sql)
     user/               # model, store, service, handler, magic links, setup tokens
     app/                # model, store, service (host pattern matching, per-app session duration, auth method flags)
     session/            # model, store, service, middleware (RequireSession), user sessions page
@@ -92,7 +92,7 @@ All wiring lives in `cmd/passage/run.go` — construction order matters. Key fac
 - **Top-level context**: `signal.NotifyContext` (SIGINT/SIGTERM). Every background goroutine and the HTTP server shutdown hang off this context. Never start a goroutine without wiring it to a cancellable context.
 - **Background cleanup goroutines** (started in `run()`): expired sessions (hourly), WebAuthn challenges (10 min), OAuth codes/tokens (hourly), rate-limiter cleanup (5 min).
 - **Construction order**: settings store and app store are built *before* `session.NewService` because the session service reads the global `session_duration_hours` setting and per-app duration overrides (via the unexported `appDurationAdapter` at the wiring layer). Cross-package adapters live in `run.go`, not in the packages themselves.
-- **Dashboard handler**: `/` (the "My Apps" page) is served by `user.Handler.GetDashboard` — not a run.go closure — so it can be regression-tested (see `internal/user/handler_test.go`). `user.NewHandler` takes an `AppLister` (satisfied by `*app.Service`) and a `userContextReader` (wired to `session.UserFromContext`) at the consumer boundary, because `internal/session` imports `internal/user`.
+- **Dashboard handler**: `/` (the "My Apps" page) is served by `user.Handler.GetDashboard` — not a run.go closure — so it can be regression-tested (see `internal/user/handler_test.go`). Pins live on `user_app_access.favorite`, so they are per-user and vanish with the access grant; `GetDashboard` puts pinned apps first with a stable sort and `POST /apps/{id}/favorite` toggles one (no access row = no-op). The condensed view is a plain checkbox before the grid plus sibling-selector CSS (no `:has()`), with `app.js` remembering the choice in `localStorage["passage.density"]`. `user.NewHandler` takes an `AppLister` (satisfied by `*app.Service`) and a `userContextReader` (wired to `session.UserFromContext`) at the consumer boundary, because `internal/session` imports `internal/user`.
 - **First-run bootstrap**: if no admin user exists, `user.SetupTokenManager` generates a one-time token logged to stdout, valid 1 hour. `/setup` self-disables (`IsActive()` checked per request) once any admin exists.
 - **OAuth signing keys**: a keyring in `oauth_signing_keys` (`internal/oauth/keyring.go`). The newest non-retired key signs; every non-retired key is served in `/.well-known/jwks.json`; verification selects by `kid`, so older id_tokens keep working after a rotation. Started from the legacy single key in `oidc_config` on first boot. Admin rotate/retire/delete, never the last active key.
 - **Step-up auth**: `prompt=login|none`, `max_age` and `acr_values=urn:passage:reauth` are handled at `/oauth/authorize`; a session older than 60 s bounces through the normal login flow back to the same authorize URL (the window is the loop guard). `prompt=none` answers `login_required` only to a registered `redirect_uri`.
@@ -211,7 +211,7 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 
 ## Database Conventions
 
-- All migrations live in `internal/db/migrations/` as numbered SQL files: `001_initial.sql` … `018_session_last_used.sql`. New migrations are the next number; never edit an applied migration.
+- All migrations live in `internal/db/migrations/` as numbered SQL files: `001_initial.sql` … `025_app_favorites.sql`. New migrations are the next number; never edit an applied migration.
 - **Additive only.** `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE … ADD COLUMN` with a `NOT NULL DEFAULT`, `CREATE INDEX IF NOT EXISTS`. No `DROP`, no table rebuilds, no column renames, and a new column must default to "behaves like before" so an upgrade can never take auth down. Include a best-effort `Down` and a test that reopens a *populated* database.
 - Migrations must stay **independent of each other's ordering**: `db.Open` runs goose with `WithAllowOutofOrder(true)` because parallel branches merge files out of numeric order, and a database that has already recorded a higher version must still start when a lower one appears. Never make one migration depend on another running first.
 - SQLite is opened via `db.Open(ctx, path, logger)` which runs migrations and sets `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`. Do not open the driver directly.

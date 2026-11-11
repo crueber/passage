@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -294,6 +295,52 @@ func (s *SQLiteStore) ListAppsForUser(ctx context.Context, userID string) ([]*Ap
 		WHERE uaa.user_id = ?
 		ORDER BY a.name`
 	return s.queryApps(ctx, query, userID)
+}
+
+// FavoriteIDs returns the app IDs this user has pinned to the top of their
+// dashboard.
+func (s *SQLiteStore) FavoriteIDs(ctx context.Context, userID string) (map[string]bool, error) {
+	const query = `SELECT app_id FROM user_app_access WHERE user_id = ? AND favorite = 1`
+	rows, err := s.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("app store favorite ids: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("app store favorite ids scan: %w", err)
+		}
+		ids[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("app store favorite ids rows: %w", err)
+	}
+	return ids, nil
+}
+
+// ToggleFavorite flips the dashboard pin for one user/app pair in a single
+// statement, so two taps in flight cannot race into the same state. found is
+// false when there is no access row (the app is unknown, or not granted to that
+// user) and nothing is written.
+func (s *SQLiteStore) ToggleFavorite(ctx context.Context, userID, appID string) (favorite, found bool, err error) {
+	const query = `
+		UPDATE user_app_access
+		SET favorite = CASE favorite WHEN 0 THEN 1 ELSE 0 END
+		WHERE user_id = ? AND app_id = ?
+		RETURNING favorite`
+
+	var flag int
+	err = s.db.QueryRowContext(ctx, query, userID, appID).Scan(&flag)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("app store toggle favorite: %w", err)
+	}
+	return flag == 1, true, nil
 }
 
 // appScanner is satisfied by both *sql.Row and *sql.Rows.

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
   <script src="/static/theme.js"></script>
+  <script src="/static/app.js" defer></script>
 </head>
 <body class="flex min-h-dvh flex-col">
 {{template "topnav-apps" .}}
@@ -35,58 +36,82 @@
     <p class="empty-sub">Contact your administrator to get access.</p>
   </div>
   {{else}}
+  {{/* Density switch. The checkbox lives outside the label (a label may point
+       at a control anywhere) so it can precede the grid as a sibling: the
+       condensed rules then need only a sibling combinator, and app.js only has
+       to remember the choice for the next visit. */}}
+  <input type="checkbox" id="density-toggle" class="density-input" aria-label="Condensed list">
   <div class="page-head">
     <div>
       <h1 class="page-title">My Apps</h1>
       <p class="page-sub">Applications you can access through Passage.</p>
     </div>
+    <label class="density-switch" for="density-toggle" title="Condensed list">
+      <span class="density-track" aria-hidden="true"></span>
+      Condensed
+    </label>
   </div>
 
-  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+  <div class="app-grid grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
     {{if and .User .User.IsAdmin}}
-    <a href="/admin" class="card card-hover flex flex-col">
-      <div class="flex items-start gap-3 p-5">
-        <div class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-on-primary">
-          {{template "ic-settings"}}
+    <div class="app-card">
+      <a href="/admin" class="card card-hover flex h-full flex-col">
+        <div class="app-card-body flex items-start gap-3 p-5">
+          <div class="app-card-icon grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-on-primary">
+            {{template "ic-settings"}}
+          </div>
+          <div class="min-w-0">
+            <p class="app-card-title font-semibold text-ink">Passage Admin</p>
+            <p class="app-card-desc mt-0.5 text-sm text-muted">Manage users, apps, and settings</p>
+          </div>
         </div>
-        <div class="min-w-0">
-          <p class="font-semibold text-ink">Passage Admin</p>
-          <p class="mt-0.5 text-sm text-muted">Manage users, apps, and settings</p>
+        <div class="app-card-footer mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
+          <span class="td-mono text-faint">Admin console</span>
+          <span class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</span>
         </div>
-      </div>
-      <div class="mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
-        <span class="td-mono text-faint">Admin console</span>
-        <span class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</span>
-      </div>
-    </a>
+      </a>
+    </div>
     {{end}}
 
     {{range .Apps}}
     {{/* The whole card is the link when the app has a launch URL, so there is no
-         small target to hunt for. An app without one is plain information. */}}
-    {{if .DefaultURL}}
-    <a href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer" class="card card-hover flex flex-col">
-    {{else}}
-    <div class="card flex flex-col">
-    {{end}}
-      <div class="flex items-start gap-3 p-5">
-        <div class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-soft font-semibold text-on-primary-soft uppercase" aria-hidden="true">
-          {{slice .Name 0 1}}
+         small target to hunt for. The pin is a sibling form on top of it: a
+         button cannot live inside an anchor. */}}
+    <div class="app-card relative">
+      {{if .DefaultURL}}
+      <a href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer" class="card card-hover flex h-full flex-col">
+      {{else}}
+      <div class="card flex h-full flex-col">
+      {{end}}
+        <div class="app-card-body flex items-start gap-3 p-5 pr-10">
+          <div class="app-card-icon grid size-10 shrink-0 place-items-center rounded-lg bg-primary-soft font-semibold text-on-primary-soft uppercase" aria-hidden="true">
+            {{slice .Name 0 1}}
+          </div>
+          <div class="min-w-0">
+            <p class="app-card-title font-semibold text-ink">{{.Name}}</p>
+            {{if .Description}}
+            <p class="app-card-desc mt-0.5 text-sm text-muted">{{.Description}}</p>
+            {{end}}
+          </div>
         </div>
-        <div class="min-w-0">
-          <p class="font-semibold text-ink">{{.Name}}</p>
-          {{if .Description}}
-          <p class="mt-0.5 text-sm text-muted">{{.Description}}</p>
+        <div class="app-card-footer mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
+          <span class="td-mono truncate text-faint" title="{{.HostPattern}}">{{.HostPattern}}</span>
+          {{if .DefaultURL}}
+          <span class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</span>
           {{end}}
         </div>
-      </div>
-      <div class="mt-auto flex items-center justify-between gap-3 border-t border-line p-4 pt-3.5">
-        <span class="td-mono truncate text-faint" title="{{.HostPattern}}">{{.HostPattern}}</span>
-        {{if .DefaultURL}}
-        <span class="card-link inline-flex shrink-0 items-center gap-1">Open {{template "ic-arrow-up-right"}}</span>
-        {{end}}
-      </div>
-    {{if .DefaultURL}}</a>{{else}}</div>{{end}}
+      {{if .DefaultURL}}</a>{{else}}</div>{{end}}
+
+      <form method="POST" action="/apps/{{.ID}}/favorite" class="absolute top-2 right-2 z-10">
+        {{csrfField $.CSRFToken}}
+        <button type="submit"
+                class="favorite-toggle{{if index $.FavoriteIDs .ID}} is-favorite{{end}}"
+                title="{{if index $.FavoriteIDs .ID}}Unpin from the top{{else}}Pin to the top{{end}}"
+                aria-label="{{if index $.FavoriteIDs .ID}}Unpin {{.Name}}{{else}}Pin {{.Name}} to the top{{end}}">
+          {{template "ic-star"}}
+        </button>
+      </form>
+    </div>
     {{end}}
   </div>
   {{end}}
