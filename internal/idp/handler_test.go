@@ -607,6 +607,12 @@ func TestCallback_TokenVerificationFailures(t *testing.T) {
 			},
 		},
 		{
+			name: "multiple audiences without azp",
+			mutate: func(fake *fakeProvider, _ string) {
+				fake.setClaim("aud", []string{testClientID, "another-client"})
+			},
+		},
+		{
 			name: "expired token",
 			mutate: func(fake *fakeProvider, _ string) {
 				fake.setClaim("exp", time.Now().Add(-time.Hour).Unix())

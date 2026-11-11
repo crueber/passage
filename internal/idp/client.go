@@ -278,6 +278,16 @@ func (c *Client) VerifyIDToken(ctx context.Context, p *Provider, jwksURI, rawTok
 		return nil, errors.New("idp: verify id_token: token is not valid")
 	}
 
+	// OIDC Core §3.1.3.7: when the audience has more than one value, azp must
+	// name this client. Without the check, a token minted for a sibling client
+	// that happens to list ours as an audience could be replayed here.
+	if auds, err := claims.GetAudience(); err == nil && len(auds) > 1 {
+		azp, _ := claims["azp"].(string)
+		if azp != p.ClientID {
+			return nil, errors.New("idp: verify id_token: azp mismatch")
+		}
+	}
+
 	gotNonce, _ := claims["nonce"].(string)
 	if gotNonce == "" || subtle.ConstantTimeCompare([]byte(gotNonce), []byte(nonce)) != 1 {
 		return nil, errors.New("idp: verify id_token: nonce mismatch")

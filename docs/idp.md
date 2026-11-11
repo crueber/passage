@@ -96,6 +96,10 @@ Anything else is refused with a flash on `/login` (`No account is linked to
 that identity`). An inactive linked account is refused with the usual
 `account-inactive` flash.
 
+Only configure providers you trust to assert `email_verified` honestly: that
+claim is what allows an upstream identity to attach to an existing local
+account.
+
 Deleting a user removes their links (`ON DELETE CASCADE`).
 
 ## Second factor
