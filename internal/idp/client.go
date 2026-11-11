@@ -27,11 +27,6 @@ import (
 	"github.com/crueber/passage/internal/config"
 )
 
-// defaultScopes is the scope set requested when a provider does not configure
-// one. openid is required to receive an id_token; email is required to link to
-// an existing account.
-var defaultScopes = config.DefaultProviderScopes()
-
 // errJWKSKeyNotFound marks a token whose kid is not in the cached JWKS. It is
 // the only verification failure worth a cache refresh: the provider may have
 // rotated its signing key.
@@ -64,7 +59,9 @@ func Providers(cfgs []config.ProviderConfig) []*Provider {
 	for _, p := range cfgs {
 		scopes := append([]string(nil), p.Scopes...)
 		if len(scopes) == 0 {
-			scopes = append([]string(nil), defaultScopes...)
+			// openid is required to receive an id_token; email is required to
+			// link to an existing account by address.
+			scopes = config.DefaultProviderScopes()
 		}
 		out = append(out, &Provider{
 			Name:         p.Name,
