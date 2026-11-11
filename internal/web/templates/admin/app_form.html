@@ -70,10 +70,8 @@
                name="session_duration_hours" min="0" max="8760" autocomplete="off"
                value="{{if and .EditApp (gt .EditApp.SessionDurationHours 0)}}{{.EditApp.SessionDurationHours}}{{end}}">
         <p class="help">
-          Override the global session lifetime for sessions created when a user
-          signs in through this app's OAuth flow. Leave blank or set to 0 to use
-          the global default. Sessions started from a bare Passage login or from
-          forward-auth cannot be attributed to an app.
+          Overrides the global lifetime for sessions created by this app's OAuth
+          sign-in. Blank or 0 uses the global default.
         </p>
       </div>
 

@@ -1,0 +1,193 @@
+{{define "admin-logs"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logs — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Logs</h1>
+      <p class="page-sub">Sign-ins and administrative actions, newest first.</p>
+    </div>
+  </div>
+
+  <nav class="tabs" aria-label="Log sections">
+    <a href="/admin/logs?tab=signins" class="tab{{if eq .Tab "signins"}} is-active{{end}}"{{if eq .Tab "signins"}} aria-current="page"{{end}}>Sign-ins</a>
+    <a href="/admin/logs?tab=admin" class="tab{{if eq .Tab "admin"}} is-active{{end}}"{{if eq .Tab "admin"}} aria-current="page"{{end}}>Admin actions</a>
+  </nav>
+
+  {{if eq .Tab "admin"}}
+  {{with .Admin}}{{template "admin-logs-admin" .}}{{end}}
+  {{else}}
+  {{with .Signin}}{{template "admin-logs-signins" .}}{{end}}
+  {{end}}
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "admin-logs-signins"}}
+  <form method="GET" action="/admin/logs?tab=signins" class="mb-5 flex flex-wrap items-center gap-2">
+    <div>
+      <label class="sr-only" for="event-filter">Filter by event</label>
+      <select name="event" id="event-filter" class="input w-auto pr-8">
+        <option value=""{{if eq .EventFilter ""}} selected{{end}}>All events</option>
+        {{range .EventNames}}
+        <option value="{{.}}"{{if eq . $.EventFilter}} selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <label class="sr-only" for="outcome-filter">Filter by outcome</label>
+      <select name="outcome" id="outcome-filter" class="input w-auto pr-8">
+        <option value=""{{if eq .OutcomeFilter ""}} selected{{end}}>All outcomes</option>
+        {{range .Outcomes}}
+        <option value="{{.}}"{{if eq . $.OutcomeFilter}} selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <label class="sr-only" for="username-filter">Filter by username</label>
+      <input type="search" name="username" id="username-filter" class="input w-44" value="{{.UsernameFilter}}" placeholder="Username">
+    </div>
+    <div>
+      <label class="sr-only" for="days-filter">Time range</label>
+      <select name="days" id="days-filter" class="input w-auto pr-8">
+        {{range .DaysOptions}}
+        <option value="{{.}}"{{if eq . $.Days}} selected{{end}}>Last {{.}} days</option>
+        {{end}}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-outline">Filter</button>
+    {{if .Filtered}}
+    <a href="/admin/logs?tab=signins" class="btn btn-ghost">Clear</a>
+    {{end}}
+  </form>
+
+  {{if .Events}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Event</th>
+          <th scope="col">Username</th>
+          <th scope="col">IP</th>
+          <th scope="col">User Agent</th>
+          <th scope="col">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Events}}
+        <tr>
+          <td class="td-mono whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+          <td><span class="badge {{if eq .Outcome "success"}}badge-green{{else if eq .Outcome "failure"}}badge-red{{else if eq .Outcome "throttled"}}badge-amber{{else}}badge-gray{{end}}">{{.Event}}</span></td>
+          <td class="font-medium">{{if .Username}}{{.Username}}{{else}}&mdash;{{end}}</td>
+          <td class="td-mono">{{if .IP}}{{.IP}}{{else}}&mdash;{{end}}</td>
+          <td class="td-muted max-w-xs truncate" title="{{.UserAgent}}">{{if .UserAgent}}{{.UserAgent}}{{else}}&mdash;{{end}}</td>
+          <td class="td-muted max-w-xs truncate" title="{{.Detail}}">{{if .Detail}}{{.Detail}}{{else}}&mdash;{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <nav class="mt-4 flex items-center justify-between gap-2" aria-label="Pagination">
+    <div>
+      {{if .PrevURL}}<a href="{{.PrevURL}}" class="btn btn-outline btn-sm">Previous</a>{{end}}
+    </div>
+    <p class="text-xs text-muted">Page {{.Page}} of {{.TotalPages}} &middot; {{.Total}} events</p>
+    <div>
+      {{if .NextURL}}<a href="{{.NextURL}}" class="btn btn-outline btn-sm">Next</a>{{end}}
+    </div>
+  </nav>
+  {{else}}
+  <div class="empty">
+    {{template "ic-shield"}}
+    <p class="empty-title">No authentication events found</p>
+    {{if .Filtered}}
+    <p class="empty-sub">Try widening the time range or clearing the filters.</p>
+    {{else}}
+    <p class="empty-sub">Sign-ins and failures will appear here.</p>
+    {{end}}
+  </div>
+  {{end}}
+{{end}}
+
+{{define "admin-logs-admin"}}
+  <form method="GET" action="/admin/logs?tab=admin" class="mb-5 flex flex-wrap items-center gap-2">
+    <div>
+      <label class="sr-only" for="action-filter">Filter by action</label>
+      <select name="action" id="action-filter" class="input w-auto pr-8">
+        <option value=""{{if eq .ActionFilter ""}} selected{{end}}>All actions</option>
+        <option value="user.create"{{if eq .ActionFilter "user.create"}} selected{{end}}>user.create</option>
+        <option value="user.update"{{if eq .ActionFilter "user.update"}} selected{{end}}>user.update</option>
+        <option value="user.delete"{{if eq .ActionFilter "user.delete"}} selected{{end}}>user.delete</option>
+        <option value="user.password_reset"{{if eq .ActionFilter "user.password_reset"}} selected{{end}}>user.password_reset</option>
+        <option value="user.unlock"{{if eq .ActionFilter "user.unlock"}} selected{{end}}>user.unlock</option>
+        <option value="app.create"{{if eq .ActionFilter "app.create"}} selected{{end}}>app.create</option>
+        <option value="app.update"{{if eq .ActionFilter "app.update"}} selected{{end}}>app.update</option>
+        <option value="app.delete"{{if eq .ActionFilter "app.delete"}} selected{{end}}>app.delete</option>
+        <option value="app.grant_access"{{if eq .ActionFilter "app.grant_access"}} selected{{end}}>app.grant_access</option>
+        <option value="app.revoke_access"{{if eq .ActionFilter "app.revoke_access"}} selected{{end}}>app.revoke_access</option>
+        <option value="oauth.generate_credentials"{{if eq .ActionFilter "oauth.generate_credentials"}} selected{{end}}>oauth.generate_credentials</option>
+        <option value="oauth.rotate_secret"{{if eq .ActionFilter "oauth.rotate_secret"}} selected{{end}}>oauth.rotate_secret</option>
+        <option value="session.revoke"{{if eq .ActionFilter "session.revoke"}} selected{{end}}>session.revoke</option>
+        <option value="session.revoke_all"{{if eq .ActionFilter "session.revoke_all"}} selected{{end}}>session.revoke_all</option>
+        <option value="settings.update"{{if eq .ActionFilter "settings.update"}} selected{{end}}>settings.update</option>
+        <option value="auth.method.update"{{if eq .ActionFilter "auth.method.update"}} selected{{end}}>auth.method.update</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-outline">Filter</button>
+    {{if .ActionFilter}}
+    <a href="/admin/logs?tab=admin" class="btn btn-ghost">Clear</a>
+    {{end}}
+  </form>
+
+  {{if .Events}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Actor</th>
+          <th scope="col">Action</th>
+          <th scope="col">Target</th>
+          <th scope="col">IP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Events}}
+        <tr>
+          <td class="td-mono whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+          <td class="font-medium">{{.ActorName}}</td>
+          <td><code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.Action}}</code></td>
+          <td class="td-muted">
+            {{if .TargetName}}{{.TargetName}}{{else if .TargetID}}<span class="td-mono">{{.TargetID}}</span>{{else}}&mdash;{{end}}
+          </td>
+          <td class="td-mono">{{.IPAddress}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty">
+    {{template "ic-audit"}}
+    <p class="empty-title">No audit log entries found</p>
+    {{if .ActionFilter}}<p class="empty-sub">Try clearing the action filter.</p>{{else}}<p class="empty-sub">Administrative actions will appear here.</p>{{end}}
+  </div>
+  {{end}}
+{{end}}

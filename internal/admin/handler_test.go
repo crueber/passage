@@ -271,6 +271,36 @@ func TestAdminDashboard(t *testing.T) {
 	if !strings.Contains(body, "passage-stat") || !strings.Contains(body, "passage-stat-number") {
 		t.Errorf("dashboard: response does not contain stat tiles")
 	}
+	// Empty instance: the recent sign-ins section renders its empty state.
+	if !strings.Contains(body, "No sign-ins recorded yet") {
+		t.Errorf("dashboard: missing recent sign-ins empty state")
+	}
+}
+
+func TestAdminDashboard_RecentSignIns(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	appendAuthEvent(t, f, authlog.Event{
+		Event:    authlog.EventLoginSuccess,
+		Outcome:  authlog.OutcomeSuccess,
+		Username: "alice",
+		IP:       "192.0.2.10",
+	})
+
+	router := buildAdminRouter(f)
+	token := createSession(t, f, adminUser.ID)
+	rec := adminRequest(t, router, http.MethodGet, "/admin", token, f.cfg.Session.CookieName, nil, "")
+	if rec.Result().StatusCode != http.StatusOK {
+		t.Fatalf("dashboard: got status %d, want 200", rec.Result().StatusCode)
+	}
+
+	body := rec.Body.String()
+	for _, want := range []string{"Recent sign-ins", "login.success", "alice", "192.0.2.10", "/admin/logs?tab=signins"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard: missing %q", want)
+		}
+	}
 }
 
 // ─── Users ────────────────────────────────────────────────────────────────────

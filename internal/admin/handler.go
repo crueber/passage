@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/crueber/passage/internal/app"
+	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/email"
@@ -221,10 +222,11 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/settings/auth-methods", h.PostAuthMethodSettings)
 
 	// Audit log
-	r.Get("/audit-log", h.GetAuditLog)
+	r.Get("/audit-log", h.redirectLogs(logTabAdmin))
 
 	// Authentication events (logins, logouts, passkey, magic link)
-	r.Get("/security-log", h.GetSecurityLog)
+	r.Get("/logs", h.GetLogs)
+	r.Get("/security-log", h.redirectLogs(logTabSignins))
 }
 
 // ─── base page data ──────────────────────────────────────────────────────────
@@ -311,6 +313,9 @@ type dashboardData struct {
 	UserCount    int
 	AppCount     int
 	SessionCount int
+	// Recent is the newest handful of authentication events, so the landing
+	// page answers "did that sign-in arrive?" without opening the log.
+	Recent []*authlog.Event
 }
 
 // GetDashboard renders the admin dashboard with summary counts.
@@ -338,11 +343,20 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A failure to read recent events must not take down the dashboard; the
+	// counts are still useful on their own.
+	recent, err := h.authEvents.List(ctx, authlog.Filter{Limit: 8})
+	if err != nil {
+		h.logger.Warn("admin: dashboard recent events", "error", err)
+		recent = nil
+	}
+
 	h.render(w, r, "admin-dashboard", dashboardData{
 		basePage:     h.base(r, "dashboard"),
 		UserCount:    len(users),
 		AppCount:     len(apps),
 		SessionCount: len(sessions),
+		Recent:       recent,
 	})
 }
 
@@ -1803,10 +1817,13 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.render(w, r, "admin-audit-log", auditLogData{
-		basePage:     h.base(r, "audit-log"),
-		Events:       events,
-		ActionFilter: actionFilter,
+	h.render(w, r, "admin-logs", logsData{
+		basePage: h.base(r, "logs"),
+		Tab:      logTabAdmin,
+		Admin: auditLogData{
+			Events:       events,
+			ActionFilter: actionFilter,
+		},
 	})
 }
 

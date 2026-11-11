@@ -114,7 +114,6 @@ func (h *Handler) GetSecurityLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := securityLogData{
-		basePage:       h.base(r, "security-log"),
 		Events:         events,
 		EventNames:     authlog.Names(),
 		Outcomes:       authlog.Outcomes(),
@@ -135,7 +134,11 @@ func (h *Handler) GetSecurityLog(w http.ResponseWriter, r *http.Request) {
 		data.NextURL = securityLogURL(eventFilter, outcomeFilter, usernameFilter, days, page+1)
 	}
 
-	h.render(w, r, "admin-security-log", data)
+	h.render(w, r, "admin-logs", logsData{
+		basePage: h.base(r, "logs"),
+		Tab:      logTabSignins,
+		Signin:   data,
+	})
 }
 
 // isSecurityLogDays reports whether n is one of the offered windows.
@@ -164,5 +167,5 @@ func securityLogURL(event, outcome, username string, days, page int) string {
 	if page > 1 {
 		q.Set("page", strconv.Itoa(page))
 	}
-	return "/admin/security-log?" + q.Encode()
+	return "/admin/logs?tab=" + logTabSignins + "&" + q.Encode()
 }

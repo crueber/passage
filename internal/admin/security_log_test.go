@@ -45,7 +45,7 @@ func TestGetSecurityLog_EmptyState(t *testing.T) {
 
 	body := rec.Body.String()
 	for _, needle := range []string{
-		"<title>Security Log — Passage Admin</title>",
+		"<title>Logs — Passage Admin</title>",
 		`id="event-filter"`,
 		`id="outcome-filter"`,
 		`id="days-filter"`,

@@ -24,7 +24,7 @@
   </div>
 
   <div class="grid gap-4 sm:grid-cols-3">
-    <div class="stat passage-stat">
+    <a href="/admin/users" class="stat card-hover block">
       <div class="flex items-center gap-3">
         <div class="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary">{{template "ic-users"}}</div>
         <div>
@@ -32,8 +32,8 @@
           <p class="stat-label">Users</p>
         </div>
       </div>
-    </div>
-    <div class="stat">
+    </a>
+    <a href="/admin/apps" class="stat card-hover block">
       <div class="flex items-center gap-3">
         <div class="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary">{{template "ic-apps"}}</div>
         <div>
@@ -41,17 +41,58 @@
           <p class="stat-label">Apps</p>
         </div>
       </div>
-    </div>
-    <div class="stat">
+    </a>
+    <a href="/admin/sessions" class="stat card-hover block">
       <div class="flex items-center gap-3">
         <div class="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary">{{template "ic-clock"}}</div>
         <div>
           <p class="stat-value">{{.SessionCount}}</p>
-          <p class="stat-label">Active Sessions</p>
+          <p class="stat-label">Active sessions</p>
         </div>
       </div>
-    </div>
+    </a>
   </div>
+
+  <section class="mt-8" aria-labelledby="recent-signins">
+    <div class="mb-3 flex flex-wrap items-end justify-between gap-2">
+      <div>
+        <h2 id="recent-signins" class="font-semibold text-ink">Recent sign-ins</h2>
+        <p class="page-sub">The last few authentication events.</p>
+      </div>
+      <a href="/admin/logs?tab=signins" class="btn btn-outline btn-sm">View all</a>
+    </div>
+
+    {{if .Recent}}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Event</th>
+            <th scope="col">User</th>
+            <th scope="col">IP</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Recent}}
+          <tr>
+            <td class="td-mono whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td><span class="badge {{if eq .Outcome "success"}}badge-green{{else if eq .Outcome "failure"}}badge-red{{else if eq .Outcome "throttled"}}badge-amber{{else}}badge-gray{{end}}">{{.Event}}</span></td>
+            <td class="font-medium">{{if .Username}}{{.Username}}{{else}}&mdash;{{end}}</td>
+            <td class="td-mono text-muted">{{if .IP}}{{.IP}}{{else}}&mdash;{{end}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty">
+      {{template "ic-shield"}}
+      <p class="empty-title">No sign-ins recorded yet</p>
+      <p class="empty-sub">Authentication events will appear here.</p>
+    </div>
+    {{end}}
+  </section>
 </main>
 {{template "admin-footer" .}}
 </body>
