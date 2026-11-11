@@ -222,6 +222,13 @@ func (h *Handler) resolveReturnDestination(r *http.Request, u *User, rd string) 
 	return "/", false
 }
 
+// providerButton is one upstream identity provider rendered as a sign-in
+// button on the login page.
+type providerButton struct {
+	Name  string
+	Label string
+}
+
 // loginData is the template data for the login page.
 type loginData struct {
 	Flash             *Flash
@@ -231,7 +238,25 @@ type loginData struct {
 	AllowPassword     bool
 	AllowPasskey      bool
 	AllowMagicLink    bool
+	AllowProviders    []providerButton
 	CSRFToken         string
+}
+
+// providerButtons returns one button per configured upstream provider, in
+// configuration order. A provider without a label is shown by its slug.
+func providerButtons(cfg *config.Config) []providerButton {
+	if cfg == nil || len(cfg.Auth.Providers) == 0 {
+		return nil
+	}
+	buttons := make([]providerButton, 0, len(cfg.Auth.Providers))
+	for _, p := range cfg.Auth.Providers {
+		label := p.Label
+		if label == "" {
+			label = p.Name
+		}
+		buttons = append(buttons, providerButton{Name: p.Name, Label: label})
+	}
+	return buttons
 }
 
 // registerData is the template data for the register page.
@@ -279,6 +304,7 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
+		AllowProviders:    providerButtons(h.cfg),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
@@ -710,6 +736,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		AllowPassword:     isAuthMethodEnabled(r.Context(), h.settings, SettingPasswordEnabled),
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
+		AllowProviders:    providerButtons(h.cfg),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
@@ -774,6 +801,10 @@ func flashFromCode(code string) *Flash {
 		return &Flash{Type: "error", Message: "This verification link has expired. Sign in to request a new one."}
 	case "verify-link-used":
 		return &Flash{Type: "error", Message: "This verification link has already been used."}
+	case "idp-failed":
+		return &Flash{Type: "error", Message: "Sign-in with the external provider failed. Please try again."}
+	case "idp-no-account":
+		return &Flash{Type: "error", Message: "No account is linked to that identity. Contact an administrator."}
 	default:
 		return nil
 	}

@@ -92,6 +92,7 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		AllowPassword     bool
 		AllowPasskey      bool
 		AllowMagicLink    bool
+		AllowProviders    []struct{ Name, Label string }
 		AllowRegistration bool
 	}{AllowPassword: true}
 

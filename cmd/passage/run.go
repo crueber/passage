@@ -32,6 +32,7 @@ import (
 	"github.com/crueber/passage/internal/db"
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/forwardauth"
+	"github.com/crueber/passage/internal/idp"
 	"github.com/crueber/passage/internal/metrics"
 	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/oauth"
@@ -432,6 +433,21 @@ func run() error {
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
 
+	// Upstream OIDC/OAuth identity providers. With no auth.providers configured
+	// the handler has no provider to resolve, so the two routes are inert and
+	// sign-in behaves exactly as before.
+	idpHandler := idp.NewHandler(
+		idp.NewStore(database),
+		userSvc,
+		appSvc,
+		sessionSvc,
+		settingsStore,
+		authRecorder,
+		idp.NewClient(nil),
+		cfg,
+		logger,
+	)
+
 	// Build forward-auth handler. It takes the user handler as its MFA policy
 	// gate, so "require MFA" cannot be bypassed by going to an upstream app,
 	// and the auth recorder so per-app policy denials reach the security log.
@@ -566,6 +582,9 @@ func run() error {
 		r.Get("/login/magic", userHandler.GetMagicLinkRequest)
 		r.Get("/login/magic/verify", userHandler.GetMagicLinkVerify)
 		r.With(ratelimit.Middleware(magicLinkLimiter)).Post("/login/magic", userHandler.PostMagicLinkRequest)
+		// Upstream identity providers. Both legs are GET; the flow is bound by
+		// a single-use state/nonce/PKCE cookie, not a CSRF token.
+		idpHandler.Routes(r)
 		// Setup endpoint — only active when no admin user exists.
 		// The setupManager is nil once an admin account has been created; the
 		// handlers check IsActive() on every request so the endpoint self-disables.

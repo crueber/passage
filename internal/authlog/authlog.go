@@ -48,6 +48,13 @@ const (
 	// rule that denied access (a short token such as "group" or "hours"); it
 	// never carries a credential or a response body.
 	EventAccessDenied = "access.denied"
+
+	// Upstream OIDC/OAuth identity providers. One event per sign-in path: an
+	// external sign-in records idp.login, never login.success. Detail names the
+	// configured provider slug (or a short failure reason), never a token,
+	// authorization code, or id_token claim.
+	EventIDPLogin   = "idp.login"
+	EventIDPFailure = "idp.failure"
 )
 
 // Outcomes describe how an event ended.
@@ -101,6 +108,8 @@ func Names() []string {
 		EventMFAReset,
 		EventAPIAuthFailure,
 		EventAccessDenied,
+		EventIDPLogin,
+		EventIDPFailure,
 	}
 }
 

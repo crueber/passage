@@ -44,6 +44,34 @@ auth:
   # methods overrides this value once saved.
   require_mfa: false
 
+  # Upstream OIDC/OAuth identity providers. Each entry adds a sign-in button to
+  # the login page and uses authorization-code flow with state, nonce, and PKCE
+  # (S256). The provider's id_token is verified against its JWKS (RS256 only),
+  # issuer, audience, expiry, and nonce.
+  #
+  # There is deliberately no PASSAGE_* environment override for this list: a
+  # list has no useful single-value env form. Configure it in this file.
+  #
+  # name:          unique URL slug ([a-z0-9][a-z0-9_-]*, max 64); used in
+  #                /login/oidc/<name>/start
+  # label:         button text (defaults to name)
+  # issuer:        absolute https URL serving /.well-known/openid-configuration
+  # client_id:     OAuth client id registered with the provider
+  # client_secret: OAuth client secret (client_secret_basic at the token endpoint)
+  # scopes:        defaults to [openid, email, profile]; must include openid
+  # auto_create:   create a local account on first sign-in. Linking by email
+  #                only happens when the provider asserts email_verified: true.
+  #                Subject to the global registration policy as well.
+  providers: []
+  # providers:
+  #   - name: "authentik"
+  #     label: "Authentik"
+  #     issuer: "https://auth.example.com/application/o/passage/"
+  #     client_id: "passage"
+  #     client_secret: "changeme"
+  #     scopes: ["openid", "email", "profile"]
+  #     auto_create: false
+
 security:
   # AES-256-GCM key for TOTP secrets at rest, as 64 hex characters or the
   # base64 encoding of 32 bytes (`openssl rand -hex 32`). Optional: when empty,

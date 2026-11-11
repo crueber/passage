@@ -64,6 +64,16 @@
     </a>
     {{end}}
 
+    {{if .AllowProviders}}
+    <div class="mt-2.5 space-y-2.5">
+      {{range .AllowProviders}}
+      <a href="/login/oidc/{{.Name}}/start{{if $.RedirectTo}}?rd={{$.RedirectTo | urlquery}}{{end}}" class="btn btn-outline w-full">
+        Sign in with {{.Label}}
+      </a>
+      {{end}}
+    </div>
+    {{end}}
+
     {{if .AllowRegistration}}
     <p class="auth-alt">
       New here? <a href="/register">Create an account</a>
