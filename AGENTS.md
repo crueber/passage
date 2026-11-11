@@ -56,7 +56,7 @@ passage/
       static/           # passage.css + themes.css (both generated), theme.js, htmx.min.js, passkey.js
       ui/               # input.css (Tailwind v4 source; rebuild with `make css`) + themes/<name>.css (plain CSS)
     testutil/           # NewTestDB(t) — in-memory SQLite with migrations, for tests
-  docs/                 # nginx/traefik config examples, security.md, forward-auth.md, theming.md, auth0-vs-passage.md
+  docs/                 # config examples + security.md, forward-auth.md, theming.md, idp.md, app-access-policies.md, admin-api.md, metrics.md, oauth-signing-key-rotation.md, auth0-vs-passage.md
   tools/                # tailwindcss standalone CLI binary (gitignored — fetch the v4.x release to rebuild CSS)
   Makefile              # css / build / vet / test targets
   Dockerfile            # multi-stage build; runtime mounts /data volume for SQLite

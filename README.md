@@ -170,15 +170,17 @@ smtp:
 
 auth:
   allow_registration: true  # allow users to self-register; togglable in admin UI at runtime
-  # Upstream OIDC providers (optional). Each appears as a button on the login page.
-  providers:
-    - name: "authentik"       # unique slug used in /login/oidc/{name}
-      label: "Authentik"
-      issuer: "https://auth.example.com/application/o/passage/"
-      client_id: "passage"
-      client_secret: "secret"
-      scopes: ["openid", "email", "profile"]
-      auto_create: false      # create a local account on first sign-in
+  # Upstream OIDC providers (optional, empty by default). One login button per
+  # entry; list form, so there is no env override.
+  providers: []
+  # providers:
+  #   - name: "authentik"     # unique slug used in /login/oidc/{name}
+  #     label: "Authentik"
+  #     issuer: "https://auth.example.com/application/o/passage/"
+  #     client_id: "passage"
+  #     client_secret: "secret"
+  #     scopes: ["openid", "email", "profile"]
+  #     auto_create: false    # create a local account on first sign-in
   bcrypt_cost: 12           # password hashing cost; 10–14 recommended
   max_login_failures: 5     # per-account lockout threshold (0 disables)
   lockout_minutes: 15       # how long a locked account stays locked
