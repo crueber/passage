@@ -1,0 +1,46 @@
+{{define "mfa_recovery_codes.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recovery codes — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body class="flex min-h-dvh flex-col">
+{{template "topnav-passkeys" .}}
+
+<main class="content w-full">
+  <div class="mx-auto max-w-3xl">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">{{if .Regenerated}}New recovery codes{{else}}Save your recovery codes{{end}}</h1>
+        <p class="page-sub">Each code signs you in once if your authenticator is unavailable.</p>
+      </div>
+    </div>
+    {{template "flash" .}}
+
+    <div class="note note-warn mb-5" role="alert">
+      These codes are shown once and cannot be retrieved later. Store them
+      somewhere safe and offline. Each code works a single time.
+    </div>
+
+    <section class="card p-5 sm:p-6" aria-labelledby="codes-heading">
+      <h2 id="codes-heading" class="font-semibold text-ink">Recovery codes</h2>
+      <ul id="mfa-codes" class="td-mono mt-4 grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
+        {{range .Codes}}<li>{{.}}</li>{{end}}
+      </ul>
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-outline btn-sm" data-copy="#mfa-codes">Copy all</button>
+        <a class="btn btn-primary btn-sm" href="/passkeys?flash={{if .Regenerated}}mfa-codes-regenerated{{else}}mfa-enabled{{end}}">Done</a>
+      </div>
+    </section>
+  </div>
+</main>
+
+{{template "app-footer" .}}
+</body>
+</html>
+{{end}}

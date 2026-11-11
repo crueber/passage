@@ -104,6 +104,20 @@
         <p class="help -mt-2">Requires SMTP to be configured.</p>
         {{end}}
 
+        <div>
+          <label class="checkbox" for="auth_require_mfa">
+            <input type="checkbox" id="auth_require_mfa" name="auth_require_mfa"
+                   {{if eq .AuthRequireMFA "true"}}checked{{end}}>
+            Require two-factor authentication
+          </label>
+          <p class="help">
+            Every user must enrol an authenticator app (TOTP) before they can use
+            Passage. Password sign-ins then ask for a code. Passkeys and magic
+            links are not affected. An administrator can reset a user's
+            two-factor authentication from the Users page.
+          </p>
+        </div>
+
         <div><button type="submit" class="btn btn-primary">Save authentication</button></div>
       </form>
     </section>

@@ -74,7 +74,7 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 	}
 
 	h := webauthn.NewHandler(wa, credStore, challenges, userStore, sessionSvc,
-		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil, nil)
+		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil, nil, nil)
 
 	return &handlerFixture{
 		db:           db,
@@ -536,6 +536,7 @@ func TestPostFinishRegistration_Name(t *testing.T) {
 				logger,
 				nil,
 				nil,
+				nil,
 			)
 
 			router := chi.NewRouter()
@@ -603,7 +604,7 @@ func TestGetBeginLogin_PasskeyDisabled(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	challenges := webauthn.NewChallengeStore()
 	h := webauthn.NewHandler(wa, f.credStore, challenges, f.userStore, f.sessionSvc,
-		f.cfg.Session.CookieName, f.cfg.Session.CookieSecure, tmpl, logger, disabledPasskeySettings{}, nil)
+		f.cfg.Session.CookieName, f.cfg.Session.CookieSecure, tmpl, logger, disabledPasskeySettings{}, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/login/passkey/begin", nil)
 	rec := httptest.NewRecorder()

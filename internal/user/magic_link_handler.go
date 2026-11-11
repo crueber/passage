@@ -195,6 +195,10 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 		rd = ""
 	}
 
+	// No second factor is requested here, deliberately: consuming the link
+	// proves control of the mailbox, which is the same "something you have"
+	// property a TOTP code provides. MFA enforcement lives in Handler.PostLogin,
+	// on the password flow only.
 	sessionToken, expiresAt, err := h.sessions.CreateSession(ctx, u.ID, h.appIDFromReturnTarget(ctx, rd), ip, ua)
 	if err != nil {
 		h.logger.Error("magic link: create session", "user_id", u.ID, "error", err)

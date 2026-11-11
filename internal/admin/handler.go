@@ -103,6 +103,22 @@ type credentialCounter interface {
 	CountByUser(ctx context.Context, userID string) (int, error)
 }
 
+// authEventRecorder records authentication events for the security log. The
+// admin MFA reset is recorded both as an audit event (who did what) and as an
+// auth event (it changes how that account signs in). Defined at the consumer
+// boundary; backed by *authlog.Recorder in run.go.
+type authEventRecorder interface {
+	Record(ctx context.Context, e authlog.Event)
+}
+
+// mfaAdmin is the admin-facing view of two-factor state: the user-list badge
+// and the recovery reset. Defined at the consumer boundary; backed by
+// *mfa.Service in run.go.
+type mfaAdmin interface {
+	ListEnabledIDs(ctx context.Context) ([]string, error)
+	Reset(ctx context.Context, userID string) error
+}
+
 // auditLogger is the minimal interface for recording admin audit events.
 // Defined at the consumer boundary.
 type auditLogger interface {
@@ -119,19 +135,21 @@ type loginThrottleAdmin interface {
 
 // Handler holds all admin HTTP handlers in one struct.
 type Handler struct {
-	userStore   userStore
-	userSvc     userServiceOps
-	sessions    sessionServiceOps
-	apps        appServiceOps
-	settings    SettingsStore
-	credentials credentialCounter
-	audit       auditLogger
-	authEvents  authLogReader
-	throttle    loginThrottleAdmin
-	mailer      email.Sender
-	tmpl        *template.Template
-	cfg         *config.Config
-	logger      *slog.Logger
+	userStore    userStore
+	userSvc      userServiceOps
+	sessions     sessionServiceOps
+	apps         appServiceOps
+	settings     SettingsStore
+	credentials  credentialCounter
+	mfa          mfaAdmin
+	audit        auditLogger
+	authLog      authLogReader
+	authRecorder authEventRecorder
+	throttle     loginThrottleAdmin
+	mailer       email.Sender
+	tmpl         *template.Template
+	cfg          *config.Config
+	logger       *slog.Logger
 }
 
 // NewHandler creates a new admin Handler with all dependencies wired.
@@ -142,28 +160,32 @@ func NewHandler(
 	apps appServiceOps,
 	settings SettingsStore,
 	credentials credentialCounter,
+	mfaSvc mfaAdmin,
 	mailer email.Sender,
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
 	audit auditLogger,
-	authEvents authLogReader,
+	authLog authLogReader,
+	authRecorder authEventRecorder,
 	throttle loginThrottleAdmin,
 ) *Handler {
 	return &Handler{
-		userStore:   userStore,
-		userSvc:     userSvc,
-		sessions:    sessions,
-		apps:        apps,
-		settings:    settings,
-		credentials: credentials,
-		audit:       audit,
-		authEvents:  authEvents,
-		throttle:    throttle,
-		mailer:      mailer,
-		tmpl:        tmpl,
-		cfg:         cfg,
-		logger:      logger,
+		userStore:    userStore,
+		userSvc:      userSvc,
+		sessions:     sessions,
+		apps:         apps,
+		settings:     settings,
+		credentials:  credentials,
+		mfa:          mfaSvc,
+		audit:        audit,
+		authLog:      authLog,
+		authRecorder: authRecorder,
+		throttle:     throttle,
+		mailer:       mailer,
+		tmpl:         tmpl,
+		cfg:          cfg,
+		logger:       logger,
 	}
 }
 
@@ -182,6 +204,7 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/users/{id}/delete", h.PostDeleteUser)
 	r.Post("/users/{id}/reset-password", h.PostResetUserPassword)
 	r.Post("/users/{id}/unlock", h.PostUnlockUser)
+	r.Post("/users/{id}/reset-mfa", h.PostResetMFA)
 	r.Post("/users/{id}/sessions/revoke-all", h.PostRevokeAllUserSessions)
 	r.Get("/users/{id}/apps", h.GetUserApps)
 	r.Post("/users/{id}/apps", h.PostUserApps)
@@ -273,6 +296,8 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "Password reset email sent."}
 	case "unlocked":
 		return &Flash{Type: "success", Message: "Account unlocked."}
+	case "mfa-reset":
+		return &Flash{Type: "success", Message: "Two-factor authentication reset. The user can sign in with their password and enrol again."}
 	case "access-granted":
 		return &Flash{Type: "success", Message: "Access granted."}
 	case "access-revoked":
@@ -345,7 +370,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// A failure to read recent events must not take down the dashboard; the
 	// counts are still useful on their own.
-	recent, err := h.authEvents.List(ctx, authlog.Filter{Limit: 8})
+	recent, err := h.authLog.List(ctx, authlog.Filter{Limit: 8})
 	if err != nil {
 		h.logger.Warn("admin: dashboard recent events", "error", err)
 		recent = nil
@@ -366,12 +391,20 @@ type usersData struct {
 	basePage
 	Users  []*user.User
 	locked map[string]bool // lower-cased username -> currently locked
+	// mfaEnabled is user ID -> has a completed TOTP enrollment. Keyed by ID
+	// because usernames are user-editable and IDs are not.
+	mfaEnabled map[string]bool
 }
 
 // IsLocked reports whether username has an active login lock. Templates cannot
 // lower-case, so the lookup normalises here.
 func (d usersData) IsLocked(username string) bool {
 	return d.locked[strings.ToLower(strings.TrimSpace(username))]
+}
+
+// MFAEnabled reports whether the user has two-factor authentication enabled.
+func (d usersData) MFAEnabled(userID string) bool {
+	return d.mfaEnabled[userID]
 }
 
 // GetUsers renders the user list page.
@@ -398,15 +431,30 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// One query for the whole page. A failure here must not hide the user
+	// list: render without MFA badges and log.
+	mfaEnabled := make(map[string]bool)
+	if h.mfa != nil {
+		ids, err := h.mfa.ListEnabledIDs(ctx)
+		if err != nil {
+			h.logger.Warn("admin: list users with MFA", "error", err)
+		} else {
+			for _, id := range ids {
+				mfaEnabled[id] = true
+			}
+		}
+	}
+
 	var flash *Flash
 	if code := r.URL.Query().Get("flash"); code != "" {
 		flash = flashFromQuery(code)
 	}
 
 	h.render(w, r, "admin-users", usersData{
-		basePage: h.baseFlash(r, "users", flash),
-		Users:    users,
-		locked:   locked,
+		basePage:   h.baseFlash(r, "users", flash),
+		Users:      users,
+		locked:     locked,
+		mfaEnabled: mfaEnabled,
 	})
 }
 
@@ -677,6 +725,50 @@ func (h *Handler) PostUnlockUser(w http.ResponseWriter, r *http.Request) {
 
 	h.logAudit(r, AuditActionUserUnlock, "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users?flash=unlocked", http.StatusFound)
+}
+
+// PostResetMFA removes a user's two-factor authentication and recovery codes so
+// a second admin can recover an account whose device is lost. It is the
+// supported alternative to deleting rows from SQLite by hand.
+//
+// Deliberately not self-service: a signed-in user disables their own MFA from
+// the Security page, with the current password.
+func (h *Handler) PostResetMFA(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	u, err := h.userStore.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			http.Redirect(w, r, "/admin/users", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get user for MFA reset", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if h.mfa != nil {
+		if err := h.mfa.Reset(r.Context(), u.ID); err != nil {
+			h.logger.Error("admin: reset MFA", "user_id", u.ID, "error", err)
+			http.Redirect(w, r, "/admin/users?flash=error", http.StatusFound)
+			return
+		}
+	}
+
+	if h.authRecorder != nil {
+		h.authRecorder.Record(r.Context(), authlog.Event{
+			Event:     authlog.EventMFAReset,
+			Outcome:   authlog.OutcomeSuccess,
+			UserID:    u.ID,
+			Username:  u.Username,
+			IP:        authlog.ClientIP(r),
+			UserAgent: r.UserAgent(),
+			Detail:    "admin reset",
+		})
+	}
+
+	h.logAudit(r, AuditActionUserMFAReset, "user", u.ID, u.Username)
+	http.Redirect(w, r, "/admin/users?flash=mfa-reset", http.StatusFound)
 }
 
 // PostRevokeAllUserSessions revokes all active sessions for a user.
@@ -1630,7 +1722,10 @@ type settingsData struct {
 	AuthPasswordEnabled  string
 	AuthPasskeyEnabled   string
 	AuthMagicLinkEnabled string
-	SMTPConfigured       bool
+	// AuthRequireMFA reflects the effective policy: the settings-store value
+	// when present, otherwise the auth.require_mfa config/env default.
+	AuthRequireMFA string
+	SMTPConfigured bool
 }
 
 // GetSettings renders the settings page.
@@ -1666,6 +1761,12 @@ func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base
 	if authMagicLink == "" {
 		authMagicLink = "false"
 	}
+	// The config default is the checkbox state until an operator saves the
+	// form; from then on the stored value is authoritative.
+	authRequireMFA := all["auth_require_mfa"]
+	if authRequireMFA == "" {
+		authRequireMFA = strconv.FormatBool(h.cfg.Auth.RequireMFA)
+	}
 	return settingsData{
 		basePage:             base,
 		AllowRegistration:    all["allow_registration"],
@@ -1675,6 +1776,7 @@ func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base
 		AuthPasswordEnabled:  authPassword,
 		AuthPasskeyEnabled:   authPasskey,
 		AuthMagicLinkEnabled: authMagicLink,
+		AuthRequireMFA:       authRequireMFA,
 		SMTPConfigured:       h.cfg.SMTP.Host != "",
 	}
 }
@@ -1766,6 +1868,10 @@ func (h *Handler) PostAuthMethodSettings(w http.ResponseWriter, r *http.Request)
 	if r.FormValue("auth_magic_link_enabled") == "on" {
 		authMagicLinkEnabled = "true"
 	}
+	authRequireMFA := "false"
+	if r.FormValue("auth_require_mfa") == "on" {
+		authRequireMFA = "true"
+	}
 
 	// Lockout guard: at least one auth method must remain enabled.
 	if authPasswordEnabled == "false" && authPasskeyEnabled == "false" && authMagicLinkEnabled == "false" {
@@ -1791,6 +1897,11 @@ func (h *Handler) PostAuthMethodSettings(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.settings.Set(ctx, "auth_magic_link_enabled", authMagicLinkEnabled); err != nil {
 		h.logger.Error("admin: set auth_magic_link_enabled", "error", err)
+		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
+		return
+	}
+	if err := h.settings.Set(ctx, "auth_require_mfa", authRequireMFA); err != nil {
+		h.logger.Error("admin: set auth_require_mfa", "error", err)
 		h.renderSettingsWithError(w, r, "Failed to save settings. Please try again.")
 		return
 	}

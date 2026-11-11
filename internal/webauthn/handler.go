@@ -18,6 +18,7 @@ import (
 
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/csrf"
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
 )
@@ -49,6 +50,13 @@ type passkeySettingsReader interface {
 	Get(ctx context.Context, key string) (string, error)
 }
 
+// mfaStatusReader reports the current user's second-factor state, so the
+// Security page can render the TOTP section. Defined at the consumer boundary;
+// backed by *mfa.Service in run.go.
+type mfaStatusReader interface {
+	Status(ctx context.Context, userID string) (mfa.Status, error)
+}
+
 // authEventRecorder records passkey authentication events for the admin
 // security log. Defined at the consumer boundary; backed by *authlog.Recorder.
 type authEventRecorder interface {
@@ -67,6 +75,7 @@ type Handler struct {
 	logger     *slog.Logger
 	settings   passkeySettingsReader
 	authEvents authEventRecorder
+	mfa        mfaStatusReader
 }
 
 // sessionConfig provides cookie configuration for setting the session after passkey login.
@@ -88,6 +97,7 @@ func NewHandler(
 	logger *slog.Logger,
 	settings passkeySettingsReader,
 	authEvents authEventRecorder,
+	mfaStatus mfaStatusReader,
 ) *Handler {
 	return &Handler{
 		wa:         wa,
@@ -103,6 +113,7 @@ func NewHandler(
 		logger:     logger,
 		settings:   settings,
 		authEvents: authEvents,
+		mfa:        mfaStatus,
 	}
 }
 
@@ -154,6 +165,13 @@ type passkeysData struct {
 	Credentials []*Credential
 	Flash       *user.Flash
 	CSRFToken   string
+
+	// Two-factor state, read from the MFA service. The page renders the TOTP
+	// section from these three fields; the forms POST to /mfa/* (owned by the
+	// user package), so this page never needs the MFA store directly.
+	MFAEnabled        bool
+	MFAEnabledAt      time.Time
+	MFARemainingCodes int
 }
 
 // GetPasskeys renders the passkey management page.
@@ -177,13 +195,41 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 		flash = &user.Flash{Type: "success", Message: "Passkey removed."}
 	case "error":
 		flash = &user.Flash{Type: "error", Message: "An error occurred."}
+	case "mfa-enabled":
+		flash = &user.Flash{Type: "success", Message: "Two-factor authentication is on. Store your recovery codes somewhere safe."}
+	case "mfa-disabled":
+		flash = &user.Flash{Type: "success", Message: "Two-factor authentication is off."}
+	case "mfa-codes-regenerated":
+		flash = &user.Flash{Type: "success", Message: "New recovery codes generated. All old codes no longer work."}
+	case "mfa-on":
+		flash = &user.Flash{Type: "info", Message: "Two-factor authentication is already enabled."}
+	case "mfa-required":
+		flash = &user.Flash{Type: "info", Message: "An administrator requires two-factor authentication."}
+	case "mfa-password-invalid":
+		flash = &user.Flash{Type: "error", Message: "Your password was incorrect. Nothing was changed."}
+	}
+
+	// A failure to read MFA state must not take down the Security page: render
+	// it as "not enabled" and log. The enrollment flow re-checks server-side, so
+	// a stale badge cannot turn into a broken credential.
+	var status mfa.Status
+	if h.mfa != nil {
+		st, err := h.mfa.Status(r.Context(), u.ID)
+		if err != nil {
+			h.logger.Warn("webauthn: read mfa status", "user_id", u.ID, "error", err)
+		} else {
+			status = st
+		}
 	}
 
 	h.render(w, r, "passkeys.html", passkeysData{
-		User:        u,
-		Credentials: creds,
-		Flash:       flash,
-		CSRFToken:   csrf.TokenFromContext(r.Context()),
+		User:              u,
+		Credentials:       creds,
+		Flash:             flash,
+		CSRFToken:         csrf.TokenFromContext(r.Context()),
+		MFAEnabled:        status.Enabled,
+		MFAEnabledAt:      status.EnabledAt,
+		MFARemainingCodes: status.RemainingCodes,
 	})
 }
 
@@ -507,6 +553,11 @@ func (h *Handler) PostFinishLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a Passage session for the authenticated user.
+	//
+	// No second factor is requested here, deliberately: a WebAuthn assertion
+	// already proves possession of the authenticator, so a passkey sign-in is
+	// itself two factors (device + gesture/biometric). MFA enforcement lives in
+	// user.Handler.PostLogin, on the password flow only.
 	//
 	// appID is always nil here: this endpoint is a JSON call from the login
 	// page and receives no return target, so the app the user came from is

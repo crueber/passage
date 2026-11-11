@@ -65,6 +65,7 @@ func newPasskeyLoginHandler(t *testing.T, f *handlerFixture, stub passkeyLoginSt
 		logger,
 		nil,
 		authlog.NewRecorder(authStore, nil, logger),
+		nil,
 	)
 	return h, authStore
 }

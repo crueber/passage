@@ -86,7 +86,7 @@ func (h *Handler) GetSecurityLog(w http.ResponseWriter, r *http.Request) {
 		Since:    time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour),
 	}
 
-	total, err := h.authEvents.Count(ctx, filter)
+	total, err := h.authLog.Count(ctx, filter)
 	if err != nil {
 		h.logger.Error("admin: count auth events", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -106,7 +106,7 @@ func (h *Handler) GetSecurityLog(w http.ResponseWriter, r *http.Request) {
 	filter.Limit = securityLogPageSize
 	filter.Offset = (page - 1) * securityLogPageSize
 
-	events, err := h.authEvents.List(ctx, filter)
+	events, err := h.authLog.List(ctx, filter)
 	if err != nil {
 		h.logger.Error("admin: list auth events", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
