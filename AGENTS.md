@@ -45,6 +45,10 @@ passage/
     oauth/              # OAuth 2.0 / OIDC provider — authorize, token, userinfo, JWKS, PKCE
     webauthn/           # WebAuthn registration/authentication ceremonies + SQLite credential/challenge stores
     mfa/                # TOTP (RFC 6238) + single-use recovery codes, pending login challenges, AES-256-GCM secret encryption (cipher.go/key.go)
+    idp/                # upstream OIDC providers: discovery, PKCE, id_token verification, account links
+    policy/             # per-app access policy evaluation (group/role/CIDR/admin-only/hours) — pure
+    adminapi/           # read-only /api/v1 + API tokens (SHA-256 at rest)
+    metrics/            # Prometheus registry, text encoder, HTTP instrumentation (no deps)
     csrf/               # CSRF middleware: ProtectAnonymous (double-submit) + ProtectAuthenticated (session-bound HMAC)
     ratelimit/          # in-memory sliding-window limiter + chi Middleware
     web/
@@ -91,6 +95,8 @@ All wiring lives in `cmd/passage/run.go` — construction order matters. Key fac
 - **Dashboard handler**: `/` (the "My Apps" page) is served by `user.Handler.GetDashboard` — not a run.go closure — so it can be regression-tested (see `internal/user/handler_test.go`). `user.NewHandler` takes an `AppLister` (satisfied by `*app.Service`) and a `userContextReader` (wired to `session.UserFromContext`) at the consumer boundary, because `internal/session` imports `internal/user`.
 - **First-run bootstrap**: if no admin user exists, `user.SetupTokenManager` generates a one-time token logged to stdout, valid 1 hour. `/setup` self-disables (`IsActive()` checked per request) once any admin exists.
 - **OAuth signing key**: one RSA key stored in SQLite (`oauthStore.GetOrCreateRSAKey`), served via `/.well-known/jwks.json`.
+- **Per-app access policies**: `internal/policy` evaluates group/role/CIDR/admin-only/hours; enforced in forward-auth (403) and at OAuth authorize (`access_denied`), never on the dashboard. Empty fields mean no restriction.
+- **Upstream IdPs**: `auth.providers` is a YAML list; sign-in is state+nonce+PKCE, linked by (provider, subject) then verified email, optionally auto-created. Like passkeys and magic links, it never gets an MFA step.
 - **Single template set**: `web.Parse` parses `templates/*.html` and `templates/admin/*.html` into one `*template.Template` — user and admin pages share one `{{define}}` namespace. The `csrfField` template function must be provided in the `FuncMap`.
 
 ## Routing & Middleware (chi)
@@ -101,7 +107,9 @@ Route groups in `run.go`; when adding routes, pick the right group:
 |---|---|---|
 | Global | `RequestID`, `RealIP`, `Logger`, `Recoverer`, `web.SecurityHeaders()` | everything |
 | Public JSON | none | `/healthz`, passkey auth routes, `/login/mfa/passkey/*` (a passkey completing a pending second factor), `/.well-known/*`, `/oauth/*` |
-| Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/login/mfa`, `/register`, `/reset`, `/login/magic`, `/setup` |
+| Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/login/mfa`, `/register`, `/reset`, `/login/magic`, `/login/oidc/*`, `/setup` |
+| Metrics | none (optional bearer token) | `/metrics` — `metrics.enabled=false` answers 404 |
+| API | bearer token (`adminapi.RequireToken`) + limiter | `/api/v1/*` — read-only, no session or CSRF |
 | Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, `/sessions` (+ revoke), `/mfa/*` + Security page (ungated), passkey profile routes |
 | Behind the "require MFA" gate | `user.RequireMFA` inside the session group | app routes and `/admin/*` when `auth_require_mfa` is on |
 | Admin | `admin.RequireAdmin` + `csrf.ProtectAuthenticated` | `/admin/*` |

@@ -46,7 +46,11 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **Per-account lockout** — after N invalid passwords the account is locked for a configurable window; an admin can unlock it, and the same counter bounds second-factor guessing
 - **Per-app access control** — grant or revoke each user's access to each application independently, with app-scoped roles and groups
 - **Self-service sessions** — users see their devices, can revoke one or sign out everywhere; optional idle timeout
+- **Upstream identity providers** — sign in with an existing OIDC provider (Authentik, Keycloak, Google, …) and link it to a local account
+- **Per-app access policies** — require an app group or role, restrict by CIDR or time of day, or make an app admin-only
 - **Authentication log** — every sign-in, failure, lockout, passkey and magic-link use, MFA and OAuth event, filterable in the admin UI with 90-day retention
+- **Read-only admin API** — `/api/v1` exposes users, apps, sessions and the audit log to scripts, authenticated with revocable API tokens
+- **Prometheus metrics** — `/metrics` with authentication, session and HTTP counters plus instance gauges (optional bearer token)
 - **Security webhook** — POST every authentication event as JSON, optionally HMAC-signed
 - **Admin web UI** — manage users, apps, sessions, settings and logs without touching config files
 - **Email** — optional self-registration with address verification, password reset, and magic-link sign-in
@@ -164,6 +168,15 @@ smtp:
 
 auth:
   allow_registration: true  # allow users to self-register; togglable in admin UI at runtime
+  # Upstream OIDC providers (optional). Each appears as a button on the login page.
+  providers:
+    - name: "authentik"       # unique slug used in /login/oidc/{name}
+      label: "Authentik"
+      issuer: "https://auth.example.com/application/o/passage/"
+      client_id: "passage"
+      client_secret: "secret"
+      scopes: ["openid", "email", "profile"]
+      auto_create: false      # create a local account on first sign-in
   bcrypt_cost: 12           # password hashing cost; 10–14 recommended
   max_login_failures: 5     # per-account lockout threshold (0 disables)
   lockout_minutes: 15       # how long a locked account stays locked
@@ -175,6 +188,10 @@ security:
   webhook_url: ""           # POST every authentication event here as JSON (empty = off)
   webhook_secret: ""        # optional; signs the body with HMAC-SHA256 (X-Passage-Signature)
   webhook_timeout_seconds: 5
+
+metrics:
+  enabled: true             # GET /metrics (404 when false)
+  token: ""                 # optional: require Authorization: Bearer <token>
 
 ui:
   theme: "slate"            # slate | nord | gruvbox | solarized | catppuccin |
@@ -227,6 +244,8 @@ Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → 
 | `PASSAGE_SECURITY_WEBHOOK_SECRET` | `security.webhook_secret` |
 | `PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS` | `security.webhook_timeout_seconds` |
 | `PASSAGE_UI_THEME` | `ui.theme` |
+| `PASSAGE_METRICS_ENABLED` | `metrics.enabled` |
+| `PASSAGE_METRICS_TOKEN` | `metrics.token` |
 | `PASSAGE_LOG_LEVEL` | `log.level` |
 | `PASSAGE_LOG_FORMAT` | `log.format` |
 | `PASSAGE_CSRF_KEY` | `csrf.key` — optional CSRF signing secret (64+ hex chars); strengthens CSRF protection by binding tokens to a server-side secret |
