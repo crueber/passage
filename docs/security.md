@@ -134,7 +134,99 @@ ntfy does not accept this payload as-is, so point `webhook_url` at a small relay
 
 ---
 
-## Section 5 — Operational Security Checklist
+## Section 5 — Two-Factor Authentication
+
+Passage supports time-based one-time passwords (TOTP, RFC 6238 with SHA-1,
+6 digits, 30-second steps, ±1 step of clock skew) plus single-use recovery
+codes. Anything that produces an `otpauth://` URI works — 1Password, Bitwarden,
+Aegis, Google Authenticator, and so on.
+
+### Where it applies
+
+Enforcement is on the **password flow only**. After a correct password, an
+account with a completed enrollment gets a pending challenge and no session:
+the browser is sent to `/login/mfa`, and a session is created only after a TOTP
+or recovery code verifies.
+
+Passkeys and magic links deliberately do **not** get a second step:
+
+| Flow | Why no second factor |
+|---|---|
+| Passkey (WebAuthn) | The assertion already proves possession of the authenticator, which is itself "something you have" plus a local gesture/biometric. |
+| Magic link | Clicking the link proves control of the mailbox that received it. |
+
+### Storage
+
+| Value | At rest |
+|---|---|
+| TOTP secret | `user_mfa.secret`, base32 (no padding). **Not encrypted** — the SQLite file is the trust boundary (see the checklist below). |
+| Recovery codes | `user_mfa_recovery_codes.hash`, hex SHA-256 of the normalised code. The plaintext exists once, in the response that issues it. |
+| Pending challenge | `mfa_challenges` row (32 random bytes, hex, 5-minute expiry) named by an HttpOnly `passage_mfa` cookie. It is **not** a session: `RequireSession` never reads it and it grants nothing until a factor verifies. |
+
+No TOTP code, secret, or recovery code is ever written to a log, an
+authentication event, or the security webhook. Events name the method
+(`mfa.success` with detail `totp` or `recovery`) and nothing more.
+
+### Single use
+
+- A TOTP step is accepted only once. The accepted step is persisted in
+  `user_mfa.last_step` with a conditional `UPDATE … WHERE last_step < ?`, so a
+  replayed code — and any code from an earlier window, including the one used to
+  enroll — fails even under concurrent requests.
+- A recovery code is claimed with `UPDATE … WHERE used_at IS NULL` and the
+  rows-affected count is checked, so two racing submissions cannot both win.
+- The pending challenge row is deleted as part of completing the sign-in. If the
+  delete fails, no session is created.
+
+### Requiring MFA instance-wide
+
+Turn on **Settings → Authentication methods → Require two-factor
+authentication**, or set `auth.require_mfa: true` / `PASSAGE_AUTH_REQUIRE_MFA=true`
+as the default (the saved setting wins). A signed-in user without a completed
+enrollment is redirected to `/mfa/setup` from the app and admin pages; the
+enrollment page, the Security page, sign-out, and static assets stay reachable
+so the gate can always be satisfied.
+
+If the MFA lookup itself fails (a database problem), the gate fails **open**
+with a WARN log rather than locking every user out of an authentication proxy.
+The policy applies again on the next request.
+
+### Lockout and recovery
+
+- **Self-service:** disable MFA or regenerate recovery codes from the Security
+  page. Both require the current password.
+- **Admin:** the Users page shows an `MFA` badge and a **Reset MFA** button,
+  which deletes the credential and every recovery code for that user and writes
+  a `user.mfa_reset` audit event.
+- **Last resort, directly in SQLite** (stop Passage first, or accept a brief
+  write lock):
+
+  ```sql
+  DELETE FROM user_mfa WHERE user_id = '<user id>';
+  DELETE FROM user_mfa_recovery_codes WHERE user_id = '<user id>';
+  DELETE FROM mfa_challenges WHERE user_id = '<user id>';
+  ```
+
+  Deleting only the `user_mfa` row is enough to stop the second factor being
+  enforced; the other two are stale leftovers that the next enrollment replaces.
+
+### Residual risks
+
+1. **The TOTP secret is not encrypted at rest.** Anyone who can read
+   `passage.db` can generate valid codes. Restrict the file to mode 0600 and
+   treat a copy of it as a credential.
+2. **TOTP is phishable in real time.** A proxy that relays a code as it is typed
+   defeats it. Passkeys are the phishing-resistant option and are unaffected by
+   this design.
+3. **`/login/mfa` is rate-limited per client address**, using the same limiter
+   as `/login`. It is not per account: a distributed attacker is bounded only by
+   the six-digit space and the five-minute challenge lifetime.
+4. **Recovery codes are bearer secrets.** They are shown once and stored hashed;
+   a user who loses both the device and the codes needs an admin reset.
+
+---
+
+## Section 6 — Operational Security Checklist
 
 | Item | Requirement |
 |---|---|
@@ -145,6 +237,7 @@ ntfy does not accept this payload as-is, so point `webhook_url` at a small relay
 | Admin credentials | The initial admin account should use a strong passphrase. Add a passkey (WebAuthn credential) as a second factor. |
 | CSRF key | `PASSAGE_CSRF_KEY` should be set to a long random value in production (e.g. `openssl rand -hex 32`). If left unset, Passage will still start but the anonymous CSRF protection falls back to cookie-only signing, which provides weaker defence against subdomain attacks. |
 | Security webhook | If `PASSAGE_SECURITY_WEBHOOK_URL` is set, also set `PASSAGE_SECURITY_WEBHOOK_SECRET` and verify `X-Passage-Signature` at the receiver; otherwise anything that can reach the endpoint can forge events. |
+| Two-factor authentication | Enable `require_mfa` where the threat model warrants it, and keep the database file at mode 0600 — TOTP secrets are stored unencrypted in it. An admin can reset a lost factor from the Users page. |
 | HTTPS | TLS must be terminated at the reverse proxy. WebAuthn will not work without HTTPS. |
 | Log retention | Access logs contain request paths, including `/reset/{token}` paths. Implement appropriate log retention and access controls. |
 | `govulncheck` | Run `govulncheck ./...` periodically and after Go toolchain updates. |
