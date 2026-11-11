@@ -40,6 +40,7 @@ Passage also supports the **forward-auth pattern** for reverse proxies (Nginx, T
 The single biggest, most important feature: **simplicity**. Passage is built for homelabs, not enterprise deployment. It is not meant to have dozens of auth scopes, brandable screens, or complex policy engines. It is the front door — one place to log in, one place to manage who has access to what.
 
 - **OAuth 2.0 / OIDC Provider** — authorization code flow with PKCE (S256), rotating refresh tokens, discovery, JWKS, userinfo, RP-initiated logout, and token revocation/introspection
+- **JWT access tokens** — signed with the same key as id_tokens, with per-app scope and audience (RFC 8707) registries and a revocation list, so downstream APIs can verify them offline
 - **Username + password login** — bcrypt-hashed credentials stored in SQLite (cost configurable, default 12)
 - **Passkeys (WebAuthn)** — register a platform authenticator or hardware key and sign in without a password; a passkey can also complete a password sign-in as its second factor
 - **Two-factor authentication** — TOTP authenticator apps (enrol by QR code) plus single-use recovery codes; enforced on password sign-in, and optionally mandatory for every account
