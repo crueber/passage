@@ -35,6 +35,8 @@ func TestLoad_Defaults(t *testing.T) {
 		{"SMTP.TLS", cfg.SMTP.TLS, "starttls"},
 		{"Auth.AllowRegistration", cfg.Auth.AllowRegistration, true},
 		{"Auth.BcryptCost", cfg.Auth.BcryptCost, 12},
+		{"Auth.MaxLoginFailures", cfg.Auth.MaxLoginFailures, 5},
+		{"Auth.LockoutMinutes", cfg.Auth.LockoutMinutes, 15},
 		{"Log.Level", cfg.Log.Level, "info"},
 		{"Log.Format", cfg.Log.Format, "json"},
 		{"UI.Theme", cfg.UI.Theme, "slate"},
@@ -63,6 +65,8 @@ func TestLoad_EnvOverride(t *testing.T) {
 		"PASSAGE_LOG_LEVEL":                    "debug",
 		"PASSAGE_LOG_FORMAT":                   "text",
 		"PASSAGE_AUTH_BCRYPT_COST":             "14",
+		"PASSAGE_AUTH_MAX_LOGIN_FAILURES":      "7",
+		"PASSAGE_AUTH_LOCKOUT_MINUTES":         "30",
 		"PASSAGE_SESSION_COOKIE_SECURE":        "false",
 		"PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES": "45",
 	}
@@ -88,6 +92,8 @@ func TestLoad_EnvOverride(t *testing.T) {
 		{"Log.Level", cfg.Log.Level, "debug"},
 		{"Log.Format", cfg.Log.Format, "text"},
 		{"Auth.BcryptCost", cfg.Auth.BcryptCost, 14},
+		{"Auth.MaxLoginFailures", cfg.Auth.MaxLoginFailures, 7},
+		{"Auth.LockoutMinutes", cfg.Auth.LockoutMinutes, 30},
 		{"Session.CookieSecure", cfg.Session.CookieSecure, false},
 		{"Session.IdleTimeoutMinutes", cfg.Session.IdleTimeoutMinutes, 45},
 	}
@@ -216,6 +222,24 @@ func TestValidate(t *testing.T) {
 			name:    "bcrypt_cost above 31 fails",
 			mutate:  func(c *config.Config) { c.Auth.BcryptCost = 32 },
 			wantErr: true,
+		},
+		{
+			name:    "max_login_failures negative fails",
+			mutate:  func(c *config.Config) { c.Auth.MaxLoginFailures = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "lockout_minutes negative fails",
+			mutate:  func(c *config.Config) { c.Auth.LockoutMinutes = -1 },
+			wantErr: true,
+		},
+		{
+			name: "zero throttle values disable the feature and pass validation",
+			mutate: func(c *config.Config) {
+				c.Auth.MaxLoginFailures = 0
+				c.Auth.LockoutMinutes = 0
+			},
+			wantErr: false,
 		},
 		{
 			name:    "port zero fails",

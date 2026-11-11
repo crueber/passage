@@ -249,7 +249,7 @@ func newMagicLinkHandlerFixture(t *testing.T) (*user.Handler, *handlerFixture) {
 	appStore := app.NewStore(db)
 	authStore := authlog.NewStore(db)
 	authRecorder := authlog.NewRecorder(authStore, nil, logger)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, magicLinkEnabledSettings{}, noopSender{}, session.UserFromContext, authRecorder, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, magicLinkEnabledSettings{}, noopSender{}, session.UserFromContext, authRecorder, nil, tmpl, cfg, logger)
 
 	f := &handlerFixture{
 		db:        db,
@@ -447,7 +447,7 @@ func TestHandler_GetMagicLinkVerify(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 		// disabledSettings returns "false" for every key, disabling all auth methods.
 		appStore := app.NewStore(db)
-		h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+		h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token=anytoken", nil)
 		rec := httptest.NewRecorder()

@@ -30,6 +30,13 @@ smtp:
 auth:
   allow_registration: true
   bcrypt_cost: 12
+  # Per-account password-login throttling. After this many consecutive invalid
+  # passwords the account is locked for lockout_minutes. Set either value to 0
+  # to disable. Locks expire automatically; an admin can unlock early from the
+  # Users page. Only password login participates — passkeys and magic links are
+  # unaffected.
+  max_login_failures: 5
+  lockout_minutes: 15
 
 security:
   # POST every authentication event to this endpoint as JSON.

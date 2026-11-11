@@ -54,9 +54,11 @@ Downstream apps receive identity via headers injected by the reverse proxy after
 
 The WebAuthn API is disabled by browsers on non-HTTPS origins (except `localhost`). Passage must be served over HTTPS in production for passkeys to work.
 
-### 2. Rate Limiting Is In-Memory
+### 2. Per-IP Rate Limiting Is In-Memory
 
-The rate limiter state lives in the process heap and resets on restart. This is acceptable for single-instance home-lab deployments, but burst attacks can succeed immediately after a process restart. Persistent rate limiting (e.g. Redis-backed) would be required for multi-instance or adversarial deployments.
+The sliding-window IP limiters live in the process heap and reset on restart. This is acceptable for single-instance home-lab deployments, but burst attacks can succeed immediately after a process restart. Persistent rate limiting (e.g. Redis-backed) would be required for multi-instance or adversarial deployments.
+
+Per-account password-login throttling is separate and **is** persistent: `login_throttle` is a SQLite table keyed by the lowercased username, so a lockout survives a restart. Locks expire automatically (`auth.lockout_minutes`), and an admin can clear one early from the Users page.
 
 ### 3. `SameSite: Lax` Is Not Full CSRF Protection
 

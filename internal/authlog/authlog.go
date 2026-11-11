@@ -13,6 +13,7 @@ import "time"
 const (
 	EventLoginSuccess      = "login.success"
 	EventLoginFailure      = "login.failure"
+	EventLoginThrottled    = "login.throttled"
 	EventLogout            = "logout"
 	EventPasskeyLogin      = "passkey.login"
 	EventPasskeyFailure    = "passkey.failure"
@@ -56,6 +57,7 @@ func Names() []string {
 	return []string{
 		EventLoginSuccess,
 		EventLoginFailure,
+		EventLoginThrottled,
 		EventLogout,
 		EventPasskeyLogin,
 		EventPasskeyFailure,

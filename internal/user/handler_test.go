@@ -17,6 +17,7 @@ import (
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/email"
@@ -44,16 +45,32 @@ func (noopSettings) Get(_ context.Context, _ string) (string, error) {
 
 // handlerFixture holds all wired dependencies for user handler tests.
 type handlerFixture struct {
-	db         *sql.DB
-	handler    *user.Handler
-	userSvc    *user.Service
-	userStore  *user.SQLiteStore
-	appSvc     *app.Service
-	sessionSvc *session.Service
-	cfg        *config.Config
-	mailer     email.Sender
-	authStore  *authlog.Store
+	db            *sql.DB
+	handler       *user.Handler
+	userSvc       *user.Service
+	userStore     *user.SQLiteStore
+	appSvc        *app.Service
+	sessionSvc    *session.Service
+	cfg           *config.Config
+	mailer        email.Sender
+	authStore     *authlog.Store
+	throttleStore *ratelimit.AccountStore
+	throttle      *ratelimit.AccountService
+	clock         *testClock
 }
+
+// testClock is a manually advanced clock so throttle tests never sleep.
+type testClock struct {
+	t time.Time
+}
+
+func newTestClock() *testClock {
+	return &testClock{t: time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)}
+}
+
+func (c *testClock) Now() time.Time { return c.t }
+
+func (c *testClock) Advance(d time.Duration) { c.t = c.t.Add(d) }
 
 // newHandlerFixture builds a Handler wired to a real in-memory DB.
 // It returns the handler and cfg so tests can inspect cookie names.
@@ -70,9 +87,22 @@ func newFullHandlerFixture(t *testing.T, allowRegistration bool) *handlerFixture
 	return newFullHandlerFixtureWith(t, allowRegistration, nil, noopSender{})
 }
 
-// newFullHandlerFixtureWith is newFullHandlerFixture with a hook to adjust the
-// config (SMTP, base URL) and an alternative mailer before the handler is built.
+// newFullHandlerFixtureWith is newFullHandlerFixture with hooks to adjust the
+// config (SMTP, base URL) and the mailer before the handler is built.
 func newFullHandlerFixtureWith(t *testing.T, allowRegistration bool, mutate func(*config.Config), mailer email.Sender) *handlerFixture {
+	return newFullHandlerFixtureAll(t, allowRegistration, 5, 15, mutate, mailer)
+}
+
+// newFullHandlerFixtureWithThrottle is newFullHandlerFixtureWithThrottle with
+// explicit per-account throttle settings. Zero for either value disables
+// throttling.
+func newFullHandlerFixtureWithThrottle(t *testing.T, allowRegistration bool, maxFailures, lockoutMinutes int) *handlerFixture {
+	return newFullHandlerFixtureAll(t, allowRegistration, maxFailures, lockoutMinutes, nil, noopSender{})
+}
+
+// newFullHandlerFixtureAll builds the full dependency graph.
+func newFullHandlerFixtureAll(t *testing.T, allowRegistration bool, maxFailures, lockoutMinutes int, mutate func(*config.Config), mailer email.Sender) *handlerFixture {
+	t.Helper()
 	t.Helper()
 
 	db := testutil.NewTestDB(t)
@@ -82,6 +112,8 @@ func newFullHandlerFixtureWith(t *testing.T, allowRegistration bool, mutate func
 		Auth: config.AuthConfig{
 			AllowRegistration: allowRegistration,
 			BcryptCost:        10,
+			MaxLoginFailures:  maxFailures,
+			LockoutMinutes:    lockoutMinutes,
 		},
 		Session: config.SessionConfig{
 			DurationHours: 24,
@@ -111,18 +143,27 @@ func newFullHandlerFixtureWith(t *testing.T, allowRegistration bool, mutate func
 	appSvc := app.NewService(appStore, appStore, logger)
 	authStore := authlog.NewStore(db)
 	authRecorder := authlog.NewRecorder(authStore, nil, logger)
-	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, mailer, session.UserFromContext, authRecorder, tmpl, cfg, logger)
+	clock := newTestClock()
+	throttleStore := ratelimit.NewAccountStore(db)
+	throttle := ratelimit.NewAccountService(throttleStore, ratelimit.AccountConfig{
+		MaxFailures: maxFailures,
+		Lockout:     time.Duration(lockoutMinutes) * time.Minute,
+	}, clock.Now)
+	h := user.NewHandler(userSvc, appSvc, sessionSvc, noopSettings{}, mailer, session.UserFromContext, authRecorder, throttle, tmpl, cfg, logger)
 
 	return &handlerFixture{
-		db:         db,
-		handler:    h,
-		userSvc:    userSvc,
-		userStore:  userStore,
-		appSvc:     appSvc,
-		sessionSvc: sessionSvc,
-		cfg:        cfg,
-		mailer:     mailer,
-		authStore:  authStore,
+		db:            db,
+		handler:       h,
+		userSvc:       userSvc,
+		userStore:     userStore,
+		appSvc:        appSvc,
+		sessionSvc:    sessionSvc,
+		cfg:           cfg,
+		mailer:        mailer,
+		authStore:     authStore,
+		throttleStore: throttleStore,
+		throttle:      throttle,
+		clock:         clock,
 	}
 }
 
@@ -206,7 +247,7 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "loginuser")
@@ -261,7 +302,7 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "rduser")
@@ -1173,7 +1214,7 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
-	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	form := url.Values{}
 	form.Set("username", "pwuser")
@@ -1297,7 +1338,7 @@ func TestHandler_GetDashboard_ListerError(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, tmpl, cfg, logger)
+	h := user.NewHandler(userSvc, failingAppLister{}, sessionSvc, noopSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(session.WithUser(req.Context(), u))
