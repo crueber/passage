@@ -1,0 +1,30 @@
+{{define "register-disabled"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registration disabled — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body>
+<main class="auth-shell">
+  <a href="/" class="wordmark text-xl">{{template "logo"}}<span>passage</span></a>
+
+  <div class="auth-card">
+    <h1 class="auth-title">Registration is disabled</h1>
+    <p class="auth-sub">
+      New accounts on this instance are created by an administrator. Ask whoever
+      runs Passage to create one for you.
+    </p>
+
+    <a href="/login" class="btn btn-primary mt-6 w-full">Back to sign in</a>
+  </div>
+
+  {{if .Tagline}}<p class="mt-8 text-xs text-faint">{{.Tagline}}</p>{{end}}
+</main>
+</body>
+</html>
+{{end}}

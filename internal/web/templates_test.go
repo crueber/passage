@@ -94,7 +94,11 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		AllowMagicLink    bool
 		AllowProviders    []struct{ Name, Label string }
 		AllowRegistration bool
-	}{AllowPassword: true}
+		Tagline           string
+	}{
+		AllowPassword: true,
+		Tagline:       "Self-hosted authentication for your home lab",
+	}
 
 	settings := struct {
 		ActiveNav               string
@@ -102,6 +106,8 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		CSRFToken               string
 		AllowRegistration       string
 		SessionDurationHours    string
+		Tagline                 string
+		TaglineDefault          string
 		SMTPFrom                string
 		AllowRegistrationLocked bool
 		SessionDurationLocked   bool

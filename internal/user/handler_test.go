@@ -377,8 +377,8 @@ func TestHandler_GetLogout(t *testing.T) {
 	}
 }
 
-// TestHandler_GetRegister_Disabled verifies that GET /register redirects when
-// registration is disabled.
+// TestHandler_GetRegister_Disabled verifies that GET /register answers with a
+// page (not a redirect to a login-page error) when registration is disabled.
 func TestHandler_GetRegister_Disabled(t *testing.T) {
 	t.Parallel()
 	h, _ := newHandlerFixture(t, false /* allowRegistration=false */)
@@ -388,13 +388,68 @@ func TestHandler_GetRegister_Disabled(t *testing.T) {
 	h.GetRegister(rec, req)
 
 	res := rec.Result()
-	if res.StatusCode != http.StatusFound {
-		t.Errorf("GetRegister disabled: got status %d, want %d", res.StatusCode, http.StatusFound)
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("GetRegister disabled: got status %d, want %d", res.StatusCode, http.StatusForbidden)
 	}
-	loc := res.Header.Get("Location")
-	if !strings.Contains(loc, "registration-disabled") {
-		t.Errorf("GetRegister disabled: redirect %q does not mention registration-disabled", loc)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Registration is disabled") {
+		t.Error("GetRegister disabled: page does not explain that registration is off")
 	}
+	if !strings.Contains(body, `href="/login"`) {
+		t.Error("GetRegister disabled: page has no way back to sign-in")
+	}
+	if strings.Contains(body, `action="/register"`) {
+		t.Error("GetRegister disabled: page still renders the registration form")
+	}
+}
+
+// TestHandler_Tagline covers the configurable line under the sign-in card: the
+// stored value, a hidden line, and the default when the setting is absent.
+func TestHandler_Tagline(t *testing.T) {
+	t.Parallel()
+
+	t.Run("configured value", func(t *testing.T) {
+		t.Parallel()
+		f := newFullHandlerFixture(t, true)
+		f.settings.values["login_tagline"] = "Welcome to the lab"
+
+		rec := httptest.NewRecorder()
+		f.handler.GetLogin(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+		body := rec.Body.String()
+		if !strings.Contains(body, "Welcome to the lab") {
+			t.Error("login page missing the configured tagline")
+		}
+		if strings.Contains(body, "Self-hosted authentication for your home lab") {
+			t.Error("login page still shows the default tagline")
+		}
+	})
+
+	t.Run("empty hides the line", func(t *testing.T) {
+		t.Parallel()
+		f := newFullHandlerFixture(t, true)
+		f.settings.values["login_tagline"] = ""
+
+		rec := httptest.NewRecorder()
+		f.handler.GetLogin(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+		body := rec.Body.String()
+		if strings.Contains(body, "Self-hosted authentication for your home lab") {
+			t.Error("an empty setting still rendered the default tagline")
+		}
+		if !strings.Contains(body, "Sign in to continue") {
+			t.Error("login page did not render")
+		}
+	})
+
+	t.Run("missing falls back to the default", func(t *testing.T) {
+		t.Parallel()
+		f := newFullHandlerFixture(t, true)
+
+		rec := httptest.NewRecorder()
+		f.handler.GetLogin(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+		if !strings.Contains(rec.Body.String(), user.DefaultTagline) {
+			t.Error("login page missing the default tagline")
+		}
+	})
 }
 
 // TestHandler_GetRegister_ExplicitConfigWins proves the config file or
@@ -409,7 +464,7 @@ func TestHandler_GetRegister_ExplicitConfigWins(t *testing.T) {
 		setting    string
 		wantStatus int
 	}{
-		{name: "config disables what the setting enables", configVal: false, setting: "true", wantStatus: http.StatusFound},
+		{name: "config disables what the setting enables", configVal: false, setting: "true", wantStatus: http.StatusForbidden},
 		{name: "config enables what the setting disables", configVal: true, setting: "false", wantStatus: http.StatusOK},
 	}
 
@@ -429,9 +484,9 @@ func TestHandler_GetRegister_ExplicitConfigWins(t *testing.T) {
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("GetRegister status = %d, want %d", rec.Code, tt.wantStatus)
 			}
-			if tt.wantStatus == http.StatusFound {
-				if loc := rec.Header().Get("Location"); !strings.Contains(loc, "registration-disabled") {
-					t.Errorf("redirect = %q, want it to mention registration-disabled", loc)
+			if tt.wantStatus == http.StatusForbidden {
+				if !strings.Contains(rec.Body.String(), "Registration is disabled") {
+					t.Error("disabled page did not render")
 				}
 			}
 		})

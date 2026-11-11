@@ -2932,6 +2932,95 @@ func TestPostSettings_DoesNotOverwriteConfigControlledFields(t *testing.T) {
 	}
 }
 
+// TestSettings_TaglineRoundTrip covers the sign-in tagline field: it saves,
+// renders, may be cleared (which hides the line), and rejects over-long text.
+func TestSettings_TaglineRoundTrip(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	base := url.Values{}
+	base.Set("session_duration_hours", "24")
+	base.Set("smtp_from", "")
+	base.Set("auth_password_enabled", "on")
+	base.Set("auth_passkey_enabled", "on")
+
+	t.Run("saves and renders", func(t *testing.T) {
+		form := url.Values{}
+		for k, v := range base {
+			form[k] = v
+		}
+		form.Set("login_tagline", "Welcome to the lab")
+
+		rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+		if rec.Result().StatusCode != http.StatusFound {
+			t.Fatalf("status = %d; want 302 (%s)", rec.Result().StatusCode, rec.Body.String())
+		}
+		got, err := f.settings.Get(context.Background(), user.SettingTagline)
+		if err != nil {
+			t.Fatalf("read tagline: %v", err)
+		}
+		if got != "Welcome to the lab" {
+			t.Errorf("stored tagline = %q", got)
+		}
+
+		body := adminRequest(t, router, http.MethodGet, "/admin/settings", token, f.cfg.Session.CookieName, nil, "").Body.String()
+		if !strings.Contains(body, `value="Welcome to the lab"`) {
+			t.Error("settings page does not show the saved tagline")
+		}
+	})
+
+	t.Run("empty clears it", func(t *testing.T) {
+		form := url.Values{}
+		for k, v := range base {
+			form[k] = v
+		}
+		form.Set("login_tagline", "")
+		if rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded"); rec.Result().StatusCode != http.StatusFound {
+			t.Fatalf("status = %d; want 302", rec.Result().StatusCode)
+		}
+		got, err := f.settings.Get(context.Background(), user.SettingTagline)
+		if err != nil {
+			t.Fatalf("read tagline: %v", err)
+		}
+		if got != "" {
+			t.Errorf("stored tagline = %q, want empty", got)
+		}
+	})
+
+	t.Run("over-long text is rejected", func(t *testing.T) {
+		before, err := f.settings.Get(context.Background(), user.SettingTagline)
+		if err != nil {
+			t.Fatalf("read tagline: %v", err)
+		}
+		form := url.Values{}
+		for k, v := range base {
+			form[k] = v
+		}
+		form.Set("login_tagline", strings.Repeat("x", user.MaxTaglineLength+1))
+
+		rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+			strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+		if rec.Result().StatusCode != http.StatusOK {
+			t.Fatalf("status = %d; want 200 (re-rendered form)", rec.Result().StatusCode)
+		}
+		if !strings.Contains(rec.Body.String(), "at most 120 characters") {
+			t.Error("rejected form does not explain the limit")
+		}
+		after, err := f.settings.Get(context.Background(), user.SettingTagline)
+		if err != nil {
+			t.Fatalf("read tagline: %v", err)
+		}
+		if after != before {
+			t.Errorf("tagline changed to %q after a rejected save", after)
+		}
+	})
+}
+
 // TestPostSettings_RejectedFormPreservesValues makes sure a validation error
 // does not silently discard everything the operator just typed.
 func TestPostSettings_RejectedFormPreservesValues(t *testing.T) {

@@ -66,6 +66,16 @@
           </div>
 
           <div>
+            <label class="label" for="login_tagline">Sign-in tagline</label>
+            <input class="input sm:max-w-md" type="text" id="login_tagline" name="login_tagline"
+                   maxlength="120" value="{{.Tagline}}" placeholder="{{.TaglineDefault}}">
+            <p class="help">
+              The line of text under the sign-in card. Leave it empty to hide the
+              line entirely.
+            </p>
+          </div>
+
+          <div>
             <label class="label" for="smtp_from">SMTP from address</label>
             <input class="input sm:max-w-xs" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
                    value="{{.SMTPFrom}}">

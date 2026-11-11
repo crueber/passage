@@ -241,7 +241,33 @@ type loginData struct {
 	AllowPasskey      bool
 	AllowMagicLink    bool
 	AllowProviders    []providerButton
+	Tagline           string
 	CSRFToken         string
+}
+
+const (
+	// SettingTagline is the settings-store key behind the line of text under
+	// the sign-in card. It is presentation text, so it is edited in the admin
+	// UI rather than the config file.
+	SettingTagline = "login_tagline"
+
+	// DefaultTagline is shown when the setting has never been written. An
+	// explicitly empty value hides the line instead.
+	DefaultTagline = "Self-hosted authentication for your home lab"
+
+	// MaxTaglineLength bounds the setting: it is a caption, not a paragraph.
+	MaxTaglineLength = 120
+)
+
+// tagline returns the configured text under the sign-in card. A stored empty
+// value hides it; a missing setting falls back to the default.
+func (h *Handler) tagline(ctx context.Context) string {
+	if h.settings != nil {
+		if v, err := h.settings.Get(ctx, SettingTagline); err == nil {
+			return strings.TrimSpace(v)
+		}
+	}
+	return DefaultTagline
 }
 
 // providerButtons returns one button per configured upstream provider, in
@@ -310,6 +336,7 @@ func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
 		AllowProviders:    providerButtons(h.cfg),
+		Tagline:           h.tagline(r.Context()),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }
@@ -527,7 +554,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 // GetRegister renders the registration form.
 func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
 	if !h.registrationAllowed(r.Context()) {
-		http.Redirect(w, r, "/login?flash=registration-disabled", http.StatusFound)
+		h.renderRegisterDisabled(w, r)
 		return
 	}
 	h.render(w, r, "register.html", registerData{
@@ -535,10 +562,27 @@ func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// renderRegisterDisabled answers a visit to /register while self-registration
+// is off. A dedicated page reads as an intentional state; a redirect to /login
+// with an error flash made a URL the visitor typed look like a failure they
+// caused.
+func (h *Handler) renderRegisterDisabled(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusForbidden)
+	h.render(w, r, "register-disabled", registerDisabledData{
+		Tagline: h.tagline(r.Context()),
+	})
+}
+
+// registerDisabledData is the render data for the "registration is disabled"
+// page.
+type registerDisabledData struct {
+	Tagline string
+}
+
 // PostRegister handles registration form submission.
 func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 	if !h.registrationAllowed(r.Context()) {
-		http.Redirect(w, r, "/login?flash=registration-disabled", http.StatusFound)
+		h.renderRegisterDisabled(w, r)
 		return
 	}
 
@@ -782,6 +826,7 @@ func (h *Handler) renderLoginError(w http.ResponseWriter, r *http.Request, msg, 
 		AllowPasskey:      isAuthMethodEnabled(r.Context(), h.settings, SettingPasskeyEnabled),
 		AllowMagicLink:    isAuthMethodEnabled(r.Context(), h.settings, SettingMagicLinkEnabled),
 		AllowProviders:    providerButtons(h.cfg),
+		Tagline:           h.tagline(r.Context()),
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 	})
 }

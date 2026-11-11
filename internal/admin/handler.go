@@ -1831,7 +1831,11 @@ type settingsData struct {
 	basePage
 	AllowRegistration    string
 	SessionDurationHours string
-	SMTPFrom             string
+	Tagline              string
+	// TaglineDefault is the placeholder shown when the field is empty; an empty
+	// saved value hides the line instead.
+	TaglineDefault string
+	SMTPFrom       string
 	// Locked flags mark settings the configuration file or environment
 	// supplied. Those win over the stored value, so the control is rendered
 	// read-only with a note instead of silently ignoring the operator's save.
@@ -1914,6 +1918,8 @@ func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base
 		basePage:                base,
 		AllowRegistration:       allowRegistration,
 		SessionDurationHours:    sessionDuration,
+		Tagline:                 all[user.SettingTagline],
+		TaglineDefault:          user.DefaultTagline,
 		SMTPFrom:                all["smtp_from"],
 		AllowRegistrationLocked: h.cfg.Auth.AllowRegistrationSet,
 		SessionDurationLocked:   h.cfg.Session.DurationHoursSet,
@@ -1985,9 +1991,14 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		h.renderSettingsForm(w, r, values, "Magic link requires SMTP to be configured.")
 		return
 	}
+	if len(values[user.SettingTagline]) > user.MaxTaglineLength {
+		h.renderSettingsForm(w, r, values,
+			fmt.Sprintf("The sign-in tagline must be at most %d characters.", user.MaxTaglineLength))
+		return
+	}
 
 	keys := []string{
-		"allow_registration", "session_duration_hours", "smtp_from",
+		"allow_registration", "session_duration_hours", user.SettingTagline, "smtp_from",
 		"auth_password_enabled", "auth_passkey_enabled", "auth_magic_link_enabled", "auth_require_mfa",
 	}
 	for _, key := range keys {
@@ -2027,6 +2038,7 @@ func (h *Handler) settingsFromForm(r *http.Request) map[string]string {
 	return map[string]string{
 		"allow_registration":      on("allow_registration"),
 		"session_duration_hours":  strings.TrimSpace(r.FormValue("session_duration_hours")),
+		user.SettingTagline:       strings.TrimSpace(r.FormValue("login_tagline")),
 		"smtp_from":               strings.TrimSpace(r.FormValue("smtp_from")),
 		"auth_password_enabled":   on("auth_password_enabled"),
 		"auth_passkey_enabled":    on("auth_passkey_enabled"),
