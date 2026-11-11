@@ -155,6 +155,81 @@ func (s *Service) GetByID(ctx context.Context, id string) (*User, error) {
 	return u, nil
 }
 
+// GetByEmail returns the user with the given email address. The address is
+// normalized to lowercase, matching how registration and magic-link accounts
+// store it.
+func (s *Service) GetByEmail(ctx context.Context, emailAddr string) (*User, error) {
+	u, err := s.store.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(emailAddr)))
+	if err != nil {
+		return nil, fmt.Errorf("user: get by email: %w", err)
+	}
+	return u, nil
+}
+
+// CreateExternalUser creates an account for an upstream identity provider. It
+// has no password by design: the provider is the credential. EmailVerified is
+// copied from the provider's email_verified claim, and Name from its name
+// claim when present.
+//
+// The caller is responsible for the policy gate (provider auto_create plus the
+// global registration setting) and for creating the idp_links row. A username
+// collision is resolved with a random suffix rather than failing the sign-in;
+// an email collision is returned as ErrEmailTaken so the caller can refuse
+// instead of silently attaching a second account to one address.
+func (s *Service) CreateExternalUser(ctx context.Context, username, emailAddr, name string, emailVerified bool) (*User, error) {
+	normalized := strings.ToLower(strings.TrimSpace(emailAddr))
+	if normalized == "" {
+		return nil, ErrEmailRequired
+	}
+
+	base := deriveUsername(username, normalized)
+
+	u := &User{
+		Username:      base,
+		Email:         normalized,
+		Name:          name,
+		IsActive:      true,
+		Roles:         "[]",
+		EmailVerified: emailVerified,
+	}
+
+	if err := s.store.Create(ctx, u); err != nil {
+		if !errors.Is(err, ErrUsernameTaken) {
+			return nil, fmt.Errorf("create external user: %w", err)
+		}
+		suffix, randErr := randomHex(2)
+		if randErr != nil {
+			return nil, fmt.Errorf("create external user: generate suffix: %w", randErr)
+		}
+		u.ID = ""
+		u.Username = base + "_" + suffix
+		if err := s.store.Create(ctx, u); err != nil {
+			return nil, fmt.Errorf("create external user with suffix: %w", err)
+		}
+	}
+	return u, nil
+}
+
+// deriveUsername turns a preferred username (or the email local part) into a
+// safe, non-empty local username no longer than 64 characters.
+func deriveUsername(preferred, emailAddr string) string {
+	candidate := preferred
+	if candidate == "" {
+		candidate = emailAddr
+		if idx := strings.Index(candidate, "@"); idx >= 0 {
+			candidate = candidate[:idx]
+		}
+	}
+	derived := nonAlphanumRe.ReplaceAllString(candidate, "_")
+	if len(derived) > 64 {
+		derived = derived[:64]
+	}
+	if derived == "" {
+		derived = "user"
+	}
+	return derived
+}
+
 // GeneratePasswordReset looks up the user by email and creates a reset token.
 // If the email is not found, nil is returned for both values to avoid email
 // enumeration.
