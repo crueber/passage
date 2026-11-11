@@ -172,7 +172,7 @@ Aegis, Google Authenticator, and so on.
 Enforcement is on the **password flow only**. After a correct password, an
 account with a completed enrollment gets a pending challenge and no session:
 the browser is sent to `/login/mfa`, and a session is created only after a TOTP
-or recovery code verifies.
+code, a recovery code, or a passkey assertion verifies.
 
 Passkeys and magic links deliberately do **not** get a second step:
 
@@ -180,6 +180,25 @@ Passkeys and magic links deliberately do **not** get a second step:
 |---|---|
 | Passkey (WebAuthn) | The assertion already proves possession of the authenticator, which is itself "something you have" plus a local gesture/biometric. |
 | Magic link | Clicking the link proves control of the mailbox that received it. |
+
+That table is about *primary* sign-in. A password sign-in can still be completed
+with a passkey instead of a code — see below.
+
+### Passkeys as the second factor
+
+When the account has at least one passkey and passkeys are enabled, `/login/mfa`
+offers "Use a passkey instead" alongside the code field. The ceremony is
+user-bound (`allowCredentials` is the account's own credentials) and requires
+user verification, so it is a genuine second factor rather than a repeat of the
+password.
+
+The WebAuthn session data is stored under the pending challenge token
+(`mfa:<token>` in the challenge store) and deleted on use, so an assertion begun
+for one sign-in cannot complete another. Success goes through the same
+completion path as a code (`completeMFAChallenge`), including the per-app
+session duration, the throttle reset, and the `mfa.success` event with detail
+`passkey`. A failed assertion leaves the challenge intact, so the code field and
+recovery codes remain available.
 
 ### Enrollment
 
