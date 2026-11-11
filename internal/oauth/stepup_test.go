@@ -2,7 +2,6 @@ package oauth_test
 
 import (
 	"context"
-	"crypto/rsa"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -36,9 +35,8 @@ func buildStepUpStack(t *testing.T, clientID, redirectURI string) *stepUpStack {
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
 
-	pemBytes, kid, err := store.GetOrCreateRSAKey(ctx)
-	if err != nil {
-		t.Fatalf("buildStepUpStack: GetOrCreateRSAKey: %v", err)
+	if err := store.EnsureSigningKeys(ctx); err != nil {
+		t.Fatalf("buildStepUpStack: EnsureSigningKeys: %v", err)
 	}
 
 	testApp := buildTestApp(t, clientID, "test-secret", []string{redirectURI})
@@ -51,7 +49,7 @@ func buildStepUpStack(t *testing.T, clientID, redirectURI string) *stepUpStack {
 	apps := &fakeAppClient{app: testApp, access: true}
 	users := &fakeUserReader{u: testUser}
 
-	svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
+	svc, err := oauth.NewService(ctx, store, apps, users, "https://auth.example.com", slog.Default())
 	if err != nil {
 		t.Fatalf("buildStepUpStack: NewService: %v", err)
 	}
@@ -65,8 +63,6 @@ func buildStepUpStack(t *testing.T, clientID, redirectURI string) *stepUpStack {
 	h := oauth.NewHandler(
 		svc,
 		sessSvc,
-		svc.PrivateKey().Public().(*rsa.PublicKey),
-		svc.KeyID(),
 		"https://auth.example.com",
 		nil,
 		cfg,
