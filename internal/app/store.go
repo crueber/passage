@@ -131,6 +131,18 @@ func (s *SQLiteStore) List(ctx context.Context) ([]*App, error) {
 	return s.queryApps(ctx, query)
 }
 
+// Count returns the number of apps, including inactive ones. It is a single
+// COUNT query used by the metrics endpoint.
+func (s *SQLiteStore) Count(ctx context.Context) (int, error) {
+	const query = `SELECT COUNT(*) FROM apps`
+
+	var n int
+	if err := s.db.QueryRowContext(ctx, query).Scan(&n); err != nil {
+		return 0, fmt.Errorf("app store count: %w", err)
+	}
+	return n, nil
+}
+
 // queryApps is a helper that executes a query returning app rows.
 func (s *SQLiteStore) queryApps(ctx context.Context, query string, args ...any) ([]*App, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)

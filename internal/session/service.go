@@ -36,6 +36,19 @@ type appDurationReader interface {
 	GetSessionDurationHours(ctx context.Context, appID string) (int, error)
 }
 
+// SessionCounter counts session lifecycle events for the metrics endpoint.
+// It is optional: nil disables counting, and an implementation must return
+// immediately — it is called on the sign-in and sign-out paths, where a
+// metrics failure must never fail or delay authentication.
+type SessionCounter interface {
+	// SessionCreated is called once per session that was written to the store.
+	SessionCreated()
+	// SessionRevoked is called once per explicit revoke operation that
+	// succeeded. A bulk revoke counts as one operation, not as one per row,
+	// and expiry sweeps are not revokes.
+	SessionRevoked()
+}
+
 // Service implements business logic for session management.
 type Service struct {
 	store    Store
@@ -44,6 +57,7 @@ type Service struct {
 	apps     appDurationReader // may be nil; used for per-app duration overrides
 	cfg      *config.Config
 	logger   *slog.Logger
+	counter  SessionCounter // may be nil; optional metrics hook
 }
 
 // NewService creates a new Service with the given dependencies.
@@ -57,6 +71,26 @@ func NewService(store Store, users userGetter, settings settingsReader, apps app
 		apps:     apps,
 		cfg:      cfg,
 		logger:   logger,
+	}
+}
+
+// SetSessionCounter installs the optional session metrics counter. It must be
+// called before the server starts serving requests.
+func (s *Service) SetSessionCounter(counter SessionCounter) {
+	s.counter = counter
+}
+
+// countCreated reports a created session to the metrics counter, if any.
+func (s *Service) countCreated() {
+	if s.counter != nil {
+		s.counter.SessionCreated()
+	}
+}
+
+// countRevoked reports a successful revoke to the metrics counter, if any.
+func (s *Service) countRevoked() {
+	if s.counter != nil {
+		s.counter.SessionRevoked()
 	}
 }
 
@@ -153,6 +187,7 @@ func (s *Service) NewSession(ctx context.Context, userID string, appID *string, 
 	if err := s.store.Create(ctx, sess); err != nil {
 		return nil, fmt.Errorf("new session: %w", err)
 	}
+	s.countCreated()
 	return sess, nil
 }
 
@@ -239,6 +274,7 @@ func (s *Service) RevokeSession(ctx context.Context, token string) error {
 	if err := s.store.Delete(ctx, token); err != nil {
 		return fmt.Errorf("revoke session: %w", err)
 	}
+	s.countRevoked()
 	return nil
 }
 
@@ -249,6 +285,7 @@ func (s *Service) RevokeSessionByPublicID(ctx context.Context, publicID string) 
 	if err := s.store.DeleteByPublicID(ctx, publicID); err != nil {
 		return fmt.Errorf("revoke session by public id: %w", err)
 	}
+	s.countRevoked()
 	return nil
 }
 
@@ -257,6 +294,7 @@ func (s *Service) RevokeAllByUser(ctx context.Context, userID string) error {
 	if err := s.store.DeleteByUser(ctx, userID); err != nil {
 		return fmt.Errorf("revoke all sessions by user: %w", err)
 	}
+	s.countRevoked()
 	return nil
 }
 

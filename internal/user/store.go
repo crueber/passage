@@ -127,6 +127,18 @@ func (s *SQLiteStore) List(ctx context.Context) ([]*User, error) {
 	return users, nil
 }
 
+// Count returns the number of user accounts, including inactive ones. It is a
+// single COUNT query used by the metrics endpoint.
+func (s *SQLiteStore) Count(ctx context.Context) (int, error) {
+	const query = `SELECT COUNT(*) FROM users`
+
+	var n int
+	if err := s.db.QueryRowContext(ctx, query).Scan(&n); err != nil {
+		return 0, fmt.Errorf("user store count: %w", err)
+	}
+	return n, nil
+}
+
 // Update saves changes to an existing user.
 func (s *SQLiteStore) Update(ctx context.Context, u *User) error {
 	u.UpdatedAt = time.Now().UTC()
