@@ -102,31 +102,45 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		Wordmark:      "passage",
 	}
 
+	type testOption struct{ Value, Label string }
+	type testField struct {
+		Kind, Key, Key2, Label, Label2, Help, Value, Value2 string
+		Min, Max, MaxLen                                    int
+		Placeholder                                         string
+		Restart                                             bool
+		Options                                             []testOption
+	}
+	type testSection struct {
+		ID, Title, Sub string
+		Fields         []testField
+	}
 	settings := struct {
-		ActiveNav               string
-		Flash                   any
-		CSRFToken               string
-		AllowRegistration       string
-		SessionDurationHours    string
-		Tagline                 string
-		TaglineDefault          string
-		HeaderPhrase            string
-		HeaderStyle             string
-		SMTPFrom                string
-		AllowRegistrationLocked bool
-		SessionDurationLocked   bool
-		AuthRequireMFALocked    bool
-		Themes                  []theme.Theme
-		AuthPasswordEnabled     string
-		AuthPasskeyEnabled      string
-		AuthMagicLinkEnabled    string
-		AuthRequireMFA          string
-		SMTPConfigured          bool
+		ActiveNav string
+		Flash     any
+		CSRFToken string
+		Tabs      []struct {
+			ID, Title string
+			Active    bool
+		}
+		Active testSection
+		Themes []theme.Theme
 	}{
-		Themes:              theme.All,
-		AuthPasswordEnabled: "true",
-		AuthPasskeyEnabled:  "true",
-		AuthRequireMFA:      "false",
+		Themes: theme.All,
+		Tabs: []struct {
+			ID, Title string
+			Active    bool
+		}{{ID: "general", Title: "General", Active: true}},
+		Active: testSection{
+			ID: "general", Title: "General", Sub: "Registration and sessions.",
+			Fields: []testField{
+				{Kind: "bool", Key: "allow_registration", Label: "Allow public registration", Value: "true"},
+				{Kind: "number", Key: "session_duration_hours", Label: "Session duration (hours)", Value: "24", Min: 1, Max: 8760},
+				{Kind: "number_pair", Key: "rate_limit_login_requests", Key2: "rate_limit_login_window_minutes", Label: "Sign-in", Label2: "Window (minutes)", Value: "10", Value2: "15", Max: 100000},
+				{Kind: "select", Key: "ui_theme", Label: "Server default theme", Value: "slate", Options: []testOption{{Value: "slate", Label: "Slate"}}},
+				{Kind: "radio", Key: "login_header_style", Label: "Header style", Value: "for", Options: []testOption{{Value: "for", Label: "Keep the name first"}, {Value: "plain", Label: "Drop it"}}},
+				{Kind: "password", Key: "metrics_token", Label: "Metrics bearer token", MaxLen: 200},
+			},
+		},
 	}
 
 	mfa := struct {

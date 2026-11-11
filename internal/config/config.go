@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -34,37 +33,24 @@ type Config struct {
 
 // MetricsConfig holds the Prometheus endpoint settings.
 type MetricsConfig struct {
-	// Enabled serves GET /metrics. It defaults to true so an operator who has
-	// not thought about metrics still gets them; setting it to false makes the
-	// endpoint answer 404.
-	// Env: PASSAGE_METRICS_ENABLED.
-	Enabled bool `yaml:"enabled"`
-
-	// Token, when set, requires scrapes to send
-	// "Authorization: Bearer <token>". Optional: leave empty when the endpoint
-	// is reachable only from a trusted network or an authenticating proxy.
-	// The token is never logged.
-	// Env: PASSAGE_METRICS_TOKEN.
-	Token string `yaml:"token"`
+	// Enabled and Token are a startup snapshot of Settings → Security.
+	Enabled bool   `yaml:"-"`
+	Token   string `yaml:"-"`
 }
 
 // SecurityConfig holds optional security integrations.
 type SecurityConfig struct {
-	// WebhookURL is an HTTP endpoint that receives every recorded
-	// authentication event as a JSON POST. Empty disables the webhook.
-	// Env: PASSAGE_SECURITY_WEBHOOK_URL.
-	WebhookURL string `yaml:"webhook_url"`
+	// WebhookURL is a startup snapshot of Settings → Security. Empty disables
+	// the webhook.
+	WebhookURL string `yaml:"-"`
 
 	// WebhookSecret is optional. When set, each request body is signed with
 	// HMAC-SHA256 under this secret and the digest is sent in the
 	// X-Passage-Signature header as "sha256=<hex>".
-	// Env: PASSAGE_SECURITY_WEBHOOK_SECRET.
-	WebhookSecret string `yaml:"webhook_secret"`
+	WebhookSecret string `yaml:"-"`
 
-	// WebhookTimeoutSeconds bounds one delivery attempt.
-	// Default 5, valid range 1–60.
-	// Env: PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS.
-	WebhookTimeoutSeconds int `yaml:"webhook_timeout_seconds"`
+	// WebhookTimeoutSeconds bounds one delivery attempt (1–60).
+	WebhookTimeoutSeconds int `yaml:"-"`
 
 	// EncryptionKey is the AES-256-GCM key that encrypts TOTP secrets at rest,
 	// as 64 hex characters or the base64 encoding of 32 bytes (for example
@@ -79,10 +65,9 @@ type SecurityConfig struct {
 
 // UIConfig holds web UI presentation settings.
 type UIConfig struct {
-	// Theme is the default colour theme served to browsers and used by the
-	// compiled fallback stylesheet. Must be one of theme.Names().
-	// Env: PASSAGE_UI_THEME.
-	Theme string `yaml:"theme"`
+	// Theme is a startup snapshot of the "Server default" theme chosen in
+	// Settings → Appearance. Must be one of theme.Names().
+	Theme string `yaml:"-"`
 }
 
 // CSRFConfig holds CSRF protection settings.
@@ -100,36 +85,24 @@ type CSRFConfig struct {
 // Each limiter is configured independently with a max request count and a
 // window duration in minutes.
 type RateLimitConfig struct {
-	// Login controls the login endpoint rate limit.
-	// Env: PASSAGE_RATELIMIT_LOGIN_REQUESTS / PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES
-	LoginRequests      int `yaml:"login_requests"`
-	LoginWindowMinutes int `yaml:"login_window_minutes"`
+	// All fields are a startup snapshot of Settings → Rate limits.
+	LoginRequests      int `yaml:"-"`
+	LoginWindowMinutes int `yaml:"-"`
 
-	// Reset controls the password-reset endpoint rate limit.
-	// Env: PASSAGE_RATELIMIT_RESET_REQUESTS / PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES
-	ResetRequests      int `yaml:"reset_requests"`
-	ResetWindowMinutes int `yaml:"reset_window_minutes"`
+	ResetRequests      int `yaml:"-"`
+	ResetWindowMinutes int `yaml:"-"`
 
-	// OAuthToken controls the OAuth /token endpoint rate limit.
-	// Env: PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS / PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES
-	OAuthTokenRequests      int `yaml:"oauth_token_requests"`
-	OAuthTokenWindowMinutes int `yaml:"oauth_token_window_minutes"`
+	OAuthTokenRequests      int `yaml:"-"`
+	OAuthTokenWindowMinutes int `yaml:"-"`
 
-	// Setup controls the initial-setup endpoint rate limit.
-	// Env: PASSAGE_RATELIMIT_SETUP_REQUESTS / PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES
-	SetupRequests      int `yaml:"setup_requests"`
-	SetupWindowMinutes int `yaml:"setup_window_minutes"`
+	SetupRequests      int `yaml:"-"`
+	SetupWindowMinutes int `yaml:"-"`
 
-	// Register controls the self-service registration endpoint rate limit.
-	// Env: PASSAGE_RATELIMIT_REGISTER_REQUESTS / PASSAGE_RATELIMIT_REGISTER_WINDOW_MINUTES
-	RegisterRequests      int `yaml:"register_requests"`
-	RegisterWindowMinutes int `yaml:"register_window_minutes"`
+	RegisterRequests      int `yaml:"-"`
+	RegisterWindowMinutes int `yaml:"-"`
 
-	// MagicLink controls the magic-link request endpoint rate limit (each
-	// request triggers an outbound email).
-	// Env: PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS / PASSAGE_RATELIMIT_MAGIC_LINK_WINDOW_MINUTES
-	MagicLinkRequests      int `yaml:"magic_link_requests"`
-	MagicLinkWindowMinutes int `yaml:"magic_link_window_minutes"`
+	MagicLinkRequests      int `yaml:"-"`
+	MagicLinkWindowMinutes int `yaml:"-"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -146,19 +119,15 @@ type DatabaseConfig struct {
 
 // SessionConfig holds session settings.
 type SessionConfig struct {
-	DurationHours int `yaml:"duration_hours"`
-	// DurationHoursSet records whether the config file or environment supplied
-	// duration_hours. An explicit value overrides the matching admin setting
-	// (Settings → General) and is shown read-only there. yaml:"-" keeps it out
-	// of the file itself.
-	DurationHoursSet bool `yaml:"-"`
-	// IdleTimeoutMinutes closes a session that has not been used for this many
-	// minutes, independent of the absolute DurationHours. Zero (the default)
-	// disables the idle timeout.
-	// Env: PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES.
-	IdleTimeoutMinutes int    `yaml:"idle_timeout_minutes"`
-	CookieName         string `yaml:"cookie_name"`
-	CookieSecure       bool   `yaml:"cookie_secure"`
+	// DurationHours and IdleTimeoutMinutes are a startup snapshot of the
+	// matching admin settings (Settings → General). They are not read from the
+	// file: the settings table is authoritative.
+	DurationHours      int `yaml:"-"`
+	IdleTimeoutMinutes int `yaml:"-"`
+	// CookieName and CookieSecure describe how the deployment is reached, so
+	// they stay in the file.
+	CookieName   string `yaml:"cookie_name"`
+	CookieSecure bool   `yaml:"cookie_secure"`
 }
 
 // IdleTimeout returns the configured idle window as a duration. A zero or
@@ -184,13 +153,15 @@ func (s SessionConfig) EffectiveCookieName() string {
 }
 
 // SMTPConfig holds email/SMTP settings.
+// SMTPConfig is a startup snapshot of the Email settings. Mail is configured in
+// the admin UI, so none of these fields is read from the file.
 type SMTPConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	From     string `yaml:"from"`
-	TLS      string `yaml:"tls"`
+	Host     string `yaml:"-"`
+	Port     int    `yaml:"-"`
+	Username string `yaml:"-"`
+	Password string `yaml:"-"`
+	From     string `yaml:"-"`
+	TLS      string `yaml:"-"`
 }
 
 // ProviderConfig configures one upstream OIDC/OAuth identity provider.
@@ -223,12 +194,10 @@ var providerNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // AuthConfig holds authentication settings.
 type AuthConfig struct {
-	AllowRegistration bool `yaml:"allow_registration"`
-	// AllowRegistrationSet records whether the config file or environment
-	// supplied allow_registration. An explicit value overrides the admin
-	// setting and the field is read-only in the UI.
-	AllowRegistrationSet bool `yaml:"-"`
-	BcryptCost           int  `yaml:"bcrypt_cost"`
+	// These are startup snapshots of the matching admin settings. They are not
+	// read from the file; the settings table is authoritative.
+	AllowRegistration bool `yaml:"-"`
+	BcryptCost        int  `yaml:"-"`
 
 	// Providers configures upstream OIDC/OAuth identity providers. Each entry
 	// adds a sign-in button to the login page. There is deliberately no
@@ -238,21 +207,13 @@ type AuthConfig struct {
 
 	// MaxLoginFailures is the number of consecutive invalid password attempts
 	// that locks an account. Zero disables per-account throttling.
-	// Env: PASSAGE_AUTH_MAX_LOGIN_FAILURES.
-	MaxLoginFailures int `yaml:"max_login_failures"`
+	MaxLoginFailures int `yaml:"-"`
 	// LockoutMinutes is how long an account stays locked once it reaches
 	// MaxLoginFailures. Zero disables per-account throttling.
-	// Env: PASSAGE_AUTH_LOCKOUT_MINUTES.
-	LockoutMinutes int `yaml:"lockout_minutes"`
+	LockoutMinutes int `yaml:"-"`
 
-	// RequireMFA makes two-factor authentication mandatory: a signed-in user
-	// without a completed TOTP enrollment is sent to /mfa/setup until they
-	// enrol. When set here (or via the environment) it overrides the
-	// auth_require_mfa admin setting and that checkbox is read-only; when
-	// absent, the saved admin setting wins and this value is the default.
-	// Env: PASSAGE_AUTH_REQUIRE_MFA.
-	RequireMFA    bool `yaml:"require_mfa"`
-	RequireMFASet bool `yaml:"-"`
+	// RequireMFA is the startup snapshot of the "require two-factor" setting.
+	RequireMFA bool `yaml:"-"`
 }
 
 // LogConfig holds logging settings.
@@ -334,7 +295,6 @@ func Load(path string) (*Config, error) {
 			if err := yaml.Unmarshal(data, cfg); err != nil {
 				return nil, fmt.Errorf("parse config file %q: %w", path, err)
 			}
-			markExplicitSettings(cfg, data)
 		}
 		// File not existing is not an error — env vars and defaults apply.
 	}
@@ -343,82 +303,16 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// explicitSettings mirrors the settings that also exist in the admin settings
-// store, using pointers so a missing key is distinguishable from a zero value.
-// A key that is present here is authoritative over the stored value.
-type explicitSettings struct {
-	Auth struct {
-		AllowRegistration *bool `yaml:"allow_registration"`
-		RequireMFA        *bool `yaml:"require_mfa"`
-	} `yaml:"auth"`
-	Session struct {
-		DurationHours *int `yaml:"duration_hours"`
-	} `yaml:"session"`
-}
-
-// markExplicitSettings records which settings the config file supplied, so the
-// admin UI can show them read-only instead of silently ignoring them.
-func markExplicitSettings(cfg *Config, data []byte) {
-	var explicit explicitSettings
-	// The bytes already decoded into cfg, so a failure here is impossible in
-	// practice; treating it as "nothing explicit" is the safe fallback.
-	if err := yaml.Unmarshal(data, &explicit); err != nil {
-		return
-	}
-	cfg.Auth.AllowRegistrationSet = explicit.Auth.AllowRegistration != nil
-	cfg.Auth.RequireMFASet = explicit.Auth.RequireMFA != nil
-	cfg.Session.DurationHoursSet = explicit.Session.DurationHours != nil
-}
-
-// BoolSetting resolves a boolean that exists both in the config file and in
-// the admin settings store. Precedence: an explicit config value, then the
-// stored value, then the config default. The UI shows the field read-only when
-// the config supplies it.
-func BoolSetting(explicit, configValue bool, stored string, hasStored bool) bool {
-	if explicit {
-		return configValue
-	}
-	if hasStored {
-		return strings.EqualFold(strings.TrimSpace(stored), "true")
-	}
-	return configValue
-}
-
-// IntSetting applies the same precedence rule to a positive integer setting.
-func IntSetting(explicit bool, configValue int, stored string, hasStored bool) int {
-	if explicit {
-		return configValue
-	}
-	if hasStored {
-		if n, err := strconv.Atoi(strings.TrimSpace(stored)); err == nil && n > 0 {
-			return n
-		}
-	}
-	return configValue
-}
-
 // Validate checks that all configuration values are within acceptable bounds.
 // It uses errors.Join to collect and return all validation errors together.
 func (c *Config) Validate() error {
 	var errs []error
 
+	// Only bootstrap settings are validated here. Everything an operator edits
+	// in the admin UI is validated when the form is submitted (see
+	// internal/admin/settings_form.go).
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port))
-	}
-	if c.Session.DurationHours <= 0 {
-		errs = append(errs, fmt.Errorf("session.duration_hours must be positive, got %d", c.Session.DurationHours))
-	}
-	if c.Session.IdleTimeoutMinutes < 0 {
-		errs = append(errs, fmt.Errorf("session.idle_timeout_minutes must be zero or positive, got %d", c.Session.IdleTimeoutMinutes))
-	}
-	if c.Auth.BcryptCost < 10 || c.Auth.BcryptCost > 31 {
-		errs = append(errs, fmt.Errorf("auth.bcrypt_cost must be between 10 and 31, got %d", c.Auth.BcryptCost))
-	}
-	if c.Auth.MaxLoginFailures < 0 {
-		errs = append(errs, fmt.Errorf("auth.max_login_failures must be zero or positive, got %d", c.Auth.MaxLoginFailures))
-	}
-	if c.Auth.LockoutMinutes < 0 {
-		errs = append(errs, fmt.Errorf("auth.lockout_minutes must be zero or positive, got %d", c.Auth.LockoutMinutes))
 	}
 
 	// Validate upstream identity providers. The provider list is optional; an
@@ -480,39 +374,6 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("database.path must not be empty"))
 	}
 
-	// Validate SMTP TLS mode only when SMTP is configured.
-	if c.SMTP.Host != "" {
-		switch c.SMTP.TLS {
-		case "tls", "starttls", "none":
-			// valid
-		default:
-			errs = append(errs, fmt.Errorf("smtp.tls must be one of \"tls\", \"starttls\", or \"none\", got %q", c.SMTP.TLS))
-		}
-	}
-
-	// Validate CSRF key length if explicitly set.
-	if c.CSRF.Key != "" && len(c.CSRF.Key) < 64 {
-		errs = append(errs, fmt.Errorf("csrf.key must be at least 64 hex characters (32 random bytes) when set, got %d", len(c.CSRF.Key)))
-	}
-
-	// Validate the security webhook. An empty URL disables the feature; a
-	// configured endpoint must be a usable http(s) URL. The timeout is always
-	// checked so a typo is caught even while the webhook is disabled.
-	if c.Security.WebhookURL != "" {
-		u, err := url.Parse(c.Security.WebhookURL)
-		switch {
-		case err != nil:
-			errs = append(errs, fmt.Errorf("security.webhook_url is not a valid URL: %w", err))
-		case u.Scheme != "http" && u.Scheme != "https":
-			errs = append(errs, fmt.Errorf("security.webhook_url must use http or https, got scheme %q", u.Scheme))
-		case u.Host == "":
-			errs = append(errs, fmt.Errorf("security.webhook_url must include a host, got %q", c.Security.WebhookURL))
-		}
-	}
-	if c.Security.WebhookTimeoutSeconds < 1 || c.Security.WebhookTimeoutSeconds > 60 {
-		errs = append(errs, fmt.Errorf("security.webhook_timeout_seconds must be between 1 and 60, got %d", c.Security.WebhookTimeoutSeconds))
-	}
-
 	// Validate the secret-encryption key format if explicitly set. An empty
 	// value is valid: the key file next to the database is used instead.
 	// ParseKey is the same decoder the server uses, so a value that passes here
@@ -523,59 +384,8 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate the UI theme against the registry.
-	if _, ok := theme.Lookup(c.UI.Theme); !ok {
-		errs = append(errs, fmt.Errorf("ui.theme %q is not a known theme (valid: %s)", c.UI.Theme, strings.Join(theme.Names(), ", ")))
-	}
-
-	// A metrics token is presented as a Bearer credential, so whitespace or
-	// control characters would make it unusable. The message never includes the
-	// value — the token is a secret.
-	if c.Metrics.Token != "" {
-		if strings.ContainsFunc(c.Metrics.Token, func(r rune) bool {
-			return unicode.IsSpace(r) || unicode.IsControl(r)
-		}) {
-			errs = append(errs, fmt.Errorf("metrics.token must not contain whitespace or control characters"))
-		}
-	}
-
-	// Validate rate limit values — all must be positive.
-	rl := c.RateLimit
-	if rl.LoginRequests <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.login_requests must be positive, got %d", rl.LoginRequests))
-	}
-	if rl.LoginWindowMinutes <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.login_window_minutes must be positive, got %d", rl.LoginWindowMinutes))
-	}
-	if rl.ResetRequests <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.reset_requests must be positive, got %d", rl.ResetRequests))
-	}
-	if rl.ResetWindowMinutes <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.reset_window_minutes must be positive, got %d", rl.ResetWindowMinutes))
-	}
-	if rl.OAuthTokenRequests <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.oauth_token_requests must be positive, got %d", rl.OAuthTokenRequests))
-	}
-	if rl.OAuthTokenWindowMinutes <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.oauth_token_window_minutes must be positive, got %d", rl.OAuthTokenWindowMinutes))
-	}
-	if rl.RegisterRequests <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.register_requests must be positive, got %d", rl.RegisterRequests))
-	}
-	if rl.RegisterWindowMinutes <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.register_window_minutes must be positive, got %d", rl.RegisterWindowMinutes))
-	}
-	if rl.MagicLinkRequests <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.magic_link_requests must be positive, got %d", rl.MagicLinkRequests))
-	}
-	if rl.MagicLinkWindowMinutes <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.magic_link_window_minutes must be positive, got %d", rl.MagicLinkWindowMinutes))
-	}
-	if rl.SetupRequests <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.setup_requests must be positive, got %d", rl.SetupRequests))
-	}
-	if rl.SetupWindowMinutes <= 0 {
-		errs = append(errs, fmt.Errorf("ratelimit.setup_window_minutes must be positive, got %d", rl.SetupWindowMinutes))
+	if c.CSRF.Key != "" && len(c.CSRF.Key) < 64 {
+		errs = append(errs, fmt.Errorf("csrf.key must be at least 64 hex characters (32 random bytes) when set, got %d", len(c.CSRF.Key)))
 	}
 
 	return errors.Join(errs...)
@@ -604,23 +414,8 @@ func applyEnvOverrides(cfg *Config) {
 	}
 
 	// Session
-	if v := os.Getenv("PASSAGE_SESSION_DURATION_HOURS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Session.DurationHours = n
-			cfg.Session.DurationHoursSet = true
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SESSION_DURATION_HOURS", v, err)
-		}
-	}
 	if v := os.Getenv("PASSAGE_SESSION_COOKIE_NAME"); v != "" {
 		cfg.Session.CookieName = v
-	}
-	if v := os.Getenv("PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Session.IdleTimeoutMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES", v, err)
-		}
 	}
 	if v := os.Getenv("PASSAGE_SESSION_COOKIE_SECURE"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
@@ -631,67 +426,8 @@ func applyEnvOverrides(cfg *Config) {
 	}
 
 	// SMTP
-	if v := os.Getenv("PASSAGE_SMTP_HOST"); v != "" {
-		cfg.SMTP.Host = v
-	}
-	if v := os.Getenv("PASSAGE_SMTP_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.SMTP.Port = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SMTP_PORT", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_SMTP_USERNAME"); v != "" {
-		cfg.SMTP.Username = v
-	}
-	if v := os.Getenv("PASSAGE_SMTP_PASSWORD"); v != "" {
-		cfg.SMTP.Password = v
-	}
-	if v := os.Getenv("PASSAGE_SMTP_FROM"); v != "" {
-		cfg.SMTP.From = v
-	}
-	if v := os.Getenv("PASSAGE_SMTP_TLS"); v != "" {
-		cfg.SMTP.TLS = v
-	}
 
 	// Auth
-	if v := os.Getenv("PASSAGE_AUTH_ALLOW_REGISTRATION"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.Auth.AllowRegistration = b
-			cfg.Auth.AllowRegistrationSet = true
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_ALLOW_REGISTRATION", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_AUTH_BCRYPT_COST"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Auth.BcryptCost = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_BCRYPT_COST", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_AUTH_MAX_LOGIN_FAILURES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Auth.MaxLoginFailures = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_MAX_LOGIN_FAILURES", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_AUTH_LOCKOUT_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Auth.LockoutMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_LOCKOUT_MINUTES", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_AUTH_REQUIRE_MFA"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.Auth.RequireMFA = b
-			cfg.Auth.RequireMFASet = true
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_AUTH_REQUIRE_MFA", v, err)
-		}
-	}
 
 	// Log
 	if v := os.Getenv("PASSAGE_LOG_LEVEL"); v != "" {
@@ -707,123 +443,13 @@ func applyEnvOverrides(cfg *Config) {
 	}
 
 	// Security
-	if v := os.Getenv("PASSAGE_SECURITY_WEBHOOK_URL"); v != "" {
-		cfg.Security.WebhookURL = v
-	}
-	if v := os.Getenv("PASSAGE_SECURITY_WEBHOOK_SECRET"); v != "" {
-		cfg.Security.WebhookSecret = v
-	}
-	if v := os.Getenv("PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Security.WebhookTimeoutSeconds = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS", v, err)
-		}
-	}
 	if v := os.Getenv("PASSAGE_SECURITY_ENCRYPTION_KEY"); v != "" {
 		cfg.Security.EncryptionKey = v
 	}
 
 	// UI
-	if v := os.Getenv("PASSAGE_UI_THEME"); v != "" {
-		cfg.UI.Theme = v
-	}
 
 	// Metrics
-	if v := os.Getenv("PASSAGE_METRICS_ENABLED"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.Metrics.Enabled = b
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_METRICS_ENABLED", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_METRICS_TOKEN"); v != "" {
-		cfg.Metrics.Token = v
-	}
 
 	// RateLimit
-	if v := os.Getenv("PASSAGE_RATELIMIT_LOGIN_REQUESTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.LoginRequests = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_LOGIN_REQUESTS", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.LoginWindowMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_RESET_REQUESTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.ResetRequests = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_RESET_REQUESTS", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.ResetWindowMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.OAuthTokenRequests = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.OAuthTokenWindowMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_SETUP_REQUESTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.SetupRequests = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_SETUP_REQUESTS", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.SetupWindowMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_REGISTER_REQUESTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.RegisterRequests = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_REGISTER_REQUESTS", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_REGISTER_WINDOW_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.RegisterWindowMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_REGISTER_WINDOW_MINUTES", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.MagicLinkRequests = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS", v, err)
-		}
-	}
-	if v := os.Getenv("PASSAGE_RATELIMIT_MAGIC_LINK_WINDOW_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.RateLimit.MagicLinkWindowMinutes = n
-		} else {
-			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_RATELIMIT_MAGIC_LINK_WINDOW_MINUTES", v, err)
-		}
-	}
 }

@@ -452,47 +452,6 @@ func TestHandler_Tagline(t *testing.T) {
 	})
 }
 
-// TestHandler_GetRegister_ExplicitConfigWins proves the config file or
-// environment beats the runtime setting, in both directions: the admin setting
-// is ignored while auth.allow_registration is supplied by config.
-func TestHandler_GetRegister_ExplicitConfigWins(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		configVal  bool
-		setting    string
-		wantStatus int
-	}{
-		{name: "config disables what the setting enables", configVal: false, setting: "true", wantStatus: http.StatusForbidden},
-		{name: "config enables what the setting disables", configVal: true, setting: "false", wantStatus: http.StatusOK},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			f := newFullHandlerFixtureAll(t, true, 5, 15, func(cfg *config.Config) {
-				cfg.Auth.AllowRegistration = tt.configVal
-				cfg.Auth.AllowRegistrationSet = true
-			}, noopSender{})
-			f.settings.values["allow_registration"] = tt.setting
-
-			req := httptest.NewRequest(http.MethodGet, "/register", nil)
-			rec := httptest.NewRecorder()
-			f.handler.GetRegister(rec, req)
-
-			if rec.Code != tt.wantStatus {
-				t.Fatalf("GetRegister status = %d, want %d", rec.Code, tt.wantStatus)
-			}
-			if tt.wantStatus == http.StatusForbidden {
-				if !strings.Contains(rec.Body.String(), "Registration is disabled") {
-					t.Error("disabled page did not render")
-				}
-			}
-		})
-	}
-}
-
 // TestHandler_Wordmark covers the sign-in header: the plain name, the phrase
 // combined with it, and the plain style that drops the prefix.
 func TestHandler_Wordmark(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/session"
+	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/user"
 )
 
@@ -401,15 +402,10 @@ func (h *Handler) linkUser(ctx context.Context, p *Provider, ident *Identity, us
 	return nil
 }
 
-// registrationAllowed mirrors the user handler so an upstream sign-in obeys
-// the same policy: explicit config first, then the admin setting, then the
-// config default.
+// registrationAllowed mirrors the user handler: the stored policy decides, and
+// the config snapshot is the fallback when the row is missing.
 func (h *Handler) registrationAllowed(ctx context.Context) bool {
-	if h.settings == nil {
-		return h.cfg.Auth.AllowRegistration
-	}
-	val, err := h.settings.Get(ctx, "allow_registration")
-	return config.BoolSetting(h.cfg.Auth.AllowRegistrationSet, h.cfg.Auth.AllowRegistration, val, err == nil)
+	return settings.Bool(ctx, h.settings, settings.AllowRegistration, h.cfg.Auth.AllowRegistration)
 }
 
 // provider resolves the {provider} route parameter against the configured set.

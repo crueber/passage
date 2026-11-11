@@ -4,18 +4,13 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/settings"
 )
 
 // mfaRequired reports whether the instance enforces a second factor for every
-// account. An explicit auth.require_mfa from the config file or environment
-// wins; otherwise the saved admin setting does; otherwise the config default.
+// account, from the admin setting (the config snapshot is the fallback).
 func (h *Handler) mfaRequired(ctx context.Context) bool {
-	if h.settings == nil {
-		return h.cfg.Auth.RequireMFA
-	}
-	raw, err := h.settings.Get(ctx, SettingRequireMFA)
-	return config.BoolSetting(h.cfg.Auth.RequireMFASet, h.cfg.Auth.RequireMFA, raw, err == nil)
+	return settings.Bool(ctx, h.settings, settings.RequireMFA, h.cfg.Auth.RequireMFA)
 }
 
 // MFABlocked reports whether the global policy currently requires this user to

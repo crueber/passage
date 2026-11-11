@@ -24,6 +24,7 @@ import (
 	"github.com/crueber/passage/internal/policy"
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
+	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/theme"
 	"github.com/crueber/passage/internal/user"
 )
@@ -1827,254 +1828,118 @@ func (h *Handler) PostRevokeSession(w http.ResponseWriter, r *http.Request) {
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
-type settingsData struct {
+// settingsPageData is the template data for the settings page. The page is
+// organised into tabs, one section each; a tab is a separate form so saving
+// "Email" cannot rewrite "Rate limits".
+type settingsPageData struct {
 	basePage
-	AllowRegistration    string
-	SessionDurationHours string
-	Tagline              string
-	// TaglineDefault is the placeholder shown when the field is empty; an empty
-	// saved value hides the line instead.
-	TaglineDefault string
-	// Sign-in header: a custom phrase and how it combines with the name.
-	HeaderPhrase string
-	HeaderStyle  string
-	SMTPFrom     string
-	// Locked flags mark settings the configuration file or environment
-	// supplied. Those win over the stored value, so the control is rendered
-	// read-only with a note instead of silently ignoring the operator's save.
-	AllowRegistrationLocked bool
-	SessionDurationLocked   bool
-	AuthRequireMFALocked    bool
-	// Themes is the registry shown in the per-browser appearance picker.
-	// It is presentation-only data: selecting a theme is client-side and does
-	// not touch the settings store.
+	Tabs   []settingsTabLink
+	Active settingsSection
+	// Themes powers the per-browser appearance picker, which sits outside the
+	// form because it is client-side only.
 	Themes []theme.Theme
-	// Auth method flags
-	AuthPasswordEnabled  string
-	AuthPasskeyEnabled   string
-	AuthMagicLinkEnabled string
-	// AuthRequireMFA reflects the effective policy: the settings-store value
-	// when present, otherwise the auth.require_mfa config/env default.
-	AuthRequireMFA string
-	SMTPConfigured bool
 }
 
-// GetSettings renders the settings page.
-func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	all, err := h.settings.GetAll(ctx)
-	if err != nil {
-		h.logger.Error("admin: get all settings", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+type settingsTabLink struct {
+	ID     string
+	Title  string
+	Active bool
+}
 
+// settingsSectionByID returns the requested section, defaulting to the first.
+func settingsSectionByID(sections []settingsSection, id string) settingsSection {
+	for _, s := range sections {
+		if s.ID == id {
+			return s
+		}
+	}
+	return sections[0]
+}
+
+func (h *Handler) settingsTabsFor(activeID string) []settingsTabLink {
+	out := make([]settingsTabLink, 0, len(settingsTabs))
+	for _, t := range settingsTabs {
+		out = append(out, settingsTabLink{ID: t.ID, Title: t.Title, Active: t.ID == activeID})
+	}
+	return out
+}
+
+// GetSettings renders the requested settings tab.
+func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	var flash *Flash
 	if code := r.URL.Query().Get("flash"); code != "" {
 		flash = flashFromQuery(code)
 	}
-
-	h.render(w, r, "admin-settings", h.buildSettingsData(r, all, h.baseFlash(r, "settings", flash)))
+	sec := settingsSectionByID(h.settingsSections(r.Context(), nil), r.URL.Query().Get("tab"))
+	h.render(w, r, "admin-settings", settingsPageData{
+		basePage: h.baseFlash(r, "settings", flash),
+		Tabs:     h.settingsTabsFor(sec.ID),
+		Active:   sec,
+		Themes:   theme.All,
+	})
 }
 
-// buildSettingsData populates a settingsData from the given settings map and
-// basePage. Applies defaults: password and passkey default to "true", magic
-// link defaults to "false". Settings the config file supplies display the
-// config value and are marked locked.
-func (h *Handler) buildSettingsData(_ *http.Request, all map[string]string, base basePage) settingsData {
-	allowRegistration := all["allow_registration"]
-	if allowRegistration == "" {
-		allowRegistration = strconv.FormatBool(h.cfg.Auth.AllowRegistration)
-	}
-	sessionDuration := all["session_duration_hours"]
-	if sessionDuration == "" {
-		sessionDuration = strconv.Itoa(h.cfg.Session.DurationHours)
-	}
-	authPassword := all["auth_password_enabled"]
-	if authPassword == "" {
-		authPassword = "true"
-	}
-	authPasskey := all["auth_passkey_enabled"]
-	if authPasskey == "" {
-		authPasskey = "true"
-	}
-	authMagicLink := all["auth_magic_link_enabled"]
-	if authMagicLink == "" {
-		authMagicLink = "false"
-	}
-	authRequireMFA := all["auth_require_mfa"]
-	if authRequireMFA == "" {
-		authRequireMFA = strconv.FormatBool(h.cfg.Auth.RequireMFA)
-	}
-	// A value supplied by the config file or environment wins, so show it and
-	// say so rather than letting the form edit a setting that is ignored.
-	if h.cfg.Auth.AllowRegistrationSet {
-		allowRegistration = strconv.FormatBool(h.cfg.Auth.AllowRegistration)
-	}
-	if h.cfg.Session.DurationHoursSet {
-		sessionDuration = strconv.Itoa(h.cfg.Session.DurationHours)
-	}
-	if h.cfg.Auth.RequireMFASet {
-		authRequireMFA = strconv.FormatBool(h.cfg.Auth.RequireMFA)
-	}
-	return settingsData{
-		basePage:                base,
-		AllowRegistration:       allowRegistration,
-		SessionDurationHours:    sessionDuration,
-		Tagline:                 all[user.SettingTagline],
-		TaglineDefault:          user.DefaultTagline,
-		HeaderPhrase:            all[user.SettingHeaderPhrase],
-		HeaderStyle:             headerStyle(all[user.SettingHeaderStyle]),
-		SMTPFrom:                all["smtp_from"],
-		AllowRegistrationLocked: h.cfg.Auth.AllowRegistrationSet,
-		SessionDurationLocked:   h.cfg.Session.DurationHoursSet,
-		AuthRequireMFALocked:    h.cfg.Auth.RequireMFASet,
-		Themes:                  theme.All,
-		AuthPasswordEnabled:     authPassword,
-		AuthPasskeyEnabled:      authPasskey,
-		AuthMagicLinkEnabled:    authMagicLink,
-		AuthRequireMFA:          authRequireMFA,
-		SMTPConfigured:          h.cfg.SMTP.Host != "",
-	}
-}
-
-// headerStyle normalizes the stored header style. Anything that is not the
-// explicit "plain" choice renders "passage for <phrase>", so a missing or
-// unrecognized value behaves like the default.
-func headerStyle(raw string) string {
-	if strings.TrimSpace(raw) == user.HeaderStylePlain {
-		return user.HeaderStylePlain
-	}
-	return user.HeaderStyleFor
-}
-
-// settingLockedByConfig reports whether the configuration file or environment
-// supplies the given setting. Such a value wins over the store, so a save must
-// not write it (the form cannot edit it; this also covers a crafted POST).
-func (h *Handler) settingLockedByConfig(key string) bool {
-	switch key {
-	case "allow_registration":
-		return h.cfg.Auth.AllowRegistrationSet
-	case "session_duration_hours":
-		return h.cfg.Session.DurationHoursSet
-	case "auth_require_mfa":
-		return h.cfg.Auth.RequireMFASet
-	}
-	return false
-}
-
-// renderSettingsWithError re-loads settings from the store and renders the settings
-// page with the given flash error.
-func (h *Handler) renderSettingsWithError(w http.ResponseWriter, r *http.Request, msg string) {
-	ctx := r.Context()
-	all, err := h.settings.GetAll(ctx)
-	if err != nil {
-		h.logger.Error("admin: get all settings (error render)", "error", err)
-		all = map[string]string{}
-	}
-	base := h.baseFlash(r, "settings", &Flash{Type: "error", Message: msg})
-	h.render(w, r, "admin-settings", h.buildSettingsData(r, all, base))
-}
-
-// PostSettings saves the settings form.
+// PostSettings validates and stores one tab.
 func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Redirect(w, r, "/admin/settings", http.StatusFound)
 		return
 	}
-
 	ctx := r.Context()
-	values := h.settingsFromForm(r)
+	tab := r.FormValue("tab")
+	sec := settingsSectionByID(h.settingsSections(ctx, nil), tab)
 
-	// Validate everything before writing anything, so a rejected form leaves the
-	// stored settings untouched and re-renders with the values the operator just
-	// typed.
-	if d := values["session_duration_hours"]; d != "" {
-		n, err := strconv.Atoi(d)
-		if err != nil || n <= 0 {
-			h.renderSettingsForm(w, r, values, "Session duration must be a positive number.")
-			return
-		}
+	values, problems := h.parseSettingsSection(r, sec)
+	if len(problems) == 0 {
+		problems = h.crossFieldProblems(sec, values)
 	}
-	if values["auth_password_enabled"] == "false" &&
-		values["auth_passkey_enabled"] == "false" &&
-		values["auth_magic_link_enabled"] == "false" {
-		h.renderSettingsForm(w, r, values, "At least one authentication method must be enabled.")
-		return
-	}
-	if values["auth_magic_link_enabled"] == "true" && h.cfg.SMTP.Host == "" {
-		h.renderSettingsForm(w, r, values, "Magic link requires SMTP to be configured.")
-		return
-	}
-	if len(values[user.SettingTagline]) > user.MaxTaglineLength {
-		h.renderSettingsForm(w, r, values,
-			fmt.Sprintf("The sign-in tagline must be at most %d characters.", user.MaxTaglineLength))
-		return
-	}
-	if len(values[user.SettingHeaderPhrase]) > user.MaxHeaderPhraseLength {
-		h.renderSettingsForm(w, r, values,
-			fmt.Sprintf("The sign-in header phrase must be at most %d characters.", user.MaxHeaderPhraseLength))
+	if len(problems) > 0 {
+		// Re-render with what was typed and every problem listed, so nothing is
+		// lost and the operator does not have to guess.
+		h.render(w, r, "admin-settings", settingsPageData{
+			basePage: h.baseFlash(r, "settings", &Flash{Type: "error", Message: strings.Join(problems, " ")}),
+			Tabs:     h.settingsTabsFor(sec.ID),
+			Active:   settingsSectionByID(h.settingsSections(ctx, values), sec.ID),
+			Themes:   theme.All,
+		})
 		return
 	}
 
-	keys := []string{
-		"allow_registration", "session_duration_hours", user.SettingTagline,
-		user.SettingHeaderPhrase, user.SettingHeaderStyle, "smtp_from",
-		"auth_password_enabled", "auth_passkey_enabled", "auth_magic_link_enabled", "auth_require_mfa",
-	}
-	for _, key := range keys {
-		// A settings-page field that the config file or environment supplies is
-		// read-only: the config value wins, so writing the form value here would
-		// only create a mismatch between what the UI says and what applies.
-		if h.settingLockedByConfig(key) {
-			continue
-		}
-		// An empty duration is "leave the current value alone"; everything else
-		// (including empty smtp_from) is an explicit value.
-		if key == "session_duration_hours" && values[key] == "" {
-			continue
-		}
-		if err := h.settings.Set(ctx, key, values[key]); err != nil {
+	for key, value := range values {
+		if err := h.settings.Set(ctx, key, value); err != nil {
 			h.logger.Error("admin: set setting", "key", key, "error", err)
-			h.renderSettingsForm(w, r, values, "Failed to save settings. Please try again.")
+			h.render(w, r, "admin-settings", settingsPageData{
+				basePage: h.baseFlash(r, "settings", &Flash{Type: "error", Message: "Failed to save settings. Please try again."}),
+				Tabs:     h.settingsTabsFor(sec.ID),
+				Active:   settingsSectionByID(h.settingsSections(ctx, values), sec.ID),
+				Themes:   theme.All,
+			})
 			return
 		}
 	}
 
-	h.logAudit(r, AuditActionSettingsUpdate, "settings", "", "")
-	http.Redirect(w, r, "/admin/settings?flash=updated", http.StatusFound)
+	h.logAudit(r, AuditActionSettingsUpdate, "settings", "", sec.ID)
+	http.Redirect(w, r, "/admin/settings?tab="+sec.ID+"&flash=updated", http.StatusFound)
 }
 
-// settingsFromForm reads the single settings form into the same key/value shape
-// the store uses. Checkboxes post "on" when checked and nothing when not, so
-// their absence is an explicit "false" — which is why the whole form must be
-// submitted together (there is no partial save to confuse it with).
-func (h *Handler) settingsFromForm(r *http.Request) map[string]string {
-	on := func(name string) string {
-		if r.FormValue(name) == "on" {
-			return "true"
+// crossFieldProblems enforces rules that span more than one field.
+func (h *Handler) crossFieldProblems(sec settingsSection, values map[string]string) []string {
+	if sec.ID != "auth" {
+		return nil
+	}
+	if values[settings.PasswordEnabled] != "true" &&
+		values[settings.PasskeyEnabled] != "true" &&
+		values[settings.MagicLinkEnabled] != "true" {
+		return []string{"At least one authentication method must stay enabled."}
+	}
+	if values[settings.MagicLinkEnabled] == "true" {
+		// The stored SMTP host is the truth; the config snapshot may be older.
+		host := settings.String(context.Background(), h.settings, settings.SMTPHost, h.cfg.SMTP.Host)
+		if host == "" {
+			return []string{"Magic link needs an SMTP host; set one under Email first."}
 		}
-		return "false"
 	}
-	return map[string]string{
-		"allow_registration":      on("allow_registration"),
-		"session_duration_hours":  strings.TrimSpace(r.FormValue("session_duration_hours")),
-		user.SettingTagline:       strings.TrimSpace(r.FormValue("login_tagline")),
-		user.SettingHeaderPhrase:  strings.TrimSpace(r.FormValue("login_header_phrase")),
-		user.SettingHeaderStyle:   headerStyle(r.FormValue("login_header_style")),
-		"smtp_from":               strings.TrimSpace(r.FormValue("smtp_from")),
-		"auth_password_enabled":   on("auth_password_enabled"),
-		"auth_passkey_enabled":    on("auth_passkey_enabled"),
-		"auth_magic_link_enabled": on("auth_magic_link_enabled"),
-		"auth_require_mfa":        on("auth_require_mfa"),
-	}
-}
-
-// renderSettingsForm re-renders the settings page with the submitted values and
-// an error flash, so nothing typed in a rejected form is lost.
-func (h *Handler) renderSettingsForm(w http.ResponseWriter, r *http.Request, values map[string]string, msg string) {
-	h.render(w, r, "admin-settings", h.buildSettingsData(r, values,
-		h.baseFlash(r, "settings", &Flash{Type: "error", Message: msg})))
+	return nil
 }
 
 // ─── Audit log ────────────────────────────────────────────────────────────────

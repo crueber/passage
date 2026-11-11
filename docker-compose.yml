@@ -24,19 +24,10 @@ services:
       # Database — always points into the named volume
       PASSAGE_DATABASE_PATH: "/data/passage.db"
       # Session
-      PASSAGE_SESSION_DURATION_HOURS: "${PASSAGE_SESSION_DURATION_HOURS:-24}"
       PASSAGE_SESSION_COOKIE_NAME: "${PASSAGE_SESSION_COOKIE_NAME:-passage_session}"
       PASSAGE_SESSION_COOKIE_SECURE: "${PASSAGE_SESSION_COOKIE_SECURE:-true}"
-      # SMTP (optional — omit host to disable email features)
-      PASSAGE_SMTP_HOST: "${PASSAGE_SMTP_HOST:-}"
-      PASSAGE_SMTP_PORT: "${PASSAGE_SMTP_PORT:-587}"
-      PASSAGE_SMTP_USERNAME: "${PASSAGE_SMTP_USERNAME:-}"
-      PASSAGE_SMTP_PASSWORD: "${PASSAGE_SMTP_PASSWORD:-}"
-      PASSAGE_SMTP_FROM: "${PASSAGE_SMTP_FROM:-}"
-      PASSAGE_SMTP_TLS: "${PASSAGE_SMTP_TLS:-starttls}"
-      # Auth
-      PASSAGE_AUTH_ALLOW_REGISTRATION: "${PASSAGE_AUTH_ALLOW_REGISTRATION:-true}"
-      PASSAGE_AUTH_BCRYPT_COST: "${PASSAGE_AUTH_BCRYPT_COST:-12}"
+      # Everything else (SMTP, sign-in methods, registration, sessions,
+      # branding, rate limits, webhook, metrics) is configured in the admin UI.
       # Logging
       PASSAGE_LOG_LEVEL: "${PASSAGE_LOG_LEVEL:-info}"
       PASSAGE_LOG_FORMAT: "${PASSAGE_LOG_FORMAT:-json}"

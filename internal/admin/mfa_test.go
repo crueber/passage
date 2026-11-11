@@ -211,7 +211,7 @@ func TestAdminSettings_RequireMFA(t *testing.T) {
 	token := createSession(t, f, adminUser.ID)
 	router := buildAdminRouter(f)
 
-	rec := adminRequest(t, router, http.MethodGet, "/admin/settings", token, f.cfg.Session.CookieName, nil, "")
+	rec := adminRequest(t, router, http.MethodGet, "/admin/settings?tab=auth", token, f.cfg.Session.CookieName, nil, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /admin/settings status = %d; want 200", rec.Code)
 	}
@@ -220,9 +220,13 @@ func TestAdminSettings_RequireMFA(t *testing.T) {
 	}
 
 	form := url.Values{}
+	form.Set("tab", "auth")
 	form.Set("auth_password_enabled", "on")
 	form.Set("auth_passkey_enabled", "on")
 	form.Set("auth_require_mfa", "on")
+	form.Set("auth_max_login_failures", "5")
+	form.Set("auth_lockout_minutes", "15")
+	form.Set("auth_bcrypt_cost", "12")
 	rec = adminRequest(t, router, http.MethodPost, "/admin/settings", token,
 		f.cfg.Session.CookieName, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if rec.Code != http.StatusFound {

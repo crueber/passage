@@ -22,6 +22,7 @@ import (
 	"github.com/crueber/passage/internal/email"
 	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/ratelimit"
+	"github.com/crueber/passage/internal/settings"
 )
 
 // Flash represents a flash message rendered above a form.
@@ -146,16 +147,11 @@ func (h *Handler) record(r *http.Request, e authlog.Event) {
 	h.authEvents.Record(r.Context(), e)
 }
 
-// registrationAllowed resolves the registration policy: an explicit
-// auth.allow_registration from the config file or environment wins, otherwise
-// the admin setting, otherwise the config default. The settings page shows the
-// field read-only while the config controls it.
+// registrationAllowed reports the stored registration policy. The admin UI is
+// the only place it is set; the config snapshot is just the default when the
+// row is missing.
 func (h *Handler) registrationAllowed(ctx context.Context) bool {
-	if h.settings == nil {
-		return h.cfg.Auth.AllowRegistration
-	}
-	val, err := h.settings.Get(ctx, "allow_registration")
-	return config.BoolSetting(h.cfg.Auth.AllowRegistrationSet, h.cfg.Auth.AllowRegistration, val, err == nil)
+	return settings.Bool(ctx, h.settings, settings.AllowRegistration, h.cfg.Auth.AllowRegistration)
 }
 
 // safeReturnPath reports whether rd is a same-site absolute path that is safe

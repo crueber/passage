@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/user"
 )
 
@@ -109,14 +110,8 @@ func (s *Service) sessionDurationHours(ctx context.Context, appID *string) int {
 		// On error (app deleted mid-request, etc.) fall through silently.
 	}
 
-	// 2./3. Explicit config, then the admin setting, then the default.
-	stored, hasStored := "", false
-	if s.settings != nil {
-		if val, err := s.settings.Get(ctx, "session_duration_hours"); err == nil && val != "" {
-			stored, hasStored = val, true
-		}
-	}
-	return config.IntSetting(s.cfg.Session.DurationHoursSet, s.cfg.Session.DurationHours, stored, hasStored)
+	// 2./3. The stored setting, then the startup snapshot as the fallback.
+	return settings.Int(ctx, s.settings, settings.SessionDurationHours, s.cfg.Session.DurationHours, 1, 8760)
 }
 
 // CreateSession creates a new session and returns the token string and expiry

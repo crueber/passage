@@ -1,4 +1,10 @@
 # passage.example.yaml — copy to passage.yaml and edit for your environment
+#
+# This file is bootstrap-only: where the server listens, the public URL, the
+# database location, key material and logging. Everything else — sign-in
+# methods, registration, sessions, branding, email, rate limits, the security
+# webhook, metrics, themes and upstream identity providers — is configured in
+# the admin UI (Settings) and stored in the database.
 
 server:
   host: "0.0.0.0"
@@ -11,74 +17,10 @@ database:
   path: "./passage.db"
 
 session:
-  # Global session lifetime. When this key is present (or
-  # PASSAGE_SESSION_DURATION_HOURS is set) it overrides the matching admin
-  # setting and the field is read-only in Settings → General.
-  duration_hours: 24
-  # Optional idle timeout. A session that has not been used for this many
-  # minutes is closed even if duration_hours has not elapsed. 0 disables it.
-  # "Used" is refreshed at most once every five minutes per session.
-  idle_timeout_minutes: 0
+  # Cookie settings describe how the deployment is reached; everything else
+  # about sessions lives in Settings → General.
   cookie_name: "passage_session"
-  cookie_secure: true
-
-smtp:
-  host: "smtp.example.com"
-  port: 587
-  username: "passage@example.com"
-  password: "changeme"
-  from: "Passage <passage@example.com>"
-  tls: "starttls"
-
-auth:
-  # Public self-registration. When this key is present (or
-  # PASSAGE_AUTH_ALLOW_REGISTRATION is set) it overrides the admin switch and
-  # that switch is read-only in Settings → General; remove the key to manage
-  # registration from the UI.
-  allow_registration: true
-  bcrypt_cost: 12
-  # Per-account password-login throttling. After this many consecutive invalid
-  # passwords the account is locked for lockout_minutes. Set either value to 0
-  # to disable. Locks expire automatically; an admin can unlock early from the
-  # Users page. Only password login participates — passkeys and magic links are
-  # unaffected.
-  max_login_failures: 5
-  lockout_minutes: 15
-  # Default for the "Require two-factor authentication" policy. When on, every
-  # signed-in user must enrol an authenticator app (TOTP) before they can use
-  # Passage; password sign-ins then ask for a 6-digit code. Passkeys and magic
-  # links are not affected. When this key is present (or
-  # PASSAGE_AUTH_REQUIRE_MFA is set) it overrides the admin checkbox, which is
-  # then read-only; remove the key to manage the policy from the UI.
-  require_mfa: false
-
-  # Upstream OIDC/OAuth identity providers. Each entry adds a sign-in button to
-  # the login page and uses authorization-code flow with state, nonce, and PKCE
-  # (S256). The provider's id_token is verified against its JWKS (RS256 only),
-  # issuer, audience, expiry, and nonce.
-  #
-  # There is deliberately no PASSAGE_* environment override for this list: a
-  # list has no useful single-value env form. Configure it in this file.
-  #
-  # name:          unique URL slug ([a-z0-9][a-z0-9_-]*, max 64); used in
-  #                /login/oidc/<name>/start
-  # label:         button text (defaults to name)
-  # issuer:        absolute https URL serving /.well-known/openid-configuration
-  # client_id:     OAuth client id registered with the provider
-  # client_secret: OAuth client secret (client_secret_basic at the token endpoint)
-  # scopes:        defaults to [openid, email, profile]; must include openid
-  # auto_create:   create a local account on first sign-in. Linking by email
-  #                only happens when the provider asserts email_verified: true.
-  #                Subject to the global registration policy as well.
-  providers: []
-  # providers:
-  #   - name: "authentik"
-  #     label: "Authentik"
-  #     issuer: "https://auth.example.com/application/o/passage/"
-  #     client_id: "passage"
-  #     client_secret: "changeme"
-  #     scopes: ["openid", "email", "profile"]
-  #     auto_create: false
+  cookie_secure: true   # set false only for local HTTP development
 
 security:
   # AES-256-GCM key for TOTP secrets at rest, as 64 hex characters or the
@@ -88,59 +30,31 @@ security:
   # without it, enrolled TOTP secrets cannot be read and each affected user
   # needs an admin MFA reset. The key file is as sensitive as the database.
   encryption_key: ""
-  # POST every authentication event to this endpoint as JSON.
-  # Empty disables the webhook. Delivery is asynchronous and at-most-once:
-  # a slow or dead endpoint never delays or fails a login.
-  webhook_url: ""
-  # Optional. When set, each request body is signed with HMAC-SHA256 and the
-  # digest is sent as X-Passage-Signature: sha256=<hex>.
-  webhook_secret: ""
-  # Per-request delivery timeout in seconds (1–60).
-  webhook_timeout_seconds: 5
-
-log:
-  level: "info"
-  format: "json"
-
-ui:
-  # Default colour theme for the web UI. Applies server-side to every page;
-  # individual admins can pick a per-browser override in Settings > Appearance
-  # (stored in localStorage, cosmetic only).
-  # Valid: slate, nord, gruvbox, solarized, catppuccin, tokyo-night,
-  #        rose-pine, everforest, kanagawa, paper
-  theme: "slate"
 
 csrf:
-  # Optional server-side CSRF signing secret: 64+ hex characters
-  # (`openssl rand -hex 32`). When set, CSRF tokens are bound to it in addition
-  # to the per-browser cookie. Leave empty to generate an ephemeral key at
-  # startup — fine for one instance, but set it if you run more than one or want
-  # anonymous forms to survive a restart.
+  # Optional server-side CSRF signing secret (64+ hex characters). Empty means
+  # an ephemeral key is generated at startup: anonymous CSRF tokens still work,
+  # but are not valid across restarts.
   key: ""
 
-metrics:
-  # Prometheus metrics at GET /metrics. Enabled by default; set to false to make
-  # the endpoint answer 404. Only methods and status codes are counted, never
-  # paths, so cardinality stays bounded. Gauges are COUNT queries, so a scrape
-  # never scans the event log.
-  enabled: true
-  # Optional bearer token. When set, every scrape must send
-  # "Authorization: Bearer <token>". Leave empty when the endpoint is reachable
-  # only from a trusted network or an authenticating reverse proxy. The token is
-  # compared in constant time, never logged, and must not contain whitespace.
-  token: ""
+log:
+  level: "info"    # "debug" | "info" | "warn" | "error"
+  format: "json"   # "json" | "text"
 
-rate_limit:
-  # In-memory sliding-window limits per client IP. Cleared on restart.
-  login_requests: 10
-  login_window_minutes: 15
-  reset_requests: 5
-  reset_window_minutes: 60
-  register_requests: 5
-  register_window_minutes: 60
-  magic_link_requests: 5
-  magic_link_window_minutes: 60
-  oauth_token_requests: 20
-  oauth_token_window_minutes: 1
-  setup_requests: 5
-  setup_window_minutes: 60
+auth:
+  # Upstream OIDC/OAuth identity providers. Each entry adds a sign-in button to
+  # the login page and uses authorization-code flow with state, nonce, and PKCE
+  # (S256). The provider's id_token is verified against its JWKS (RS256 only),
+  # issuer, audience, expiry, and nonce.
+  #
+  # This list is the one feature still configured here; provider management
+  # moves into the admin UI next.
+  providers: []
+  # providers:
+  #   - name: "authentik"     # unique slug used in /login/oidc/{name}
+  #     label: "Authentik"
+  #     issuer: "https://auth.example.com/application/o/passage/"
+  #     client_id: "passage"
+  #     client_secret: "secret"
+  #     scopes: ["openid", "email", "profile"]
+  #     auto_create: false    # create a local account on first sign-in

@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Settings — Passage Admin</title>
+  <title>{{.Active.Title}} — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
   <script src="/static/theme.js"></script>
@@ -21,153 +21,120 @@
       <h1 class="page-title">Settings</h1>
       <p class="page-sub">Instance-wide configuration.</p>
     </div>
-    <button type="submit" form="settings-form" class="btn btn-primary">Save changes</button>
   </div>
 
+  <nav class="tabs" aria-label="Settings sections">
+    {{range .Tabs}}
+    <a href="/admin/settings?tab={{.ID}}"
+       class="tab{{if .Active}} is-active{{end}}"
+       {{if .Active}}aria-current="page"{{end}}>{{.Title}}</a>
+    {{end}}
+  </nav>
+
   <div class="max-w-2xl">
-    {{/* One form, one Save (the button lives in the page header and targets this
-         form by id). Appearance is per-browser, has no name, and sits outside the
-         form because it is handled entirely by /static/theme.js. */}}
-    <form id="settings-form" method="POST" action="/admin/settings" class="space-y-6">
+    {{/* One tab is one form: saving this section cannot rewrite another. The
+         hidden tab field brings the browser back here after the redirect. */}}
+    <form method="POST" action="/admin/settings" class="card p-5 sm:p-6">
       {{csrfField .CSRFToken}}
+      <input type="hidden" name="tab" value="{{.Active.ID}}">
 
-      <section class="card p-5 sm:p-6">
-        <h2 class="font-semibold text-ink">General</h2>
+      <h2 class="font-semibold text-ink">{{.Active.Title}}</h2>
+      {{if .Active.Sub}}<p class="mt-1 text-sm text-muted">{{.Active.Sub}}</p>{{end}}
 
-        <div class="mt-4 space-y-4">
-          <label class="checkbox" for="allow_registration">
-            <input type="checkbox" id="allow_registration" name="allow_registration"
-                   {{if eq .AllowRegistration "true"}}checked{{end}}{{if .AllowRegistrationLocked}} disabled{{end}}>
-            Allow public registration
-          </label>
-          {{if .AllowRegistrationLocked}}
-          <p class="help">
-            Set by the configuration file or environment
-            (<span class="td-mono">auth.allow_registration: {{.AllowRegistration}}</span>).
-            Change it there and restart Passage; this switch is read-only.
-          </p>
+      <div class="mt-5 space-y-5">
+        {{range .Active.Fields}}
+          {{if eq .Kind "bool"}}
+          <div>
+            <label class="checkbox" for="{{.Key}}">
+              <input type="checkbox" id="{{.Key}}" name="{{.Key}}"
+                     {{if eq .Value "true"}}checked{{end}}>
+              {{.Label}}
+            </label>
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
+          </div>
+
+          {{else if eq .Kind "number_pair"}}
+          <div>
+            <p class="label">{{.Label}}</p>
+            <div class="mt-1.5 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label class="help" for="{{.Key}}">Requests per window</label>
+                <input class="input" type="number" id="{{.Key}}" name="{{.Key}}"
+                       min="{{.Min}}" max="{{.Max}}" value="{{.Value}}">
+              </div>
+              <div>
+                <label class="help" for="{{.Key2}}">{{.Label2}}</label>
+                <input class="input" type="number" id="{{.Key2}}" name="{{.Key2}}"
+                       min="1" max="{{.Max}}" value="{{.Value2}}">
+              </div>
+            </div>
+            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
+          </div>
+
+          {{else if eq .Kind "number"}}
+          <div>
+            <label class="label" for="{{.Key}}">{{.Label}}</label>
+            <input class="input sm:max-w-xs" type="number" id="{{.Key}}" name="{{.Key}}"
+                   min="{{.Min}}" max="{{.Max}}" value="{{.Value}}">
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
+          </div>
+
+          {{else if eq .Kind "select"}}
+          <div>
+            <label class="label" for="{{.Key}}">{{.Label}}</label>
+            <select class="input sm:max-w-md" id="{{.Key}}" name="{{.Key}}">
+              {{$value := .Value}}
+              {{range .Options}}
+              <option value="{{.Value}}"{{if eq .Value $value}} selected{{end}}>{{.Label}}</option>
+              {{end}}
+            </select>
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
+          </div>
+
+          {{else if eq .Kind "radio"}}
+          <div>
+            <p class="label">{{.Label}}</p>
+            <div class="mt-1.5 flex flex-col gap-2" role="radiogroup" aria-label="{{.Label}}">
+              {{$f := .}}
+              {{range $opt := .Options}}
+              <label class="checkbox" for="{{$f.Key}}-{{$opt.Value}}">
+                <input type="radio" id="{{$f.Key}}-{{$opt.Value}}" name="{{$f.Key}}"
+                       value="{{$opt.Value}}"{{if eq $opt.Value $f.Value}} checked{{end}}>
+                {{$opt.Label}}
+              </label>
+              {{end}}
+            </div>
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+          </div>
+
+          {{else}}
+          <div>
+            <label class="label" for="{{.Key}}">{{.Label}}</label>
+            <input class="input sm:max-w-md" type="{{if eq .Kind "password"}}password{{else}}text{{end}}"
+                   id="{{.Key}}" name="{{.Key}}" autocomplete="off"
+                   {{if .MaxLen}}maxlength="{{.MaxLen}}"{{end}}
+                   {{if .Placeholder}}placeholder="{{.Placeholder}}"{{end}}
+                   value="{{.Value}}">
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
+          </div>
           {{end}}
+        {{end}}
+      </div>
 
-          <div>
-            <label class="label" for="session_duration_hours">Session duration (hours)</label>
-            <input class="input sm:max-w-xs" type="number" id="session_duration_hours" name="session_duration_hours"
-                   min="1" max="8760" value="{{.SessionDurationHours}}"{{if .SessionDurationLocked}} disabled{{end}}>
-            <p class="help">
-              Global default for all apps. Takes effect immediately for new sessions.
-              Per-app overrides can be set on each app's edit page.
-            </p>
-            {{if .SessionDurationLocked}}
-            <p class="help">
-              Set by the configuration file or environment
-              (<span class="td-mono">session.duration_hours: {{.SessionDurationHours}}</span>).
-              Change it there and restart Passage; this field is read-only.
-            </p>
-            {{end}}
-          </div>
-
-          <div>
-            <label class="label" for="login_tagline">Sign-in tagline</label>
-            <input class="input sm:max-w-md" type="text" id="login_tagline" name="login_tagline"
-                   maxlength="120" value="{{.Tagline}}" placeholder="{{.TaglineDefault}}">
-            <p class="help">
-              The line of text under the sign-in card. Leave it empty to hide the
-              line entirely.
-            </p>
-          </div>
-
-          <div>
-            <label class="label" for="login_header_phrase">Sign-in header phrase</label>
-            <input class="input sm:max-w-md" type="text" id="login_header_phrase" name="login_header_phrase"
-                   maxlength="60" value="{{.HeaderPhrase}}" placeholder="e.g. the Rueber lab">
-            <p class="help">
-              A word or short phrase for the sign-in header. With a phrase set,
-              the header reads <span class="td-mono">passage for &lt;phrase&gt;</span>.
-              Leave it empty to show just <span class="td-mono">passage</span>.
-            </p>
-          </div>
-
-          <fieldset class="space-y-2">
-            <legend class="label">Sign-in header style</legend>
-            <label class="checkbox" for="login_header_style_for">
-              <input type="radio" id="login_header_style_for" name="login_header_style" value="for"
-                     {{if eq .HeaderStyle "for"}}checked{{end}}>
-              <span>Keep the name first:
-                <span class="td-mono">passage for {{if .HeaderPhrase}}{{.HeaderPhrase}}{{else}}&lt;phrase&gt;{{end}}</span>
-              </span>
-            </label>
-            <label class="checkbox" for="login_header_style_plain">
-              <input type="radio" id="login_header_style_plain" name="login_header_style" value="plain"
-                     {{if eq .HeaderStyle "plain"}}checked{{end}}>
-              <span>Drop &ldquo;passage for&rdquo;:
-                <span class="td-mono">{{if .HeaderPhrase}}{{.HeaderPhrase}}{{else}}&lt;phrase&gt;{{end}}</span>
-              </span>
-            </label>
-            <p class="help">Applies to the sign-in page and its second-factor step.</p>
-          </fieldset>
-
-          <div>
-            <label class="label" for="smtp_from">SMTP from address</label>
-            <input class="input sm:max-w-xs" type="email" id="smtp_from" name="smtp_from" autocomplete="off"
-                   value="{{.SMTPFrom}}">
-            <p class="help">Requires restart to take effect. Leave empty to use config file value.</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="card p-5 sm:p-6">
-        <h2 class="font-semibold text-ink">Authentication methods</h2>
-
-        <div class="mt-4 space-y-3">
-          <label class="checkbox" for="auth_password_enabled">
-            <input type="checkbox" id="auth_password_enabled" name="auth_password_enabled"
-                   {{if eq .AuthPasswordEnabled "true"}}checked{{end}}>
-            Enable password authentication
-          </label>
-
-          <label class="checkbox" for="auth_passkey_enabled">
-            <input type="checkbox" id="auth_passkey_enabled" name="auth_passkey_enabled"
-                   {{if eq .AuthPasskeyEnabled "true"}}checked{{end}}>
-            Enable passkey (WebAuthn) authentication
-          </label>
-
-          <div>
-            <label class="checkbox" for="auth_magic_link_enabled">
-              <input type="checkbox" id="auth_magic_link_enabled" name="auth_magic_link_enabled"
-                     {{if eq .AuthMagicLinkEnabled "true"}}checked{{end}}
-                     {{if not .SMTPConfigured}}disabled{{end}}>
-              Enable magic link authentication
-            </label>
-            {{if not .SMTPConfigured}}
-            <p class="help">Requires SMTP to be configured.</p>
-            {{end}}
-          </div>
-
-          <div>
-            <label class="checkbox" for="auth_require_mfa">
-              <input type="checkbox" id="auth_require_mfa" name="auth_require_mfa"
-                     {{if eq .AuthRequireMFA "true"}}checked{{end}}{{if .AuthRequireMFALocked}} disabled{{end}}>
-              Require two-factor authentication
-            </label>
-            {{if .AuthRequireMFALocked}}
-            <p class="help">
-              Set by the configuration file or environment
-              (<span class="td-mono">auth.require_mfa: {{.AuthRequireMFA}}</span>).
-              Change it there and restart Passage; this checkbox is read-only.
-            </p>
-            {{end}}
-            <p class="help">
-              Every user must enrol an authenticator app (TOTP) before they can use
-              Passage. Password sign-ins then ask for a code. Passkeys and magic
-              links are not affected. An administrator can reset a user's
-              two-factor authentication from the Users page.
-            </p>
-          </div>
-        </div>
-      </section>
+      <div class="mt-6 flex items-center justify-end border-t border-line pt-4">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </div>
     </form>
 
+    {{/* Appearance is per-browser and client-side only, so it is not part of the
+         form and never reaches the settings store. */}}
     <section class="card mt-6 p-5 sm:p-6">
       <h2 class="font-semibold text-ink">Appearance</h2>
+      <p class="mt-1 text-sm text-muted">For this browser only.</p>
       <div class="mt-4">
         <label class="label" for="theme-select">Theme</label>
         <select id="theme-select" class="input sm:max-w-xs" data-default="{{theme}}">
@@ -178,7 +145,7 @@
         </select>
         <p class="help">
           Applies immediately, to this browser only. “Server default” uses the
-          instance theme configured by the operator.
+          theme chosen under General.
         </p>
       </div>
     </section>

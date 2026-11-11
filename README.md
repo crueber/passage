@@ -113,12 +113,8 @@ services:
       PASSAGE_SERVER_BASE_URL: "https://auth.home.example.com"
       PASSAGE_DATABASE_PATH: "/data/passage.db"
       PASSAGE_SESSION_COOKIE_SECURE: "true"
-      # SMTP — omit to disable email features
-      PASSAGE_SMTP_HOST: "smtp.example.com"
-      PASSAGE_SMTP_PORT: "587"
-      PASSAGE_SMTP_USERNAME: "passage@example.com"
-      PASSAGE_SMTP_PASSWORD: "secret"
-      PASSAGE_SMTP_FROM: "Passage <passage@example.com>"
+      # SMTP, sign-in options, rate limits and the rest are configured in the
+      # admin UI after first start.
     volumes:
       - passage_data:/data
     healthcheck:
@@ -162,130 +158,55 @@ The server starts on `0.0.0.0:8080` by default. Visit `http://localhost:8080/hea
 
 ## Configuration
 
-Passage is configured via a YAML file plus `PASSAGE_*` environment variable overrides. Environment variables always take precedence over the file.
+Passage is configured in two places:
 
-### Full configuration reference
+- **`passage.yaml`** — bootstrap only: where the server listens, the public base URL, the database path, session-cookie shape, key material and logging. Every key can also be set through a `PASSAGE_*` environment variable, which wins over the file.
+- **The admin UI (Settings)** — everything that describes how the instance behaves: sign-in methods, registration, session lifetime and idle timeout, sign-in branding, theme, SMTP/email, account lockout, rate limits, the security webhook, Prometheus metrics and upstream identity providers. These values live in the database and are applied immediately, except the few marked "takes effect after a restart" (rate limits, lockout thresholds, the webhook, SMTP, the metrics endpoint and the password-hashing cost), which are read once at startup.
 
 ```yaml
 # passage.yaml — copy from passage.example.yaml and edit
-
 server:
-  host: "0.0.0.0"      # bind address
-  port: 8080            # listen port
-  base_url: "https://auth.home.example.com"  # required — used for email links, WebAuthn, and OIDC discovery
+  host: "0.0.0.0"
+  port: 8080
+  base_url: "https://auth.home.example.com"   # required — email links, WebAuthn, OIDC discovery
 
 database:
-  path: "./passage.db"  # path to SQLite file; created on first run
+  path: "./passage.db"
 
 session:
-  duration_hours: 24    # how long sessions stay valid (overrides the admin setting when set)
-  idle_timeout_minutes: 0  # optional: close a session after N minutes unused (0 = off)
   cookie_name: "passage_session"
-  cookie_secure: true   # set false only for local HTTP development
-
-smtp:
-  host: "smtp.example.com"
-  port: 587
-  username: "passage@example.com"
-  password: "secret"
-  from: "Passage <passage@example.com>"
-  tls: "starttls"       # "starttls" | "tls" | "none"
-
-auth:
-  allow_registration: true  # allow self-registration; overrides the admin switch when this key is present
-  # Upstream OIDC providers (optional, empty by default). One login button per
-  # entry; list form, so there is no env override.
-  providers: []
-  # providers:
-  #   - name: "authentik"     # unique slug used in /login/oidc/{name}
-  #     label: "Authentik"
-  #     issuer: "https://auth.example.com/application/o/passage/"
-  #     client_id: "passage"
-  #     client_secret: "secret"
-  #     scopes: ["openid", "email", "profile"]
-  #     auto_create: false    # create a local account on first sign-in
-  bcrypt_cost: 12           # password hashing cost; 10–14 recommended
-  max_login_failures: 5     # per-account lockout threshold (0 disables)
-  lockout_minutes: 15       # how long a locked account stays locked
-  require_mfa: false        # require two-factor authentication; overrides the admin checkbox when present
+  cookie_secure: true    # false only for local HTTP development
 
 security:
-  encryption_key: ""        # AES-256-GCM key for TOTP secrets: 64 hex chars or base64 of 32 bytes
-                            # empty = a 0600 key file beside the database, created on first use
-  webhook_url: ""           # POST every authentication event here as JSON (empty = off)
-  webhook_secret: ""        # optional; signs the body with HMAC-SHA256 (X-Passage-Signature)
-  webhook_timeout_seconds: 5
-
-metrics:
-  enabled: true             # GET /metrics (404 when false)
-  token: ""                 # optional: require Authorization: Bearer <token>
-
-ui:
-  theme: "slate"            # slate | nord | gruvbox | solarized | catppuccin |
-                            # tokyo-night | rose-pine | everforest | kanagawa | paper
-
-log:
-  level: "info"    # "debug" | "info" | "warn" | "error"
-  format: "json"   # "json" | "text"
+  encryption_key: ""     # AES-256-GCM key for TOTP secrets; empty = a 0600 key file beside the database
 
 csrf:
-  key: ""          # optional server-side CSRF signing secret (64+ hex chars); empty = ephemeral key
+  key: ""                # optional CSRF signing secret (64+ hex characters)
 
-rate_limit:
-  login_requests: 10          # max login attempts per IP per window
-  login_window_minutes: 15
-  reset_requests: 5
-  reset_window_minutes: 60
-  register_requests: 5
-  register_window_minutes: 60
-  magic_link_requests: 5
-  magic_link_window_minutes: 60
-  oauth_token_requests: 20
-  oauth_token_window_minutes: 1
-  setup_requests: 5
-  setup_window_minutes: 60
+log:
+  level: "info"          # "debug" | "info" | "warn" | "error"
+  format: "json"         # "json" | "text"
+
+auth:
+  providers: []          # upstream OIDC providers (management moves into the UI next)
 ```
 
 ### Environment variable overrides
 
-Every field has a corresponding `PASSAGE_` env var (prefix `PASSAGE_`, dots → underscores, uppercase). Examples:
-
 | Variable | Overrides |
 |---|---|
+| `PASSAGE_SERVER_HOST` | `server.host` |
 | `PASSAGE_SERVER_PORT` | `server.port` |
 | `PASSAGE_SERVER_BASE_URL` | `server.base_url` |
 | `PASSAGE_DATABASE_PATH` | `database.path` |
-| `PASSAGE_SESSION_DURATION_HOURS` | `session.duration_hours` |
-| `PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES` | `session.idle_timeout_minutes` |
+| `PASSAGE_SESSION_COOKIE_NAME` | `session.cookie_name` |
 | `PASSAGE_SESSION_COOKIE_SECURE` | `session.cookie_secure` |
-| `PASSAGE_SMTP_HOST` | `smtp.host` |
-| `PASSAGE_SMTP_PASSWORD` | `smtp.password` |
-| `PASSAGE_SMTP_TLS` | `smtp.tls` |
-| `PASSAGE_AUTH_ALLOW_REGISTRATION` | `auth.allow_registration` |
-| `PASSAGE_AUTH_BCRYPT_COST` | `auth.bcrypt_cost` |
-| `PASSAGE_AUTH_MAX_LOGIN_FAILURES` | `auth.max_login_failures` |
-| `PASSAGE_AUTH_LOCKOUT_MINUTES` | `auth.lockout_minutes` |
-| `PASSAGE_AUTH_REQUIRE_MFA` | `auth.require_mfa` (overrides the saved admin setting) |
-| `PASSAGE_SECURITY_ENCRYPTION_KEY` | `security.encryption_key` — AES-256-GCM key for TOTP secrets |
-| `PASSAGE_SECURITY_WEBHOOK_URL` | `security.webhook_url` |
-| `PASSAGE_SECURITY_WEBHOOK_SECRET` | `security.webhook_secret` |
-| `PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS` | `security.webhook_timeout_seconds` |
-| `PASSAGE_UI_THEME` | `ui.theme` |
-| `PASSAGE_METRICS_ENABLED` | `metrics.enabled` |
-| `PASSAGE_METRICS_TOKEN` | `metrics.token` |
+| `PASSAGE_SECURITY_ENCRYPTION_KEY` | `security.encryption_key` |
+| `PASSAGE_CSRF_KEY` | `csrf.key` |
 | `PASSAGE_LOG_LEVEL` | `log.level` |
 | `PASSAGE_LOG_FORMAT` | `log.format` |
-| `PASSAGE_CSRF_KEY` | `csrf.key` — optional CSRF signing secret (64+ hex chars); strengthens CSRF protection by binding tokens to a server-side secret |
-| `PASSAGE_RATELIMIT_LOGIN_REQUESTS` | `rate_limit.login_requests` |
-| `PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES` | `rate_limit.login_window_minutes` |
-| `PASSAGE_RATELIMIT_RESET_REQUESTS` | `rate_limit.reset_requests` |
-| `PASSAGE_RATELIMIT_REGISTER_REQUESTS` | `rate_limit.register_requests` |
-| `PASSAGE_RATELIMIT_MAGIC_LINK_REQUESTS` | `rate_limit.magic_link_requests` |
-| `PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES` | `rate_limit.reset_window_minutes` |
-| `PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS` | `rate_limit.oauth_token_requests` |
-| `PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES` | `rate_limit.oauth_token_window_minutes` |
-| `PASSAGE_RATELIMIT_SETUP_REQUESTS` | `rate_limit.setup_requests` |
-| `PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES` | `rate_limit.setup_window_minutes` |
+
+Feature settings have no environment variables: set them in the admin UI.
 
 ---
 

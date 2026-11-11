@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/crueber/passage/internal/config"
 )
@@ -59,16 +58,12 @@ func TestLoad_EnvOverride(t *testing.T) {
 
 	// Set a few env vars and verify they override defaults.
 	envVars := map[string]string{
-		"PASSAGE_SERVER_HOST":                  "127.0.0.1",
-		"PASSAGE_SERVER_PORT":                  "9090",
-		"PASSAGE_DATABASE_PATH":                "/tmp/test.db",
-		"PASSAGE_LOG_LEVEL":                    "debug",
-		"PASSAGE_LOG_FORMAT":                   "text",
-		"PASSAGE_AUTH_BCRYPT_COST":             "14",
-		"PASSAGE_AUTH_MAX_LOGIN_FAILURES":      "7",
-		"PASSAGE_AUTH_LOCKOUT_MINUTES":         "30",
-		"PASSAGE_SESSION_COOKIE_SECURE":        "false",
-		"PASSAGE_SESSION_IDLE_TIMEOUT_MINUTES": "45",
+		"PASSAGE_SERVER_HOST":           "127.0.0.1",
+		"PASSAGE_SERVER_PORT":           "9090",
+		"PASSAGE_DATABASE_PATH":         "/tmp/test.db",
+		"PASSAGE_LOG_LEVEL":             "debug",
+		"PASSAGE_LOG_FORMAT":            "text",
+		"PASSAGE_SESSION_COOKIE_SECURE": "false",
 	}
 
 	// Set env vars and restore them after the test.
@@ -91,11 +86,7 @@ func TestLoad_EnvOverride(t *testing.T) {
 		{"Database.Path", cfg.Database.Path, "/tmp/test.db"},
 		{"Log.Level", cfg.Log.Level, "debug"},
 		{"Log.Format", cfg.Log.Format, "text"},
-		{"Auth.BcryptCost", cfg.Auth.BcryptCost, 14},
-		{"Auth.MaxLoginFailures", cfg.Auth.MaxLoginFailures, 7},
-		{"Auth.LockoutMinutes", cfg.Auth.LockoutMinutes, 30},
 		{"Session.CookieSecure", cfg.Session.CookieSecure, false},
-		{"Session.IdleTimeoutMinutes", cfg.Session.IdleTimeoutMinutes, 45},
 	}
 
 	for _, tt := range tests {
@@ -118,19 +109,8 @@ server:
 database:
   path: "/data/passage.db"
 session:
-  duration_hours: 48
   cookie_name: "my_session"
   cookie_secure: false
-smtp:
-  host: "mail.home.lab"
-  port: 465
-  username: "passage"
-  password: "secret"
-  from: "Passage <passage@home.lab>"
-  tls: "tls"
-auth:
-  allow_registration: false
-  bcrypt_cost: 10
 log:
   level: "warn"
   format: "text"
@@ -155,17 +135,8 @@ log:
 		{"Server.Port", cfg.Server.Port, 7777},
 		{"Server.BaseURL", cfg.Server.BaseURL, "https://auth.home.lab"},
 		{"Database.Path", cfg.Database.Path, "/data/passage.db"},
-		{"Session.DurationHours", cfg.Session.DurationHours, 48},
 		{"Session.CookieName", cfg.Session.CookieName, "my_session"},
 		{"Session.CookieSecure", cfg.Session.CookieSecure, false},
-		{"SMTP.Host", cfg.SMTP.Host, "mail.home.lab"},
-		{"SMTP.Port", cfg.SMTP.Port, 465},
-		{"SMTP.Username", cfg.SMTP.Username, "passage"},
-		{"SMTP.Password", cfg.SMTP.Password, "secret"},
-		{"SMTP.From", cfg.SMTP.From, "Passage <passage@home.lab>"},
-		{"SMTP.TLS", cfg.SMTP.TLS, "tls"},
-		{"Auth.AllowRegistration", cfg.Auth.AllowRegistration, false},
-		{"Auth.BcryptCost", cfg.Auth.BcryptCost, 10},
 		{"Log.Level", cfg.Log.Level, "warn"},
 		{"Log.Format", cfg.Log.Format, "text"},
 	}
@@ -209,37 +180,8 @@ func TestValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "valid config passes",
-			mutate:  func(c *config.Config) {},
-			wantErr: false,
-		},
-		{
-			name:    "bcrypt_cost below 10 fails",
-			mutate:  func(c *config.Config) { c.Auth.BcryptCost = 9 },
-			wantErr: true,
-		},
-		{
-			name:    "bcrypt_cost above 31 fails",
-			mutate:  func(c *config.Config) { c.Auth.BcryptCost = 32 },
-			wantErr: true,
-		},
-		{
-			name:    "max_login_failures negative fails",
-			mutate:  func(c *config.Config) { c.Auth.MaxLoginFailures = -1 },
-			wantErr: true,
-		},
-		{
-			name:    "lockout_minutes negative fails",
-			mutate:  func(c *config.Config) { c.Auth.LockoutMinutes = -1 },
-			wantErr: true,
-		},
-		{
-			name: "zero throttle values disable the feature and pass validation",
-			mutate: func(c *config.Config) {
-				c.Auth.MaxLoginFailures = 0
-				c.Auth.LockoutMinutes = 0
-			},
-			wantErr: false,
+			name:   "valid config passes",
+			mutate: func(c *config.Config) {},
 		},
 		{
 			name:    "port zero fails",
@@ -248,32 +190,7 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name:    "port above 65535 fails",
-			mutate:  func(c *config.Config) { c.Server.Port = 65536 },
-			wantErr: true,
-		},
-		{
-			name:    "duration_hours zero fails",
-			mutate:  func(c *config.Config) { c.Session.DurationHours = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "duration_hours negative fails",
-			mutate:  func(c *config.Config) { c.Session.DurationHours = -1 },
-			wantErr: true,
-		},
-		{
-			name:    "idle_timeout_minutes zero is valid (disabled)",
-			mutate:  func(c *config.Config) { c.Session.IdleTimeoutMinutes = 0 },
-			wantErr: false,
-		},
-		{
-			name:    "idle_timeout_minutes positive is valid",
-			mutate:  func(c *config.Config) { c.Session.IdleTimeoutMinutes = 30 },
-			wantErr: false,
-		},
-		{
-			name:    "idle_timeout_minutes negative fails",
-			mutate:  func(c *config.Config) { c.Session.IdleTimeoutMinutes = -1 },
+			mutate:  func(c *config.Config) { c.Server.Port = 70000 },
 			wantErr: true,
 		},
 		{
@@ -282,204 +199,78 @@ func TestValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "encryption key unset is valid (key file next to the database)",
-			mutate:  func(c *config.Config) { c.Security.EncryptionKey = "" },
-			wantErr: false,
+			name:   "encryption key unset is valid (key file next to the database)",
+			mutate: func(c *config.Config) { c.Security.EncryptionKey = "" },
 		},
 		{
-			name:    "encryption key as 64 hex characters is valid",
-			mutate:  func(c *config.Config) { c.Security.EncryptionKey = strings.Repeat("ab", 32) },
-			wantErr: false,
-		},
-		{
-			name:    "encryption key as base64 of 32 bytes is valid",
-			mutate:  func(c *config.Config) { c.Security.EncryptionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-			wantErr: false,
-		},
-		{
-			name:    "short encryption key fails",
-			mutate:  func(c *config.Config) { c.Security.EncryptionKey = strings.Repeat("ab", 16) },
-			wantErr: true,
+			name: "encryption key as 64 hex characters is valid",
+			mutate: func(c *config.Config) {
+				c.Security.EncryptionKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+			},
 		},
 		{
 			name:    "garbage encryption key fails",
-			mutate:  func(c *config.Config) { c.Security.EncryptionKey = "definitely not a key" },
+			mutate:  func(c *config.Config) { c.Security.EncryptionKey = "not-a-key" },
 			wantErr: true,
 		},
 		{
-			name: "smtp tls=starttls with host passes",
-			mutate: func(c *config.Config) {
-				c.SMTP.Host = "mail.example.com"
-				c.SMTP.TLS = "starttls"
-			},
-			wantErr: false,
+			name:    "short csrf key fails",
+			mutate:  func(c *config.Config) { c.CSRF.Key = "short" },
+			wantErr: true,
 		},
 		{
-			name: "smtp tls=tls with host passes",
-			mutate: func(c *config.Config) {
-				c.SMTP.Host = "mail.example.com"
-				c.SMTP.TLS = "tls"
-			},
-			wantErr: false,
+			name:   "csrf key of 64 hex characters passes",
+			mutate: func(c *config.Config) { c.CSRF.Key = strings.Repeat("ab", 32) },
 		},
 		{
-			name: "smtp tls=none with host passes",
+			name: "provider without openid scope fails",
 			mutate: func(c *config.Config) {
-				c.SMTP.Host = "mail.example.com"
-				c.SMTP.TLS = "none"
-			},
-			wantErr: false,
-		},
-		{
-			name: "smtp tls=ssl with host fails",
-			mutate: func(c *config.Config) {
-				c.SMTP.Host = "mail.example.com"
-				c.SMTP.TLS = "ssl"
+				c.Server.BaseURL = "https://auth.example.com"
+				c.Auth.Providers = []config.ProviderConfig{{
+					Name: "authentik", Issuer: "https://idp.example.com",
+					ClientID: "passage", ClientSecret: "x", Scopes: []string{"email"},
+				}}
 			},
 			wantErr: true,
 		},
 		{
-			name: "smtp tls empty with host fails",
+			name: "provider with an http issuer fails",
 			mutate: func(c *config.Config) {
-				c.SMTP.Host = "mail.example.com"
-				c.SMTP.TLS = ""
+				c.Server.BaseURL = "https://auth.example.com"
+				c.Auth.Providers = []config.ProviderConfig{{
+					Name: "authentik", Issuer: "http://idp.example.com",
+					ClientID: "passage", ClientSecret: "x",
+				}}
 			},
 			wantErr: true,
 		},
 		{
-			name: "smtp tls=ssl with no host passes (smtp not configured)",
+			name: "valid provider passes",
 			mutate: func(c *config.Config) {
-				c.SMTP.Host = ""
-				c.SMTP.TLS = "ssl"
+				c.Server.BaseURL = "https://auth.example.com"
+				c.Auth.Providers = []config.ProviderConfig{{
+					Name: "authentik", Issuer: "https://idp.example.com/application/o/passage/",
+					ClientID: "passage", ClientSecret: "x",
+				}}
 			},
-			wantErr: false,
-		},
-		// RateLimit validation
-		{
-			name:    "ratelimit login_requests zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.LoginRequests = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit login_requests negative fails",
-			mutate:  func(c *config.Config) { c.RateLimit.LoginRequests = -1 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit login_window_minutes zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.LoginWindowMinutes = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit reset_requests zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.ResetRequests = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit reset_window_minutes zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.ResetWindowMinutes = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit oauth_token_requests zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.OAuthTokenRequests = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit oauth_token_window_minutes zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.OAuthTokenWindowMinutes = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit setup_requests zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.SetupRequests = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "ratelimit setup_window_minutes zero fails",
-			mutate:  func(c *config.Config) { c.RateLimit.SetupWindowMinutes = 0 },
-			wantErr: true,
-		},
-		// Metrics validation
-		{
-			name:    "metrics token unset is valid (unauthenticated endpoint)",
-			mutate:  func(c *config.Config) { c.Metrics.Token = "" },
-			wantErr: false,
-		},
-		{
-			name:    "metrics token with a space fails",
-			mutate:  func(c *config.Config) { c.Metrics.Token = "two words" },
-			wantErr: true,
-		},
-		{
-			name:    "metrics token with a newline fails",
-			mutate:  func(c *config.Config) { c.Metrics.Token = "line\nbreak" },
-			wantErr: true,
-		},
-		{
-			name:    "metrics token with a tab fails",
-			mutate:  func(c *config.Config) { c.Metrics.Token = "tab\there" },
-			wantErr: true,
-		},
-		{
-			name:    "printable metrics token passes",
-			mutate:  func(c *config.Config) { c.Metrics.Token = "s3cret-scrape-token" },
-			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := validCfg()
 			tt.mutate(cfg)
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {
-				t.Error("expected error, got nil")
+				t.Fatal("expected an error, got nil")
 			}
 			if !tt.wantErr && err != nil {
-				t.Errorf("unexpected error: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
 }
-
-func TestLoad_RateLimitDefaults(t *testing.T) {
-	t.Parallel()
-	cfg, err := config.Load("")
-	if err != nil {
-		t.Fatalf("Load(%q): unexpected error: %v", "", err)
-	}
-
-	tests := []struct {
-		name string
-		got  interface{}
-		want interface{}
-	}{
-		{"RateLimit.LoginRequests", cfg.RateLimit.LoginRequests, 10},
-		{"RateLimit.LoginWindowMinutes", cfg.RateLimit.LoginWindowMinutes, 15},
-		{"RateLimit.ResetRequests", cfg.RateLimit.ResetRequests, 5},
-		{"RateLimit.ResetWindowMinutes", cfg.RateLimit.ResetWindowMinutes, 60},
-		{"RateLimit.OAuthTokenRequests", cfg.RateLimit.OAuthTokenRequests, 20},
-		{"RateLimit.OAuthTokenWindowMinutes", cfg.RateLimit.OAuthTokenWindowMinutes, 1},
-		{"RateLimit.SetupRequests", cfg.RateLimit.SetupRequests, 5},
-		{"RateLimit.SetupWindowMinutes", cfg.RateLimit.SetupWindowMinutes, 60},
-		{"RateLimit.RegisterRequests", cfg.RateLimit.RegisterRequests, 10},
-		{"RateLimit.RegisterWindowMinutes", cfg.RateLimit.RegisterWindowMinutes, 60},
-		{"RateLimit.MagicLinkRequests", cfg.RateLimit.MagicLinkRequests, 5},
-		{"RateLimit.MagicLinkWindowMinutes", cfg.RateLimit.MagicLinkWindowMinutes, 60},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Errorf("got %v; want %v", tt.got, tt.want)
-			}
-		})
-	}
-}
-
-// TestEffectiveCookieName verifies the __Host- prefix is applied exactly when
-// secure cookies are enabled (FA-007).
 func TestEffectiveCookieName(t *testing.T) {
 	t.Parallel()
 
@@ -494,251 +285,6 @@ func TestEffectiveCookieName(t *testing.T) {
 	}
 }
 
-func TestLoad_RateLimitYAML(t *testing.T) {
-	t.Parallel()
-	yaml := `
-rate_limit:
-  login_requests: 20
-  login_window_minutes: 5
-  reset_requests: 3
-  reset_window_minutes: 30
-  oauth_token_requests: 50
-  oauth_token_window_minutes: 2
-  setup_requests: 2
-  setup_window_minutes: 120
-`
-	dir := t.TempDir()
-	path := filepath.Join(dir, "passage.yaml")
-	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
-		t.Fatalf("write temp config: %v", err)
-	}
-
-	cfg, err := config.Load(path)
-	if err != nil {
-		t.Fatalf("Load(%q): unexpected error: %v", path, err)
-	}
-
-	tests := []struct {
-		name string
-		got  interface{}
-		want interface{}
-	}{
-		{"RateLimit.LoginRequests", cfg.RateLimit.LoginRequests, 20},
-		{"RateLimit.LoginWindowMinutes", cfg.RateLimit.LoginWindowMinutes, 5},
-		{"RateLimit.ResetRequests", cfg.RateLimit.ResetRequests, 3},
-		{"RateLimit.ResetWindowMinutes", cfg.RateLimit.ResetWindowMinutes, 30},
-		{"RateLimit.OAuthTokenRequests", cfg.RateLimit.OAuthTokenRequests, 50},
-		{"RateLimit.OAuthTokenWindowMinutes", cfg.RateLimit.OAuthTokenWindowMinutes, 2},
-		{"RateLimit.SetupRequests", cfg.RateLimit.SetupRequests, 2},
-		{"RateLimit.SetupWindowMinutes", cfg.RateLimit.SetupWindowMinutes, 120},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Errorf("got %v; want %v", tt.got, tt.want)
-			}
-		})
-	}
-}
-
-func TestLoad_RateLimitEnvOverride(t *testing.T) {
-	// NOTE: t.Parallel() intentionally omitted — t.Setenv mutates env vars.
-
-	envVars := map[string]string{
-		"PASSAGE_RATELIMIT_LOGIN_REQUESTS":             "30",
-		"PASSAGE_RATELIMIT_LOGIN_WINDOW_MINUTES":       "10",
-		"PASSAGE_RATELIMIT_RESET_REQUESTS":             "7",
-		"PASSAGE_RATELIMIT_RESET_WINDOW_MINUTES":       "45",
-		"PASSAGE_RATELIMIT_OAUTH_TOKEN_REQUESTS":       "100",
-		"PASSAGE_RATELIMIT_OAUTH_TOKEN_WINDOW_MINUTES": "3",
-		"PASSAGE_RATELIMIT_SETUP_REQUESTS":             "1",
-		"PASSAGE_RATELIMIT_SETUP_WINDOW_MINUTES":       "90",
-	}
-	for k, v := range envVars {
-		t.Setenv(k, v)
-	}
-
-	cfg, err := config.Load("")
-	if err != nil {
-		t.Fatalf("Load(%q): unexpected error: %v", "", err)
-	}
-
-	tests := []struct {
-		name string
-		got  interface{}
-		want interface{}
-	}{
-		{"RateLimit.LoginRequests", cfg.RateLimit.LoginRequests, 30},
-		{"RateLimit.LoginWindowMinutes", cfg.RateLimit.LoginWindowMinutes, 10},
-		{"RateLimit.ResetRequests", cfg.RateLimit.ResetRequests, 7},
-		{"RateLimit.ResetWindowMinutes", cfg.RateLimit.ResetWindowMinutes, 45},
-		{"RateLimit.OAuthTokenRequests", cfg.RateLimit.OAuthTokenRequests, 100},
-		{"RateLimit.OAuthTokenWindowMinutes", cfg.RateLimit.OAuthTokenWindowMinutes, 3},
-		{"RateLimit.SetupRequests", cfg.RateLimit.SetupRequests, 1},
-		{"RateLimit.SetupWindowMinutes", cfg.RateLimit.SetupWindowMinutes, 90},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Errorf("got %v; want %v", tt.got, tt.want)
-			}
-		})
-	}
-}
-
-// TestSecurityWebhook covers the security.webhook_* defaults, file values,
-// validation, and env overrides. Env mutation means the subtests run serially
-// (no t.Parallel).
-func TestSecurityWebhook(t *testing.T) {
-	writeConfig := func(t *testing.T, body string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "passage.yaml")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatalf("write config: %v", err)
-		}
-		return path
-	}
-
-	tests := []struct {
-		name        string
-		yaml        string
-		urlEnv      string
-		secretEnv   string
-		timeoutEnv  string
-		wantURL     string
-		wantSecret  string
-		wantTimeout int
-		wantErr     []string // substrings that must appear in Validate()'s error
-	}{
-		{
-			name:        "defaults disable the webhook",
-			wantTimeout: 5,
-		},
-		{
-			name:        "valid https url and secret accepted",
-			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_secret: s3cret\n  webhook_timeout_seconds: 10\n",
-			wantURL:     "https://hooks.example.com/passage",
-			wantSecret:  "s3cret",
-			wantTimeout: 10,
-		},
-		{
-			name:        "http url accepted",
-			yaml:        "security:\n  webhook_url: http://127.0.0.1:9000/hook\n",
-			wantURL:     "http://127.0.0.1:9000/hook",
-			wantTimeout: 5,
-		},
-		{
-			name:        "non-http scheme rejected",
-			yaml:        "security:\n  webhook_url: ftp://hooks.example.com/passage\n",
-			wantURL:     "ftp://hooks.example.com/passage",
-			wantTimeout: 5,
-			wantErr:     []string{"security.webhook_url", "http or https", `"ftp"`},
-		},
-		{
-			name:        "malformed url rejected",
-			yaml:        "security:\n  webhook_url: \"http://[::1\"\n",
-			wantURL:     "http://[::1",
-			wantTimeout: 5,
-			wantErr:     []string{"security.webhook_url", "not a valid URL"},
-		},
-		{
-			name:        "url without host rejected",
-			yaml:        "security:\n  webhook_url: \"https:///hook\"\n",
-			wantURL:     "https:///hook",
-			wantTimeout: 5,
-			wantErr:     []string{"security.webhook_url", "must include a host"},
-		},
-		{
-			name:        "timeout zero rejected",
-			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_timeout_seconds: 0\n",
-			wantURL:     "https://hooks.example.com/passage",
-			wantTimeout: 0,
-			wantErr:     []string{"security.webhook_timeout_seconds", "between 1 and 60", "got 0"},
-		},
-		{
-			name:        "timeout above 60 rejected",
-			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_timeout_seconds: 61\n",
-			wantURL:     "https://hooks.example.com/passage",
-			wantTimeout: 61,
-			wantErr:     []string{"security.webhook_timeout_seconds", "between 1 and 60", "got 61"},
-		},
-		{
-			name:        "timeout bounds accepted",
-			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_timeout_seconds: 60\n",
-			wantURL:     "https://hooks.example.com/passage",
-			wantTimeout: 60,
-		},
-		{
-			name:        "env overrides file",
-			yaml:        "security:\n  webhook_url: https://file.example.com/hook\n  webhook_secret: from-file\n  webhook_timeout_seconds: 10\n",
-			urlEnv:      "https://env.example.com/hook",
-			secretEnv:   "from-env",
-			timeoutEnv:  "20",
-			wantURL:     "https://env.example.com/hook",
-			wantSecret:  "from-env",
-			wantTimeout: 20,
-		},
-		{
-			name:        "env enables a disabled webhook",
-			urlEnv:      "https://env.example.com/hook",
-			wantURL:     "https://env.example.com/hook",
-			wantTimeout: 5,
-		},
-		{
-			name:        "malformed env timeout ignored, default kept",
-			timeoutEnv:  "soon",
-			wantTimeout: 5,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PASSAGE_SECURITY_WEBHOOK_URL", tt.urlEnv)
-			t.Setenv("PASSAGE_SECURITY_WEBHOOK_SECRET", tt.secretEnv)
-			t.Setenv("PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS", tt.timeoutEnv)
-
-			var path string
-			if tt.yaml != "" {
-				path = writeConfig(t, tt.yaml)
-			}
-			cfg, err := config.Load(path)
-			if err != nil {
-				t.Fatalf("Load: %v", err)
-			}
-			if cfg.Security.WebhookURL != tt.wantURL {
-				t.Errorf("Security.WebhookURL = %q; want %q", cfg.Security.WebhookURL, tt.wantURL)
-			}
-			if cfg.Security.WebhookSecret != tt.wantSecret {
-				t.Errorf("Security.WebhookSecret = %q; want %q", cfg.Security.WebhookSecret, tt.wantSecret)
-			}
-			if cfg.Security.WebhookTimeoutSeconds != tt.wantTimeout {
-				t.Errorf("Security.WebhookTimeoutSeconds = %d; want %d", cfg.Security.WebhookTimeoutSeconds, tt.wantTimeout)
-			}
-
-			err = cfg.Validate()
-			if len(tt.wantErr) == 0 {
-				if err != nil {
-					t.Fatalf("Validate: unexpected error: %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("Validate: expected an error, got nil")
-			}
-			for _, want := range tt.wantErr {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("Validate error %q does not mention %q", err, want)
-				}
-			}
-		})
-	}
-}
-
-// TestEncryptionKey covers the security.encryption_key default, YAML value,
-// validation, and env override. Env mutation means the subtests run serially
-// (no t.Parallel).
 func TestEncryptionKey(t *testing.T) {
 	writeConfig := func(t *testing.T, body string) string {
 		t.Helper()
@@ -796,195 +342,6 @@ func TestEncryptionKey(t *testing.T) {
 			}
 			if err := cfg.Validate(); err != nil {
 				t.Errorf("Validate: unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-// TestTheme covers the ui.theme default, file value, validation, and env
-// override. Env mutation means the subtests run serially (no t.Parallel).
-func TestTheme(t *testing.T) {
-	writeConfig := func(t *testing.T, body string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "passage.yaml")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatalf("write config: %v", err)
-		}
-		return path
-	}
-
-	tests := []struct {
-		name    string
-		yaml    string
-		env     string // PASSAGE_UI_THEME; empty means unset
-		want    string
-		wantErr []string // substrings that must appear in Validate()'s error
-	}{
-		{
-			name: "default applies",
-			want: "slate",
-		},
-		{
-			name: "valid name accepted",
-			yaml: "ui:\n  theme: nord\n",
-			want: "nord",
-		},
-		{
-			name:    "unknown name rejected",
-			yaml:    "ui:\n  theme: smoky-green\n",
-			want:    "smoky-green",
-			wantErr: []string{"ui.theme", `"smoky-green"`, "valid:", "slate", "nord", "paper"},
-		},
-		{
-			name: "env override wins",
-			yaml: "ui:\n  theme: nord\n",
-			env:  "gruvbox",
-			want: "gruvbox",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PASSAGE_UI_THEME", tt.env)
-
-			var path string
-			if tt.yaml != "" {
-				path = writeConfig(t, tt.yaml)
-			}
-			cfg, err := config.Load(path)
-			if err != nil {
-				t.Fatalf("Load: %v", err)
-			}
-			if cfg.UI.Theme != tt.want {
-				t.Errorf("UI.Theme = %q; want %q", cfg.UI.Theme, tt.want)
-			}
-
-			err = cfg.Validate()
-			if len(tt.wantErr) == 0 {
-				if err != nil {
-					t.Fatalf("Validate: unexpected error: %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("Validate: expected an error, got nil")
-			}
-			for _, want := range tt.wantErr {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("Validate error %q does not mention %q", err, want)
-				}
-			}
-		})
-	}
-}
-
-// TestSessionIdleTimeout verifies the minutes→duration conversion and that a
-// zero (or negative) value means "disabled".
-func TestSessionIdleTimeout(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		minutes  int
-		wantZero bool
-		wantDur  time.Duration
-	}{
-		{name: "zero disables", minutes: 0, wantZero: true},
-		{name: "negative disables", minutes: -5, wantZero: true},
-		{name: "minutes converted", minutes: 90, wantDur: 90 * time.Minute},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := config.SessionConfig{IdleTimeoutMinutes: tt.minutes}.IdleTimeout()
-			if tt.wantZero && got != 0 {
-				t.Errorf("IdleTimeout() = %v, want 0 (disabled)", got)
-			}
-			if !tt.wantZero && got != tt.wantDur {
-				t.Errorf("IdleTimeout() = %v, want %v", got, tt.wantDur)
-			}
-		})
-	}
-}
-
-// TestMetrics covers the Prometheus endpoint configuration: enabled by
-// default, disabled by an explicit value, and the optional bearer token from
-// YAML or the environment.
-func TestMetrics(t *testing.T) {
-	writeConfig := func(t *testing.T, body string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "passage.yaml")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatalf("write config: %v", err)
-		}
-		return path
-	}
-
-	tests := []struct {
-		name        string
-		yaml        string
-		envEnabled  string
-		envToken    string
-		wantEnabled bool
-		wantToken   string
-	}{
-		{
-			name:        "enabled by default",
-			wantEnabled: true,
-		},
-		{
-			name:        "explicitly disabled in yaml",
-			yaml:        "metrics:\n  enabled: false\n",
-			wantEnabled: false,
-		},
-		{
-			name:        "token from yaml",
-			yaml:        "metrics:\n  token: from-yaml\n",
-			wantEnabled: true,
-			wantToken:   "from-yaml",
-		},
-		{
-			name:        "disabled by environment",
-			envEnabled:  "false",
-			wantEnabled: false,
-		},
-		{
-			name:        "enabled again by environment",
-			yaml:        "metrics:\n  enabled: false\n",
-			envEnabled:  "true",
-			wantEnabled: true,
-		},
-		{
-			name:        "token from environment overrides yaml",
-			yaml:        "metrics:\n  token: from-yaml\n",
-			envToken:    "from-env",
-			wantEnabled: true,
-			wantToken:   "from-env",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PASSAGE_METRICS_ENABLED", tt.envEnabled)
-			t.Setenv("PASSAGE_METRICS_TOKEN", tt.envToken)
-
-			var path string
-			if tt.yaml != "" {
-				path = writeConfig(t, tt.yaml)
-			}
-			cfg, err := config.Load(path)
-			if err != nil {
-				t.Fatalf("Load: %v", err)
-			}
-			if cfg.Metrics.Enabled != tt.wantEnabled {
-				t.Errorf("Metrics.Enabled = %v; want %v", cfg.Metrics.Enabled, tt.wantEnabled)
-			}
-			if cfg.Metrics.Token != tt.wantToken {
-				t.Errorf("Metrics.Token = %q; want %q", cfg.Metrics.Token, tt.wantToken)
-			}
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("Validate: unexpected error: %v", err)
 			}
 		})
 	}

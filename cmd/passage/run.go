@@ -37,6 +37,7 @@ import (
 	"github.com/crueber/passage/internal/oauth"
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
+	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
 	"github.com/crueber/passage/internal/webauthn"
@@ -178,6 +179,14 @@ func run() error {
 	// the session_duration_hours setting on every new session.
 	settingsStore := admin.NewSQLiteSettingsStore(database)
 
+	// The admin UI is the source of truth for feature settings. Copy them into
+	// the config snapshot before any service is constructed, so constructors
+	// that take a value once (rate limits, the webhook, the mailer, the MFA
+	// policy) see the stored value rather than the built-in default. Settings
+	// that are read per request (registration, sessions, sign-in copy, theme,
+	// metrics) do not depend on this.
+	settings.ApplyToConfig(ctx, settingsStore, cfg, logger)
+
 	// Build app store early so sessionSvc can use per-app duration overrides.
 	appStore := app.NewStore(database)
 
@@ -258,7 +267,12 @@ func run() error {
 		"csrfField": func(token string) template.HTML {
 			return template.HTML(`<input type="hidden" name="` + csrfpkg.FieldName + `" value="` + token + `">`)
 		},
-		"theme": func() string { return cfg.UI.Theme },
+		"theme": func() string {
+			// Live: the server default can be changed in Settings → General
+			// without a restart. The render path has no request context, and
+			// the read is a single indexed row.
+			return settings.String(context.Background(), settingsStore, settings.Theme, cfg.UI.Theme)
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("parse templates: %w", err)
@@ -541,9 +555,13 @@ func run() error {
 	// false the handler answers 404, so the configuration alone decides whether
 	// the endpoint exists. Only the method and status of each request are
 	// counted — never a path, which would make cardinality unbounded.
-	r.Handle("/metrics", srvMetrics.reg.Handler(metrics.HandlerOptions{
-		Enabled: cfg.Metrics.Enabled,
-		Token:   cfg.Metrics.Token,
+	// Read per request so the Settings → Security switches apply without a
+	// restart. The handler itself is cheap to build.
+	r.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		srvMetrics.reg.Handler(metrics.HandlerOptions{
+			Enabled: settings.Bool(req.Context(), settingsStore, settings.MetricsEnabled, cfg.Metrics.Enabled),
+			Token:   settings.Raw(req.Context(), settingsStore, settings.MetricsToken, cfg.Metrics.Token),
+		}).ServeHTTP(w, req)
 	}))
 
 	// Forward-auth endpoints (consumed by reverse proxy).
