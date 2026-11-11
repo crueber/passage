@@ -15,6 +15,7 @@ import (
 const selectAppColumns = `id, slug, name, description, host_pattern, default_url, is_active,
 		session_duration_hours, created_at, updated_at,
 		client_id, client_secret_hash, redirect_uris, oauth_enabled,
+		scopes, resources,
 		required_group, required_role, allowed_cidrs, admin_only, allowed_hours, allowed_days`
 
 // selectAppColumnsAliased is the same column list but prefixed with a table
@@ -22,6 +23,7 @@ const selectAppColumns = `id, slug, name, description, host_pattern, default_url
 const selectAppColumnsAliased = `a.id, a.slug, a.name, a.description, a.host_pattern, a.default_url, a.is_active,
 		a.session_duration_hours, a.created_at, a.updated_at,
 		a.client_id, a.client_secret_hash, a.redirect_uris, a.oauth_enabled,
+		a.scopes, a.resources,
 		a.required_group, a.required_role, a.allowed_cidrs, a.admin_only, a.allowed_hours, a.allowed_days`
 
 // SQLiteStore implements Store and AccessStore using a SQLite database.
@@ -65,14 +67,16 @@ func (s *SQLiteStore) Create(ctx context.Context, a *App) error {
 		INSERT INTO apps (id, slug, name, description, host_pattern, default_url, is_active,
 		                  session_duration_hours, created_at, updated_at,
 		                  client_id, client_secret_hash, redirect_uris, oauth_enabled,
+		                  scopes, resources,
 		                  required_group, required_role, allowed_cidrs, admin_only, allowed_hours, allowed_days)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		a.ID, a.Slug, a.Name, a.Description, a.HostPattern, a.DefaultURL,
 		boolToInt(a.IsActive), a.SessionDurationHours, a.CreatedAt, a.UpdatedAt,
 		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
-		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
+		joinLines(a.RedirectURIs), boolToInt(a.OAuthEnabled),
+		joinLines(a.AllowedScopes), joinLines(a.AllowedResources),
 		a.RequiredGroup, a.RequiredRole, a.AllowedCIDRs, boolToInt(a.AdminOnly),
 		a.AllowedHours, a.AllowedDays,
 	)
@@ -180,6 +184,7 @@ func (s *SQLiteStore) Update(ctx context.Context, a *App) error {
 		SET slug = ?, name = ?, description = ?, host_pattern = ?, default_url = ?,
 		    is_active = ?, session_duration_hours = ?, updated_at = ?,
 		    client_id = ?, client_secret_hash = ?, redirect_uris = ?, oauth_enabled = ?,
+		    scopes = ?, resources = ?,
 		    required_group = ?, required_role = ?, allowed_cidrs = ?, admin_only = ?,
 		    allowed_hours = ?, allowed_days = ?
 		WHERE id = ?`
@@ -188,7 +193,8 @@ func (s *SQLiteStore) Update(ctx context.Context, a *App) error {
 		a.Slug, a.Name, a.Description, a.HostPattern, a.DefaultURL,
 		boolToInt(a.IsActive), a.SessionDurationHours, a.UpdatedAt,
 		nullableString(a.ClientID), nullableString(a.ClientSecretHash),
-		joinRedirectURIs(a.RedirectURIs), boolToInt(a.OAuthEnabled),
+		joinLines(a.RedirectURIs), boolToInt(a.OAuthEnabled),
+		joinLines(a.AllowedScopes), joinLines(a.AllowedResources),
 		a.RequiredGroup, a.RequiredRole, a.AllowedCIDRs, boolToInt(a.AdminOnly),
 		a.AllowedHours, a.AllowedDays,
 		a.ID,
@@ -357,10 +363,13 @@ func scanApp(s appScanner) (*App, error) {
 	var clientID sql.NullString
 	var clientSecretHash sql.NullString
 	var redirectURIsRaw string
+	var scopesRaw string
+	var resourcesRaw string
 	err := s.Scan(
 		&a.ID, &a.Slug, &a.Name, &a.Description, &a.HostPattern, &a.DefaultURL,
 		&isActive, &a.SessionDurationHours, &a.CreatedAt, &a.UpdatedAt,
 		&clientID, &clientSecretHash, &redirectURIsRaw, &oauthEnabled,
+		&scopesRaw, &resourcesRaw,
 		&a.RequiredGroup, &a.RequiredRole, &a.AllowedCIDRs, &adminOnly,
 		&a.AllowedHours, &a.AllowedDays,
 	)
@@ -375,7 +384,9 @@ func scanApp(s appScanner) (*App, error) {
 	a.AdminOnly = adminOnly != 0
 	a.ClientID = clientID.String
 	a.ClientSecretHash = clientSecretHash.String
-	a.RedirectURIs = splitRedirectURIs(redirectURIsRaw)
+	a.RedirectURIs = splitLines(redirectURIsRaw)
+	a.AllowedScopes = splitLines(scopesRaw)
+	a.AllowedResources = splitLines(resourcesRaw)
 	return &a, nil
 }
 
@@ -387,14 +398,15 @@ func nullableString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
 
-// joinRedirectURIs joins a []string into a newline-separated string for DB storage.
-func joinRedirectURIs(uris []string) string {
-	return strings.Join(uris, "\n")
+// joinLines joins a []string into a newline-separated string for DB storage.
+// Redirect URIs and the OAuth scope and resource registries all use it.
+func joinLines(values []string) string {
+	return strings.Join(values, "\n")
 }
 
-// splitRedirectURIs splits a newline-separated string into a []string,
-// filtering out empty strings that arise from an empty DB value.
-func splitRedirectURIs(raw string) []string {
+// splitLines splits a newline-separated string into a []string, filtering out
+// empty strings that arise from an empty DB value.
+func splitLines(raw string) []string {
 	if raw == "" {
 		return nil
 	}

@@ -27,11 +27,11 @@ func issueTokens(t *testing.T, stack *handlerTestStack, clientID, plainSecret, r
 	t.Helper()
 	ctx := context.Background()
 
-	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid profile", "", "", "", "", time.Now(), userID, "127.0.0.1")
+	code, err := stack.svc.Authorize(ctx, clientID, redirectURI, "openid profile", "", "", "", "", "", time.Now(), userID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("issueTokens: Authorize: %v", err)
 	}
-	resp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
+	resp, err := stack.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
 	if err != nil {
 		t.Fatalf("issueTokens: ExchangeCode: %v", err)
 	}
@@ -360,8 +360,9 @@ func TestHandler_Revoke(t *testing.T) {
 			ctx := context.Background()
 			switch {
 			case tc.wantGone.accessToken == "issued":
-				if _, err := stack.store.GetToken(ctx, tokens.AccessToken); !errors.Is(err, oauth.ErrTokenNotFound) {
-					t.Errorf("access token still present after revocation: %v", err)
+				// JWT access tokens are stateless; revocation denylists the jti.
+				if _, _, err := stack.svc.ValidateAccessToken(ctx, tokens.AccessToken); !errors.Is(err, oauth.ErrTokenRevoked) {
+					t.Errorf("access token still usable after revocation: %v", err)
 				}
 			case tc.wantGone.refreshToken == "issued":
 				if _, err := stack.store.GetRefreshToken(ctx, tokens.RefreshToken); !errors.Is(err, oauth.ErrRefreshNotFound) {
@@ -369,8 +370,8 @@ func TestHandler_Revoke(t *testing.T) {
 				}
 			case tc.wantCode == http.StatusUnauthorized:
 				// A rejected request must not touch the token.
-				if _, err := stack.store.GetToken(ctx, tokens.AccessToken); err != nil {
-					t.Errorf("access token was removed despite failed client auth: %v", err)
+				if _, _, err := stack.svc.ValidateAccessToken(ctx, tokens.AccessToken); err != nil {
+					t.Errorf("access token was revoked despite failed client auth: %v", err)
 				}
 			}
 		})
@@ -393,7 +394,7 @@ func TestHandler_Revoke_DeletesWholeFamily(t *testing.T) {
 
 	first := issueTokens(t, stack, clientID, plainSecret, redirectURI, testUser.ID)
 	ctx := context.Background()
-	second, err := stack.svc.RefreshTokens(ctx, first.RefreshToken, clientID, plainSecret)
+	second, err := stack.svc.RefreshTokens(ctx, first.RefreshToken, clientID, plainSecret, "", "")
 	if err != nil {
 		t.Fatalf("RefreshTokens: %v", err)
 	}
@@ -488,8 +489,8 @@ func TestHandler_Introspect(t *testing.T) {
 			name: "revoked_access_token",
 			pick: func(t *testing.T, stack *handlerTestStack, tokens *oauth.TokenResponse) string {
 				t.Helper()
-				if err := stack.store.DeleteToken(context.Background(), tokens.AccessToken); err != nil {
-					t.Fatalf("DeleteToken: %v", err)
+				if err := stack.svc.RevokeToken(context.Background(), tokens.AccessToken, "access_token", clientID, plainSecret); err != nil {
+					t.Fatalf("RevokeToken: %v", err)
 				}
 				return tokens.AccessToken
 			},
@@ -650,7 +651,7 @@ func TestHandler_RefreshTokenReuse_RevokesFamily(t *testing.T) {
 	}
 
 	// Rotate once: child must inherit the family.
-	rotated, err := stack.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret)
+	rotated, err := stack.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", "")
 	if err != nil {
 		t.Fatalf("RefreshTokens: %v", err)
 	}
@@ -733,19 +734,19 @@ func TestService_RefreshTokenReuse_ErrorType(t *testing.T) {
 	sc := newTestServiceWithDB(t, db, testApp, testUser)
 
 	ctx := context.Background()
-	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
+	code, err := sc.svc.Authorize(ctx, clientID, redirectURI, "openid", "", "", "", "", "", time.Now(), testUser.ID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "")
+	tokens, err := sc.svc.ExchangeCode(ctx, code.Code, clientID, plainSecret, redirectURI, "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
-	if _, err := sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret); err != nil {
+	if _, err := sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", ""); err != nil {
 		t.Fatalf("RefreshTokens: %v", err)
 	}
 
-	_, err = sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret)
+	_, err = sc.svc.RefreshTokens(ctx, tokens.RefreshToken, clientID, plainSecret, "", "")
 	if err == nil {
 		t.Fatal("replay: expected an error, got nil")
 	}

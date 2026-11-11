@@ -26,13 +26,13 @@ import (
 // oauthService is the interface the Handler uses for OAuth operations.
 // Defined here at the consumer boundary, per Go convention.
 type oauthService interface {
-	Authorize(ctx context.Context, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID, clientIP string) (*Code, error)
+	Authorize(ctx context.Context, clientID, redirectURI, scope, resource, state, nonce, codeChallenge, codeChallengeMethod string, sessionCreatedAt time.Time, userID, clientIP string) (*Code, error)
 	// ValidateClientRedirectURI checks the client and its redirect_uri without
 	// issuing a code, for authorization requests that must be answered before a
 	// session is resolved (prompt=none).
 	ValidateClientRedirectURI(ctx context.Context, clientID, redirectURI string) error
-	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier string) (*TokenResponse, error)
-	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret string) (*TokenResponse, error)
+	ExchangeCode(ctx context.Context, code, clientID, clientSecret, redirectURI, codeVerifier, resource string) (*TokenResponse, error)
+	RefreshTokens(ctx context.Context, refreshToken, clientID, clientSecret, resource, scope string) (*TokenResponse, error)
 	ValidateAccessToken(ctx context.Context, token string) (*user.User, *Token, error)
 	// TokenAssignments resolves a user's app-scoped role names and effective
 	// (direct plus role-inherited) group names for the userinfo response.
@@ -146,7 +146,7 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 		"response_types_supported":                      []string{"code"},
 		"subject_types_supported":                       []string{"public"},
 		"id_token_signing_alg_values_supported":         []string{"RS256"},
-		"scopes_supported":                              []string{"openid", "profile", "email"},
+		"scopes_supported":                              ServerScopes(),
 		"token_endpoint_auth_methods_supported":         []string{"client_secret_post", "client_secret_basic"},
 		"revocation_endpoint_auth_methods_supported":    []string{"client_secret_post", "client_secret_basic"},
 		"introspection_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
@@ -243,6 +243,14 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is required")
 		return
 	}
+	// RFC 8707 allows a repeated resource parameter, but a Passage access
+	// token has exactly one audience, so more than one is refused rather than
+	// silently narrowed.
+	if len(q["resource"]) > 1 {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_target", "only one resource indicator is supported")
+		return
+	}
+	resource := q.Get("resource")
 
 	// Validate the OIDC re-authentication parameters. A malformed value is the
 	// client's own error and is answered before any session work, so it never
@@ -292,7 +300,7 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Attempt to authorize.
-	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, state, nonce, codeChallenge, codeChallengeMethod, sess.CreatedAt, u.ID, authlog.ClientIP(r))
+	code, err := h.svc.Authorize(ctx, clientID, redirectURI, scope, resource, state, nonce, codeChallenge, codeChallengeMethod, sess.CreatedAt, u.ID, authlog.ClientIP(r))
 	if err != nil {
 		h.record(r, authlog.Event{
 			Event:    authlog.EventOAuthAuthorize,
@@ -321,7 +329,9 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 				"The resource owner or authorization server denied the request.")
 		case errors.Is(err, app.ErrOAuthNotEnabled),
 			errors.Is(err, app.ErrRedirectURIMismatch),
-			errors.Is(err, ErrPKCEVerificationFailed):
+			errors.Is(err, ErrPKCEVerificationFailed),
+			errors.Is(err, ErrInvalidScope),
+			errors.Is(err, ErrInvalidTarget):
 			h.writeAuthorizeClientError(w, err)
 		default:
 			// Fixed description: err may wrap internal details (DB errors,
@@ -380,6 +390,14 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 
 	grantType := r.FormValue("grant_type")
 
+	// A Passage access token has exactly one audience, so a repeated resource
+	// parameter is refused rather than silently narrowed (RFC 8707 permits
+	// multiple; the response cannot represent them).
+	if len(r.Form["resource"]) > 1 {
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_target", "only one resource indicator is supported")
+		return
+	}
+
 	switch grantType {
 	case "authorization_code":
 		h.handleAuthCodeGrant(ctx, w, r, clientID, clientSecret)
@@ -395,6 +413,7 @@ func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter
 	code := r.FormValue("code")
 	redirectURI := r.FormValue("redirect_uri")
 	codeVerifier := r.FormValue("code_verifier")
+	resource := r.FormValue("resource")
 
 	if code == "" {
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_request", "code is required")
@@ -405,7 +424,7 @@ func (h *Handler) handleAuthCodeGrant(ctx context.Context, w http.ResponseWriter
 		return
 	}
 
-	resp, err := h.svc.ExchangeCode(ctx, code, clientID, clientSecret, redirectURI, codeVerifier)
+	resp, err := h.svc.ExchangeCode(ctx, code, clientID, clientSecret, redirectURI, codeVerifier, resource)
 	if err != nil {
 		h.record(r, authlog.Event{
 			Event:   authlog.EventOAuthTokenFailed,
@@ -432,7 +451,7 @@ func (h *Handler) handleRefreshTokenGrant(ctx context.Context, w http.ResponseWr
 		return
 	}
 
-	resp, err := h.svc.RefreshTokens(ctx, refreshToken, clientID, clientSecret)
+	resp, err := h.svc.RefreshTokens(ctx, refreshToken, clientID, clientSecret, r.FormValue("resource"), r.FormValue("scope"))
 	if err != nil {
 		// Refresh-token reuse is a security event, not an ordinary bad grant.
 		// Log it here (no token material) — the integrator hooks authentication
@@ -684,6 +703,12 @@ func (h *Handler) writeTokenError(w http.ResponseWriter, err error) {
 		errors.Is(err, app.ErrRedirectURIMismatch):
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_grant",
 			"The provided authorization grant is invalid, expired, revoked, or does not match.")
+	case errors.Is(err, ErrInvalidScope):
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_scope",
+			"One or more requested scopes are not allowed for this client.")
+	case errors.Is(err, ErrInvalidTarget):
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_target",
+			"The requested resource is not allowed for this client.")
 	case errors.Is(err, app.ErrInvalidClientSecret),
 		errors.Is(err, app.ErrOAuthNotEnabled):
 		h.writeJSONError(w, http.StatusUnauthorized, "invalid_client",
@@ -882,6 +907,12 @@ func (h *Handler) writeAuthorizeClientError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrPKCEVerificationFailed):
 		h.writeJSONError(w, http.StatusBadRequest, "invalid_request",
 			"invalid code_challenge or code_challenge_method")
+	case errors.Is(err, ErrInvalidScope):
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_scope",
+			"One or more requested scopes are not allowed for this client.")
+	case errors.Is(err, ErrInvalidTarget):
+		h.writeJSONError(w, http.StatusBadRequest, "invalid_target",
+			"The requested resource is not allowed for this client.")
 	default:
 		h.logger.Warn("oauth authorize: client validation failed", "error", err)
 		h.writeJSONError(w, http.StatusForbidden, "access_denied",
@@ -900,6 +931,10 @@ func authorizeDenyReason(err error) string {
 		return "redirect_uri_mismatch"
 	case errors.Is(err, ErrPKCEVerificationFailed):
 		return "pkce_failed"
+	case errors.Is(err, ErrInvalidScope):
+		return "invalid_scope"
+	case errors.Is(err, ErrInvalidTarget):
+		return "invalid_target"
 	default:
 		return "access_denied"
 	}

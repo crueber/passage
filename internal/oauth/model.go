@@ -19,6 +19,20 @@ var (
 	ErrUserInactive    = errors.New("oauth: user account is not active")
 	ErrAccessRevoked   = errors.New("oauth: user does not have access to this application")
 
+	// ErrTokenRevoked is returned when a JWT access token's jti is in the
+	// revocation denylist. It is distinct from ErrTokenNotFound so logs can
+	// tell a revoked token from an unknown one; both are a 401 to the client.
+	ErrTokenRevoked = errors.New("oauth: access token has been revoked")
+
+	// ErrInvalidScope is returned when a request asks for a scope the client
+	// is not registered for. No authorization code or token is issued.
+	ErrInvalidScope = errors.New("oauth: requested scope is not allowed")
+
+	// ErrInvalidTarget is returned when an RFC 8707 resource indicator is
+	// malformed or is not one of the client's registered audiences. No
+	// authorization code or token is issued.
+	ErrInvalidTarget = errors.New("oauth: resource indicator is not allowed")
+
 	// ErrPKCEVerificationFailed is returned when the code_verifier does not match
 	// the code_challenge that was stored at authorization time.
 	ErrPKCEVerificationFailed = errors.New("oauth: pkce verification failed")
@@ -129,6 +143,12 @@ type Code struct {
 	Nonce       string
 	AuthTime    time.Time
 
+	// Resource is the RFC 8707 audience granted at authorization time, or
+	// empty when the client requested none. The token endpoint issues an
+	// access token for this audience, so the code and the token cannot
+	// disagree about who the token is for.
+	Resource string
+
 	// CodeChallenge is the PKCE code challenge sent by the client at authorization time.
 	// Empty when the client did not use PKCE.
 	CodeChallenge string
@@ -186,6 +206,11 @@ type Store interface {
 	CreateToken(ctx context.Context, token *Token) error
 	GetToken(ctx context.Context, token string) (*Token, error)
 	DeleteToken(ctx context.Context, token string) error
+
+	// JWT access-token revocation denylist. A jti is kept only until the
+	// token would have expired; DeleteExpired removes those rows.
+	RevokeJTI(ctx context.Context, jti string, expiresAt time.Time) error
+	IsJTIRevoked(ctx context.Context, jti string) (bool, error)
 
 	// Refresh tokens
 	CreateRefreshToken(ctx context.Context, rt *RefreshToken) error

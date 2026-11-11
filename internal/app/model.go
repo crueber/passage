@@ -62,6 +62,16 @@ type App struct {
 	RedirectURIs     []string // stored as newline-separated in DB
 	OAuthEnabled     bool
 
+	// AllowedScopes is the app's scope registry. When non-empty, an
+	// authorization request may only ask for a subset of these scopes and the
+	// granted scope is exactly what was requested. Empty means the client may
+	// ask for anything, which is the behaviour before the registry existed.
+	AllowedScopes []string // stored as newline-separated in DB
+	// AllowedResources is the app's audience registry (RFC 8707). When
+	// non-empty, a "resource" parameter must exactly match one of these
+	// absolute URIs. Empty means resource indicators are not accepted.
+	AllowedResources []string // stored as newline-separated in DB
+
 	// Access policy fields. The zero value of each means "no restriction", so
 	// an app with no policy behaves exactly as it did before policies existed.
 	// Parsing and evaluation live in internal/policy; see Service.EvaluateAccess.

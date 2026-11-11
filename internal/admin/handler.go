@@ -1118,6 +1118,41 @@ func applyAppPolicy(r *http.Request, a *app.App) {
 	a.AllowedDays = strings.TrimSpace(r.FormValue("allowed_days"))
 }
 
+// formLines splits a one-value-per-line textarea, trimming whitespace and
+// dropping blank lines.
+func formLines(raw string) []string {
+	var out []string
+	for _, line := range strings.Split(raw, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// applyOAuthRegistry copies the app's scope and audience registries from the
+// form and validates them. An empty registry means "no restriction", so an app
+// that leaves both textareas blank keeps the pre-registry behaviour.
+func applyOAuthRegistry(r *http.Request, a *app.App) error {
+	a.AllowedScopes = formLines(r.FormValue("scopes"))
+	a.AllowedResources = formLines(r.FormValue("resources"))
+
+	var errs []error
+	if err := app.ValidateAllowedScopes(a.AllowedScopes); err != nil {
+		errs = append(errs, err)
+	}
+	if err := app.ValidateAllowedResources(a.AllowedResources); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// oauthRegistryFlashMessage turns a joined registry validation error into one
+// line for the form's error flash (errors.Join separates with newlines).
+func oauthRegistryFlashMessage(err error) string {
+	return "OAuth registry: " + strings.ReplaceAll(err.Error(), "\n", "; ")
+}
+
 // policyFlashMessage turns a joined policy validation error into one line for
 // the form's error flash (errors.Join separates with newlines).
 func policyFlashMessage(err error) string {
@@ -1144,6 +1179,14 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		IsActive:    r.FormValue("is_active") == "on",
 	}
 	applyAppPolicy(r, a)
+	if err := applyOAuthRegistry(r, a); err != nil {
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: oauthRegistryFlashMessage(err)}),
+			EditApp:  a,
+			IsNew:    true,
+		})
+		return
+	}
 
 	// Parse optional per-app session duration override.
 	var appSessionDuration int
@@ -1293,6 +1336,15 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	a.DefaultURL = strings.TrimSpace(r.FormValue("default_url"))
 	a.IsActive = r.FormValue("is_active") == "on"
 	applyAppPolicy(r, a)
+	if err := applyOAuthRegistry(r, a); err != nil {
+		h.render(w, r, "admin-app-form", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: oauthRegistryFlashMessage(err)}),
+			appTabs:  appTabs{App: a, ActiveTab: "details"},
+			EditApp:  a,
+			IsNew:    false,
+		})
+		return
+	}
 
 	// Parse optional per-app session duration override.
 	var appSessionDuration int

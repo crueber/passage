@@ -141,6 +141,31 @@
 {{end}}</textarea>
         <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
       </div>
+
+      <div>
+        <label class="label" for="scopes">Allowed scopes <span class="font-normal text-faint">(one per line)</span></label>
+        <textarea class="input font-mono text-xs" id="scopes" name="scopes" rows="3">{{range .EditApp.AllowedScopes}}{{.}}
+{{end}}</textarea>
+        <p class="help">
+          Blank means any scope a client asks for is granted. When set, an
+          authorization request may only ask for scopes from this list; anything
+          else is refused with invalid_scope. Include <span class="td-mono">openid</span>
+          to allow an id_token. Letters, digits, dot, underscore, colon and
+          hyphen are allowed.
+        </p>
+      </div>
+
+      <div>
+        <label class="label" for="resources">Allowed resources (audiences) <span class="font-normal text-faint">(one per line)</span></label>
+        <textarea class="input font-mono text-xs" id="resources" name="resources" rows="3">{{range .EditApp.AllowedResources}}{{.}}
+{{end}}</textarea>
+        <p class="help">
+          RFC 8707 resource indicators this client may request. Each entry is an
+          absolute URI (for example <span class="td-mono">https://api.example.com</span>)
+          and the access token audience becomes the granted one. Blank means
+          resource indicators are not accepted.
+        </p>
+      </div>
       {{end}}
 
       <label class="checkbox" for="is_active">

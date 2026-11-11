@@ -48,13 +48,13 @@ func (s *SQLiteStore) CreateCode(ctx context.Context, c *Code) error {
 
 	const query = `
 		INSERT INTO oauth_codes (code, app_id, user_id, redirect_uri, scopes, nonce, auth_time,
-		                         code_challenge, code_challenge_method,
+		                         resource, code_challenge, code_challenge_method,
 		                         expires_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		c.Code, c.AppID, c.UserID, c.RedirectURI, c.Scopes,
-		c.Nonce, c.AuthTime,
+		c.Nonce, c.AuthTime, c.Resource,
 		c.CodeChallenge, string(c.CodeChallengeMethod),
 		c.ExpiresAt, c.CreatedAt, now,
 	)
@@ -68,7 +68,7 @@ func (s *SQLiteStore) CreateCode(ctx context.Context, c *Code) error {
 // Returns ErrCodeNotFound if the code does not exist.
 func (s *SQLiteStore) GetCode(ctx context.Context, code string) (*Code, error) {
 	const query = `
-		SELECT code, app_id, user_id, redirect_uri, scopes, nonce, auth_time,
+		SELECT code, app_id, user_id, redirect_uri, scopes, nonce, auth_time, resource,
 		       code_challenge, code_challenge_method,
 		       expires_at, used_at, created_at
 		FROM oauth_codes WHERE code = ?`
@@ -80,7 +80,7 @@ func (s *SQLiteStore) GetCode(ctx context.Context, code string) (*Code, error) {
 	var codeChallengeMethod sql.NullString
 	err := row.Scan(
 		&c.Code, &c.AppID, &c.UserID, &c.RedirectURI, &c.Scopes,
-		&c.Nonce, &c.AuthTime,
+		&c.Nonce, &c.AuthTime, &c.Resource,
 		&codeChallenge, &codeChallengeMethod,
 		&c.ExpiresAt, &usedAt, &c.CreatedAt,
 	)
@@ -175,6 +175,36 @@ func (s *SQLiteStore) DeleteToken(ctx context.Context, token string) error {
 		return fmt.Errorf("oauth store delete token: %w", err)
 	}
 	return nil
+}
+
+// RevokeJTI denylists a JWT access token's jti. It is idempotent: revoking the
+// same token twice keeps the first expiry. expiresAt is the token's own exp, so
+// the row can be deleted once the token could no longer be accepted anyway.
+func (s *SQLiteStore) RevokeJTI(ctx context.Context, jti string, expiresAt time.Time) error {
+	if jti == "" {
+		return fmt.Errorf("oauth store revoke jti: empty jti")
+	}
+	const query = `
+		INSERT INTO oauth_revoked_jti (jti, expires_at, revoked_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(jti) DO NOTHING`
+	if _, err := s.db.ExecContext(ctx, query, jti, expiresAt, time.Now().UTC()); err != nil {
+		return fmt.Errorf("oauth store revoke jti: %w", err)
+	}
+	return nil
+}
+
+// IsJTIRevoked reports whether a JWT access token has been revoked.
+func (s *SQLiteStore) IsJTIRevoked(ctx context.Context, jti string) (bool, error) {
+	if jti == "" {
+		return false, nil
+	}
+	const query = `SELECT COUNT(*) FROM oauth_revoked_jti WHERE jti = ?`
+	var n int
+	if err := s.db.QueryRowContext(ctx, query, jti).Scan(&n); err != nil {
+		return false, fmt.Errorf("oauth store check revoked jti: %w", err)
+	}
+	return n > 0, nil
 }
 
 // CreateRefreshToken inserts a new refresh token into the database.
@@ -276,12 +306,15 @@ func (s *SQLiteStore) DeleteRefreshFamily(ctx context.Context, familyID string) 
 
 // DeleteExpired removes all expired authorization codes, access tokens, and
 // refresh tokens from the database. Used codes and refresh tokens are also
-// removed regardless of expiry, since they can never be reused.
+// removed regardless of expiry, since they can never be reused. Denylisted
+// access-token jtis are removed once the token itself would have expired: the
+// signature check rejects it after that, so the row adds nothing.
 func (s *SQLiteStore) DeleteExpired(ctx context.Context) error {
 	queries := []string{
 		`DELETE FROM oauth_codes WHERE expires_at < datetime('now') OR used_at IS NOT NULL`,
 		`DELETE FROM oauth_tokens WHERE expires_at < datetime('now')`,
 		`DELETE FROM oauth_refresh_tokens WHERE expires_at < datetime('now') OR used_at IS NOT NULL`,
+		`DELETE FROM oauth_revoked_jti WHERE expires_at < datetime('now')`,
 	}
 
 	for _, q := range queries {
