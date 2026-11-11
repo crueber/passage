@@ -439,14 +439,6 @@ func (fakeWebAuthn) FinishPasskeyLogin(handler gowebauthn.DiscoverableUserHandle
 	return nil, nil, errors.New("not implemented in fake")
 }
 
-func (fakeWebAuthn) BeginLogin(u gowebauthn.User, opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
-	return nil, nil, errors.New("not implemented in fake")
-}
-
-func (fakeWebAuthn) FinishLogin(u gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (*gowebauthn.Credential, error) {
-	return nil, errors.New("not implemented in fake")
-}
-
 // capturingCredStore implements CredentialStore; it captures the credential
 // passed to Create and delegates reads to an embedded SQLiteCredentialStore.
 type capturingCredStore struct {

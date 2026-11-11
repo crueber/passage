@@ -40,10 +40,6 @@ type webAuthnCeremony interface {
 	FinishLogin(user gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (credential *gowebauthn.Credential, err error)
 	BeginDiscoverableLogin(opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error)
 	FinishPasskeyLogin(handler gowebauthn.DiscoverableUserHandler, session gowebauthn.SessionData, r *http.Request) (gowebauthn.User, *gowebauthn.Credential, error)
-	// BeginLogin/FinishLogin run a user-bound ceremony (allowCredentials), which
-	// is what makes a credential that is not discoverable usable.
-	BeginLogin(user gowebauthn.User, opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error)
-	FinishLogin(user gowebauthn.User, session gowebauthn.SessionData, r *http.Request) (*gowebauthn.Credential, error)
 }
 
 // sessionCreator is the minimal interface for creating a session after passkey login.

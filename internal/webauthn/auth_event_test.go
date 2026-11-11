@@ -50,14 +50,6 @@ func (s passkeyLoginStub) FinishPasskeyLogin(gowebauthn.DiscoverableUserHandler,
 	return s.user, &gowebauthn.Credential{ID: []byte{1}}, nil
 }
 
-func (passkeyLoginStub) BeginLogin(gowebauthn.User, ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
-	return nil, nil, errors.New("unused in this test")
-}
-
-func (passkeyLoginStub) FinishLogin(gowebauthn.User, gowebauthn.SessionData, *http.Request) (*gowebauthn.Credential, error) {
-	return nil, errors.New("unused in this test")
-}
-
 // newPasskeyLoginHandler wires a handler whose finished ceremony is controlled
 // by stub, and returns the auth event store for assertions.
 func newPasskeyLoginHandler(t *testing.T, f *handlerFixture, stub passkeyLoginStub) (*webauthn.Handler, *authlog.Store) {
