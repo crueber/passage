@@ -232,15 +232,86 @@
     });
   }
 
+  // ── Second-factor login ──────────────────────────────────────────────────
+
+  /**
+   * Complete a pending two-factor challenge with a passkey instead of a code.
+   *
+   * The password has already been accepted; the server holds a short-lived
+   * pending challenge cookie, and the assertion is bound to that challenge.
+   * The finish response carries the same-site redirect the code form would
+   * have produced.
+   */
+  function initMFAPasskey() {
+    var btn = document.getElementById('passkey-mfa-btn');
+    if (!btn) return;
+
+    if (!window.PublicKeyCredential) {
+      // The server decided a passkey is available; this browser cannot use
+      // one. Hide the option rather than leaving a button that always fails.
+      hidePasskeyUI();
+      btn.style.display = 'none';
+      return;
+    }
+
+    var status = document.getElementById('passkey-mfa-status');
+
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      if (status) status.textContent = 'Waiting for passkey…';
+
+      try {
+        // 1. Fetch the assertion options bound to this pending challenge.
+        var beginResp = await fetch('/login/mfa/passkey/begin', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        if (!beginResp.ok) {
+          var err = await beginResp.json();
+          throw new Error(err.error || 'Failed to begin passkey sign-in');
+        }
+        var optionsJSON = await beginResp.json();
+        var publicKey = preparePublicKeyOptions(optionsJSON.publicKey || optionsJSON);
+
+        // 2. Ask the authenticator to sign the challenge.
+        var assertion = await navigator.credentials.get({ publicKey: publicKey });
+
+        // 3. Post the signed assertion to the server.
+        var finishResp = await fetch('/login/mfa/passkey/finish', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(credentialToJSON(assertion))
+        });
+
+        if (!finishResp.ok) {
+          var ferr = await finishResp.json();
+          throw new Error(ferr.error || 'Passkey sign-in failed');
+        }
+
+        var result = await finishResp.json();
+        window.location.href = result.redirect || '/';
+
+      } catch (e) {
+        if (status) status.textContent = 'Error: ' + e.message;
+        btn.disabled = false;
+      }
+    });
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
       initRegistration();
       initLogin();
+      initMFAPasskey();
     });
   } else {
     initRegistration();
     initLogin();
+    initMFAPasskey();
   }
 }());

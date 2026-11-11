@@ -423,6 +423,14 @@ func (fakeWebAuthn) FinishRegistration(u gowebauthn.User, session gowebauthn.Ses
 	}, nil
 }
 
+func (fakeWebAuthn) BeginLogin(gowebauthn.User, ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
+	return nil, nil, errors.New("not implemented in fake")
+}
+
+func (fakeWebAuthn) FinishLogin(gowebauthn.User, gowebauthn.SessionData, *http.Request) (*gowebauthn.Credential, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
 func (fakeWebAuthn) BeginDiscoverableLogin(opts ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
 	return nil, nil, errors.New("not implemented in fake")
 }

@@ -389,6 +389,12 @@ func run() error {
 		mfaSvc,
 	)
 
+	// Let the password flow offer a passkey as the second factor: the WebAuthn
+	// handler implements user.secondFactorPasskey. A setter rather than a
+	// constructor argument because this handler is built after the user
+	// handler, and a nil bridge simply leaves the feature off.
+	userHandler.SetSecondFactorPasskey(passkeyHandler)
+
 	// Prepare static file server from embedded FS.
 	staticFS, err := fs.Sub(web.StaticFS, "static")
 	if err != nil {
@@ -480,6 +486,15 @@ func run() error {
 	// These are JSON API endpoints driven by passkey.js — no CSRF token needed
 	// because the browser WebAuthn API does not submit cross-origin credentials.
 	passkeyHandler.AuthRoutes(r)
+
+	// Passkey as the second factor of a password sign-in. Registered outside the
+	// ProtectAnonymous group for the same reason as the passkey login routes:
+	// passkey.js cannot produce a CSRF token, and the request is authenticated
+	// by the SameSite=Lax, HttpOnly pending-challenge cookie instead. These
+	// endpoints verify an assertion against a live challenge; they never create
+	// a session on their own.
+	r.With(ratelimit.Middleware(loginLimiter)).Post("/login/mfa/passkey/begin", userHandler.PostMFAPasskeyBegin)
+	r.With(ratelimit.Middleware(loginLimiter)).Post("/login/mfa/passkey/finish", userHandler.PostMFAPasskeyFinish)
 
 	// Protected routes require a valid session.
 	// CSRF protection is session-bound for authenticated routes.

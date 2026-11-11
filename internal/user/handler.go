@@ -90,9 +90,12 @@ type Handler struct {
 	authEvents authEventRecorder
 	// throttle is the per-account password-login throttle. May be nil.
 	throttle loginThrottle
-	tmpl     *template.Template
-	cfg      *config.Config
-	logger   *slog.Logger
+	// passkey is the WebAuthn bridge that can complete a pending second-factor
+	// challenge. May be nil (passkeys disabled, or tests).
+	passkey secondFactorPasskey
+	tmpl    *template.Template
+	cfg     *config.Config
+	logger  *slog.Logger
 }
 
 // NewHandler creates a new Handler with the given dependencies.

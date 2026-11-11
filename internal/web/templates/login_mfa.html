@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
   <script src="/static/theme.js"></script>
+  <script src="/static/passkey.js" defer></script>
 </head>
 <body>
 <main class="auth-shell">
@@ -38,6 +39,15 @@
 
       <button type="submit" class="btn btn-primary w-full">Verify and sign in</button>
     </form>
+
+    {{if .PasskeyAvailable}}
+    <div class="mt-5 space-y-2.5" data-passkey-section>
+      <button type="button" id="passkey-mfa-btn" class="btn btn-outline w-full">
+        {{template "ic-key"}}Use a passkey instead
+      </button>
+      <p id="passkey-mfa-status" class="help text-center" aria-live="polite"></p>
+    </div>
+    {{end}}
 
     <p class="auth-alt">
       Lost your device? <a href="/login">Start over</a> and use a recovery code,

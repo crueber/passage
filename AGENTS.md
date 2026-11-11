@@ -100,7 +100,7 @@ Route groups in `run.go`; when adding routes, pick the right group:
 | Group | Middleware | Routes |
 |---|---|---|
 | Global | `RequestID`, `RealIP`, `Logger`, `Recoverer`, `web.SecurityHeaders()` | everything |
-| Public JSON | none | `/healthz`, passkey auth routes, `/.well-known/*`, `/oauth/*` |
+| Public JSON | none | `/healthz`, passkey auth routes, `/login/mfa/passkey/*` (a passkey completing a pending second factor), `/.well-known/*`, `/oauth/*` |
 | Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/login/mfa`, `/register`, `/reset`, `/login/magic`, `/setup` |
 | Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, `/sessions` (+ revoke), `/mfa/*` + Security page (ungated), passkey profile routes |
 | Behind the "require MFA" gate | `user.RequireMFA` inside the session group | app routes and `/admin/*` when `auth_require_mfa` is on |
@@ -108,7 +108,7 @@ Route groups in `run.go`; when adding routes, pick the right group:
 
 - Rate limiting: `ratelimit.Middleware(limiter)` applied per-route (`/login`, `/reset`, `/oauth/token`, `/setup`). Limiters are in-memory sliding-window, configured in the `ratelimit` config section. Read-only OAuth endpoints (discovery, JWKS, userinfo) are deliberately NOT rate-limited.
 - Logout is a GET that only revokes the session cookie — no CSRF token by design.
-- Passkey endpoints are JSON APIs driven by `passkey.js` — no CSRF token needed (WebAuthn does not submit cross-origin credentials).
+- Passkey endpoints are JSON APIs driven by `passkey.js` — no CSRF token needed (WebAuthn does not submit cross-origin credentials). A passkey can also satisfy a pending second-factor challenge (`/login/mfa/passkey/*`): those calls are authenticated by the SameSite=Lax `passage_mfa` cookie, bound to the challenge token through the WebAuthn `ChallengeStorer` (`"mfa:"` namespace), and finish through `completeMFAChallenge` — the same path a TOTP code takes.
 
 ## Configuration
 
