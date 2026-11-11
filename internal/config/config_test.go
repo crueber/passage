@@ -513,6 +513,154 @@ func TestLoad_RateLimitEnvOverride(t *testing.T) {
 	}
 }
 
+// TestSecurityWebhook covers the security.webhook_* defaults, file values,
+// validation, and env overrides. Env mutation means the subtests run serially
+// (no t.Parallel).
+func TestSecurityWebhook(t *testing.T) {
+	writeConfig := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "passage.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		return path
+	}
+
+	tests := []struct {
+		name        string
+		yaml        string
+		urlEnv      string
+		secretEnv   string
+		timeoutEnv  string
+		wantURL     string
+		wantSecret  string
+		wantTimeout int
+		wantErr     []string // substrings that must appear in Validate()'s error
+	}{
+		{
+			name:        "defaults disable the webhook",
+			wantTimeout: 5,
+		},
+		{
+			name:        "valid https url and secret accepted",
+			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_secret: s3cret\n  webhook_timeout_seconds: 10\n",
+			wantURL:     "https://hooks.example.com/passage",
+			wantSecret:  "s3cret",
+			wantTimeout: 10,
+		},
+		{
+			name:        "http url accepted",
+			yaml:        "security:\n  webhook_url: http://127.0.0.1:9000/hook\n",
+			wantURL:     "http://127.0.0.1:9000/hook",
+			wantTimeout: 5,
+		},
+		{
+			name:        "non-http scheme rejected",
+			yaml:        "security:\n  webhook_url: ftp://hooks.example.com/passage\n",
+			wantURL:     "ftp://hooks.example.com/passage",
+			wantTimeout: 5,
+			wantErr:     []string{"security.webhook_url", "http or https", `"ftp"`},
+		},
+		{
+			name:        "malformed url rejected",
+			yaml:        "security:\n  webhook_url: \"http://[::1\"\n",
+			wantURL:     "http://[::1",
+			wantTimeout: 5,
+			wantErr:     []string{"security.webhook_url", "not a valid URL"},
+		},
+		{
+			name:        "url without host rejected",
+			yaml:        "security:\n  webhook_url: \"https:///hook\"\n",
+			wantURL:     "https:///hook",
+			wantTimeout: 5,
+			wantErr:     []string{"security.webhook_url", "must include a host"},
+		},
+		{
+			name:        "timeout zero rejected",
+			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_timeout_seconds: 0\n",
+			wantURL:     "https://hooks.example.com/passage",
+			wantTimeout: 0,
+			wantErr:     []string{"security.webhook_timeout_seconds", "between 1 and 60", "got 0"},
+		},
+		{
+			name:        "timeout above 60 rejected",
+			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_timeout_seconds: 61\n",
+			wantURL:     "https://hooks.example.com/passage",
+			wantTimeout: 61,
+			wantErr:     []string{"security.webhook_timeout_seconds", "between 1 and 60", "got 61"},
+		},
+		{
+			name:        "timeout bounds accepted",
+			yaml:        "security:\n  webhook_url: https://hooks.example.com/passage\n  webhook_timeout_seconds: 60\n",
+			wantURL:     "https://hooks.example.com/passage",
+			wantTimeout: 60,
+		},
+		{
+			name:        "env overrides file",
+			yaml:        "security:\n  webhook_url: https://file.example.com/hook\n  webhook_secret: from-file\n  webhook_timeout_seconds: 10\n",
+			urlEnv:      "https://env.example.com/hook",
+			secretEnv:   "from-env",
+			timeoutEnv:  "20",
+			wantURL:     "https://env.example.com/hook",
+			wantSecret:  "from-env",
+			wantTimeout: 20,
+		},
+		{
+			name:        "env enables a disabled webhook",
+			urlEnv:      "https://env.example.com/hook",
+			wantURL:     "https://env.example.com/hook",
+			wantTimeout: 5,
+		},
+		{
+			name:        "malformed env timeout ignored, default kept",
+			timeoutEnv:  "soon",
+			wantTimeout: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("PASSAGE_SECURITY_WEBHOOK_URL", tt.urlEnv)
+			t.Setenv("PASSAGE_SECURITY_WEBHOOK_SECRET", tt.secretEnv)
+			t.Setenv("PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS", tt.timeoutEnv)
+
+			var path string
+			if tt.yaml != "" {
+				path = writeConfig(t, tt.yaml)
+			}
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Security.WebhookURL != tt.wantURL {
+				t.Errorf("Security.WebhookURL = %q; want %q", cfg.Security.WebhookURL, tt.wantURL)
+			}
+			if cfg.Security.WebhookSecret != tt.wantSecret {
+				t.Errorf("Security.WebhookSecret = %q; want %q", cfg.Security.WebhookSecret, tt.wantSecret)
+			}
+			if cfg.Security.WebhookTimeoutSeconds != tt.wantTimeout {
+				t.Errorf("Security.WebhookTimeoutSeconds = %d; want %d", cfg.Security.WebhookTimeoutSeconds, tt.wantTimeout)
+			}
+
+			err = cfg.Validate()
+			if len(tt.wantErr) == 0 {
+				if err != nil {
+					t.Fatalf("Validate: unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Validate: expected an error, got nil")
+			}
+			for _, want := range tt.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Validate error %q does not mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 // TestTheme covers the ui.theme default, file value, validation, and env
 // override. Env mutation means the subtests run serially (no t.Parallel).
 func TestTheme(t *testing.T) {

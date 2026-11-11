@@ -25,20 +25,29 @@ type appender interface {
 	Append(ctx context.Context, e *Event) error
 }
 
+// Notifier is the optional second sink on a Recorder. Notify is called once per
+// recorded event, after the store write, and must return promptly: it must not
+// block, fail, or panic the authentication flow. WebhookNotifier is the
+// implementation used by the server; nil disables the sink.
+type Notifier interface {
+	Notify(e Event)
+}
+
 // Recorder writes authentication events. Recording is best-effort: errors are
 // logged and swallowed so a logging failure can never break an auth flow.
 type Recorder struct {
-	store  appender
-	logger *slog.Logger
+	store    appender
+	notifier Notifier
+	logger   *slog.Logger
 }
 
-// NewRecorder creates a Recorder that writes through store and logs failures
-// to logger.
-func NewRecorder(store appender, logger *slog.Logger) *Recorder {
+// NewRecorder creates a Recorder that writes through store, hands each recorded
+// event to notifier (which may be nil), and logs failures to logger.
+func NewRecorder(store appender, notifier Notifier, logger *slog.Logger) *Recorder {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Recorder{store: store, logger: logger}
+	return &Recorder{store: store, notifier: notifier, logger: logger}
 }
 
 // Record writes e. ID and CreatedAt are generated when unset, and free-form
@@ -74,6 +83,13 @@ func (r *Recorder) Record(ctx context.Context, e Event) {
 			"outcome", e.Outcome,
 			"error", err,
 		)
+	}
+
+	// Second sink: asynchronous and non-blocking. Notify is called even when
+	// the store write failed — the event happened, and an operator watching
+	// the webhook should still see it.
+	if r.notifier != nil {
+		r.notifier.Notify(e)
 	}
 }
 

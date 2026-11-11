@@ -248,7 +248,7 @@ func newMagicLinkHandlerFixture(t *testing.T) (*user.Handler, *handlerFixture) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	appStore := app.NewStore(db)
 	authStore := authlog.NewStore(db)
-	authRecorder := authlog.NewRecorder(authStore, logger)
+	authRecorder := authlog.NewRecorder(authStore, nil, logger)
 	h := user.NewHandler(userSvc, app.NewService(appStore, appStore, logger), sessionSvc, magicLinkEnabledSettings{}, noopSender{}, session.UserFromContext, authRecorder, tmpl, cfg, logger)
 
 	f := &handlerFixture{

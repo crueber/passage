@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -22,8 +23,28 @@ type Config struct {
 	Auth      AuthConfig
 	Log       LogConfig
 	CSRF      CSRFConfig
+	Security  SecurityConfig  `yaml:"security"`
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
 	UI        UIConfig        `yaml:"ui"`
+}
+
+// SecurityConfig holds optional security integrations.
+type SecurityConfig struct {
+	// WebhookURL is an HTTP endpoint that receives every recorded
+	// authentication event as a JSON POST. Empty disables the webhook.
+	// Env: PASSAGE_SECURITY_WEBHOOK_URL.
+	WebhookURL string `yaml:"webhook_url"`
+
+	// WebhookSecret is optional. When set, each request body is signed with
+	// HMAC-SHA256 under this secret and the digest is sent in the
+	// X-Passage-Signature header as "sha256=<hex>".
+	// Env: PASSAGE_SECURITY_WEBHOOK_SECRET.
+	WebhookSecret string `yaml:"webhook_secret"`
+
+	// WebhookTimeoutSeconds bounds one delivery attempt.
+	// Default 5, valid range 1–60.
+	// Env: PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS.
+	WebhookTimeoutSeconds int `yaml:"webhook_timeout_seconds"`
 }
 
 // UIConfig holds web UI presentation settings.
@@ -177,6 +198,9 @@ func defaults() *Config {
 			Level:  "info",
 			Format: "json",
 		},
+		Security: SecurityConfig{
+			WebhookTimeoutSeconds: 5,
+		},
 		RateLimit: RateLimitConfig{
 			LoginRequests:           10,
 			LoginWindowMinutes:      15,
@@ -256,6 +280,24 @@ func (c *Config) Validate() error {
 	// Validate CSRF key length if explicitly set.
 	if c.CSRF.Key != "" && len(c.CSRF.Key) < 64 {
 		errs = append(errs, fmt.Errorf("csrf.key must be at least 64 hex characters (32 random bytes) when set, got %d", len(c.CSRF.Key)))
+	}
+
+	// Validate the security webhook. An empty URL disables the feature; a
+	// configured endpoint must be a usable http(s) URL. The timeout is always
+	// checked so a typo is caught even while the webhook is disabled.
+	if c.Security.WebhookURL != "" {
+		u, err := url.Parse(c.Security.WebhookURL)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("security.webhook_url is not a valid URL: %w", err))
+		case u.Scheme != "http" && u.Scheme != "https":
+			errs = append(errs, fmt.Errorf("security.webhook_url must use http or https, got scheme %q", u.Scheme))
+		case u.Host == "":
+			errs = append(errs, fmt.Errorf("security.webhook_url must include a host, got %q", c.Security.WebhookURL))
+		}
+	}
+	if c.Security.WebhookTimeoutSeconds < 1 || c.Security.WebhookTimeoutSeconds > 60 {
+		errs = append(errs, fmt.Errorf("security.webhook_timeout_seconds must be between 1 and 60, got %d", c.Security.WebhookTimeoutSeconds))
 	}
 
 	// Validate the UI theme against the registry.
@@ -404,6 +446,21 @@ func applyEnvOverrides(cfg *Config) {
 	// CSRF
 	if v := os.Getenv("PASSAGE_CSRF_KEY"); v != "" {
 		cfg.CSRF.Key = v
+	}
+
+	// Security
+	if v := os.Getenv("PASSAGE_SECURITY_WEBHOOK_URL"); v != "" {
+		cfg.Security.WebhookURL = v
+	}
+	if v := os.Getenv("PASSAGE_SECURITY_WEBHOOK_SECRET"); v != "" {
+		cfg.Security.WebhookSecret = v
+	}
+	if v := os.Getenv("PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Security.WebhookTimeoutSeconds = n
+		} else {
+			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS", v, err)
+		}
 	}
 
 	// UI
