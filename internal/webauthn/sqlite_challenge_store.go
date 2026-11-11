@@ -12,8 +12,10 @@ import (
 )
 
 // SQLiteChallengeStore persists WebAuthn challenge session data in SQLite.
-// Keys are prefixed: "reg:<sessionID>" for registration, "auth:<sessionID>" for login.
-// Get* operations are destructive (single-use): the row is deleted on first read.
+// Keys are prefixed: "reg:<sessionID>" for registration, "auth:<sessionID>" for
+// login, "mfa:<token>" for a second-factor assertion bound to a pending MFA
+// challenge. Get* operations are destructive (single-use): the row is deleted
+// on first read.
 type SQLiteChallengeStore struct {
 	db     *sql.DB
 	logger *slog.Logger
@@ -44,6 +46,18 @@ func (s *SQLiteChallengeStore) GetRegistration(sessionID string) (gowebauthn.Ses
 // Returns ErrChallengeNotFound if missing, ErrChallengeExpired if TTL has elapsed.
 func (s *SQLiteChallengeStore) GetAuthentication(sessionID string) (gowebauthn.SessionData, error) {
 	return s.pop(context.Background(), authKey(sessionID))
+}
+
+// SetSecondFactor stores a second-factor assertion challenge bound to the
+// pending MFA challenge token bindKey.
+func (s *SQLiteChallengeStore) SetSecondFactor(bindKey string, session gowebauthn.SessionData) {
+	s.set(mfaKey(bindKey), session)
+}
+
+// GetSecondFactor retrieves and removes the second-factor ceremony begun under
+// bindKey (single-use). A ceremony begun for another challenge is not found.
+func (s *SQLiteChallengeStore) GetSecondFactor(bindKey string) (gowebauthn.SessionData, error) {
+	return s.pop(context.Background(), mfaKey(bindKey))
 }
 
 // DeleteExpired removes all rows whose expires_at is in the past.
@@ -122,3 +136,4 @@ func (s *SQLiteChallengeStore) pop(ctx context.Context, key string) (gowebauthn.
 
 func regKey(sessionID string) string  { return "reg:" + sessionID }
 func authKey(sessionID string) string { return "auth:" + sessionID }
+func mfaKey(bindKey string) string    { return "mfa:" + bindKey }

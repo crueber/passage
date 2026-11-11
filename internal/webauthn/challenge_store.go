@@ -20,7 +20,9 @@ type challengeEntry struct {
 
 // ChallengeStore is an in-memory store for WebAuthn session data (challenges).
 // Each entry expires after ttl to prevent replay attacks.
-// Keys are prefixed: "reg:<sessionID>" for registration, "auth:<sessionID>" for login.
+// Keys are prefixed: "reg:<sessionID>" for registration, "auth:<sessionID>" for
+// login, "mfa:<token>" for a second-factor assertion bound to a pending MFA
+// challenge.
 type ChallengeStore struct {
 	mu      sync.Mutex
 	entries map[string]*challengeEntry
@@ -42,12 +44,7 @@ func NewChallengeStoreWithTTL(ttl time.Duration) *ChallengeStore {
 
 // SetRegistration stores a registration challenge keyed by sessionID.
 func (s *ChallengeStore) SetRegistration(sessionID string, session gowebauthn.SessionData) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.entries["reg:"+sessionID] = &challengeEntry{
-		session:   session,
-		expiresAt: time.Now().Add(s.ttl),
-	}
+	s.set("reg:"+sessionID, session)
 }
 
 // GetRegistration retrieves and removes a registration challenge.
@@ -58,18 +55,35 @@ func (s *ChallengeStore) GetRegistration(sessionID string) (gowebauthn.SessionDa
 
 // SetAuthentication stores a login challenge keyed by sessionID.
 func (s *ChallengeStore) SetAuthentication(sessionID string, session gowebauthn.SessionData) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.entries["auth:"+sessionID] = &challengeEntry{
-		session:   session,
-		expiresAt: time.Now().Add(s.ttl),
-	}
+	s.set("auth:"+sessionID, session)
 }
 
 // GetAuthentication retrieves and removes a login challenge.
 // Returns ErrChallengeNotFound if the key is missing or expired.
 func (s *ChallengeStore) GetAuthentication(sessionID string) (gowebauthn.SessionData, error) {
 	return s.pop("auth:" + sessionID)
+}
+
+// SetSecondFactor stores a second-factor assertion challenge bound to the
+// pending MFA challenge token bindKey.
+func (s *ChallengeStore) SetSecondFactor(bindKey string, session gowebauthn.SessionData) {
+	s.set("mfa:"+bindKey, session)
+}
+
+// GetSecondFactor retrieves and removes the second-factor ceremony begun under
+// bindKey. A ceremony begun for another challenge is simply not found.
+func (s *ChallengeStore) GetSecondFactor(bindKey string) (gowebauthn.SessionData, error) {
+	return s.pop("mfa:" + bindKey)
+}
+
+// set stores an entry under key with a fresh TTL.
+func (s *ChallengeStore) set(key string, session gowebauthn.SessionData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries[key] = &challengeEntry{
+		session:   session,
+		expiresAt: time.Now().Add(s.ttl),
+	}
 }
 
 // pop retrieves and deletes an entry, checking TTL.

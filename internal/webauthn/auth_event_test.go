@@ -31,6 +31,14 @@ func (passkeyLoginStub) FinishRegistration(gowebauthn.User, gowebauthn.SessionDa
 	return nil, errors.New("unused in this test")
 }
 
+func (passkeyLoginStub) BeginLogin(gowebauthn.User, ...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
+	return nil, nil, errors.New("unused in this test")
+}
+
+func (passkeyLoginStub) FinishLogin(gowebauthn.User, gowebauthn.SessionData, *http.Request) (*gowebauthn.Credential, error) {
+	return nil, errors.New("unused in this test")
+}
+
 func (passkeyLoginStub) BeginDiscoverableLogin(...gowebauthn.LoginOption) (*protocol.CredentialAssertion, *gowebauthn.SessionData, error) {
 	return nil, nil, errors.New("unused in this test")
 }

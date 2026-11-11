@@ -160,3 +160,31 @@ func TestSQLiteChallengeStore_DeleteExpired(t *testing.T) {
 		t.Errorf("expected 1 row after DeleteExpired, got %d", count)
 	}
 }
+
+func TestSQLiteChallengeStore_SecondFactorRoundTrip(t *testing.T) {
+	database := testutil.NewTestDB(t)
+	store := webauthn.NewSQLiteChallengeStore(database, noopLogger())
+
+	data := gowebauthn.SessionData{Challenge: "mfa-challenge-xyz"}
+	store.SetSecondFactor("mfa-token-1", data)
+
+	got, err := store.GetSecondFactor("mfa-token-1")
+	if err != nil {
+		t.Fatalf("GetSecondFactor: %v", err)
+	}
+	if got.Challenge != data.Challenge {
+		t.Errorf("Challenge: got %q, want %q", got.Challenge, data.Challenge)
+	}
+
+	// Second get must fail — single-use semantics.
+	if _, err := store.GetSecondFactor("mfa-token-1"); err == nil {
+		t.Fatal("expected error on second GetSecondFactor, got nil")
+	}
+
+	// The namespace is separate from the login ceremony: a token issued for a
+	// second factor is not a login session and vice versa.
+	store.SetSecondFactor("token-a", gowebauthn.SessionData{Challenge: "for-a"})
+	if _, err := store.GetAuthentication("token-a"); err == nil {
+		t.Fatal("a second-factor row was readable as a login challenge")
+	}
+}

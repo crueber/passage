@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -76,6 +77,9 @@ type mfaLoginData struct {
 	Flash     *Flash
 	CSRFToken string
 	Username  string
+	// PasskeyAvailable is decided server-side: the passkey button renders only
+	// when a passkey can actually complete this challenge.
+	PasskeyAvailable bool
 }
 
 // startMFAChallenge issues a pending challenge after a correct password and
@@ -141,10 +145,12 @@ func (h *Handler) GetMFALogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := ""
+	passkey := false
 	if u, err := h.users.GetByID(r.Context(), ch.UserID); err == nil {
 		username = u.Username
+		passkey = h.passkeySecondFactorAvailable(r.Context(), u.ID)
 	}
-	h.renderMFALogin(w, r, username, nil)
+	h.renderMFALogin(w, r, username, passkey, nil)
 }
 
 // PostMFALogin verifies a TOTP or recovery code and, only then, creates the
@@ -155,33 +161,17 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch, ok := h.liveChallenge(r)
-	if !ok {
-		clearMFACookie(w, h.cfg)
-		http.Redirect(w, r, "/login?flash=mfa-expired", http.StatusFound)
-		return
-	}
-
-	// Load the account first: it is needed for the session, for the failure
-	// event's username, and to refuse an account that was deactivated between
-	// the password and the code (the challenge must not outlive the account).
-	u, err := h.users.GetByID(r.Context(), ch.UserID)
+	ch, u, err := h.mfaChallengeUser(r)
 	if err != nil {
-		h.logger.Error("mfa: load user for challenge", "user_id", ch.UserID, "error", err)
 		clearMFACookie(w, h.cfg)
-		http.Redirect(w, r, "/login?flash=error", http.StatusFound)
-		return
-	}
-	if !u.IsActive {
-		h.record(r, authlog.Event{
-			Event:    authlog.EventMFAFailure,
-			Outcome:  authlog.OutcomeFailure,
-			UserID:   u.ID,
-			Username: u.Username,
-			Detail:   "account inactive",
-		})
-		clearMFACookie(w, h.cfg)
-		http.Redirect(w, r, "/login?flash=account-inactive", http.StatusFound)
+		switch {
+		case errors.Is(err, errMFAAccountInactive):
+			http.Redirect(w, r, "/login?flash=account-inactive", http.StatusFound)
+		case errors.Is(err, errMFALoadUser):
+			http.Redirect(w, r, "/login?flash=error", http.StatusFound)
+		default:
+			http.Redirect(w, r, "/login?flash=mfa-expired", http.StatusFound)
+		}
 		return
 	}
 
@@ -200,7 +190,7 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 				Username: u.Username,
 				Detail:   "account locked",
 			})
-			h.renderMFALogin(w, r, u.Username, &Flash{Type: "error", Message: lockedLoginMessage(status.Remaining)})
+			h.renderMFALogin(w, r, u.Username, h.passkeySecondFactorAvailable(r.Context(), u.ID), &Flash{Type: "error", Message: lockedLoginMessage(status.Remaining)})
 			return
 		}
 	}
@@ -227,18 +217,82 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 			Username: u.Username,
 			Detail:   "invalid code",
 		})
-		h.renderMFALogin(w, r, u.Username, &Flash{Type: "error", Message: "That code is not valid. Please try again."})
+		h.renderMFALogin(w, r, u.Username, h.passkeySecondFactorAvailable(r.Context(), u.ID), &Flash{Type: "error", Message: "That code is not valid. Please try again."})
 		return
 	}
 
+	dest, err := h.completeMFAChallenge(w, r, ch, u, method)
+	if err != nil {
+		if errors.Is(err, errMFAConsumeChallenge) {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/login?flash=error", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+// ─── challenge completion ────────────────────────────────────────────────────
+
+// Errors returned by mfaChallengeUser. They exist so each caller can answer in
+// its own style — an HTML redirect on the code form, a JSON error on the
+// passkey API — without repeating the lookup and its logging.
+var (
+	errMFANoChallenge     = errors.New("mfa: no live challenge")
+	errMFALoadUser        = errors.New("mfa: load challenge user")
+	errMFAAccountInactive = errors.New("mfa: challenge account is inactive")
+)
+
+// Errors returned by completeMFAChallenge. The consume failure is distinct
+// because the pending challenge survives it; every other failure happens after
+// the challenge is gone.
+var errMFAConsumeChallenge = errors.New("mfa: consume challenge")
+
+// mfaChallengeUser loads the live challenge named by the pending cookie and the
+// account it belongs to, refusing an account that was deactivated between the
+// password and the second factor: a challenge must not outlive the account.
+func (h *Handler) mfaChallengeUser(r *http.Request) (*mfa.Challenge, *User, error) {
+	ch, ok := h.liveChallenge(r)
+	if !ok {
+		return nil, nil, errMFANoChallenge
+	}
+	u, err := h.users.GetByID(r.Context(), ch.UserID)
+	if err != nil {
+		h.logger.Error("mfa: load user for challenge", "user_id", ch.UserID, "error", err)
+		return nil, nil, fmt.Errorf("%w: %w", errMFALoadUser, err)
+	}
+	if !u.IsActive {
+		h.record(r, authlog.Event{
+			Event:    authlog.EventMFAFailure,
+			Outcome:  authlog.OutcomeFailure,
+			UserID:   u.ID,
+			Username: u.Username,
+			Detail:   "account inactive",
+		})
+		return nil, nil, errMFAAccountInactive
+	}
+	return ch, u, nil
+}
+
+// completeMFAChallenge is the one path from "second factor verified" to
+// "signed in", shared by the code form (PostMFALogin) and the passkey assertion
+// (PostMFAPasskeyFinish): consume the challenge, create the session for the app
+// named by the return target, set the session cookie, clear the pending
+// cookies, record mfa.success with method, and return the same-site redirect
+// target.
+//
+// It writes the session cookie itself; the caller only redirects. A failure is
+// returned (already logged and recorded) so each caller can answer in its own
+// style, and no session exists unless the challenge was consumed first.
+func (h *Handler) completeMFAChallenge(w http.ResponseWriter, r *http.Request, ch *mfa.Challenge, u *User, method string) (string, error) {
 	// The challenge grants exactly one session. Deleting it is part of the
 	// verification, not cleanup: if it cannot be deleted, no session is created
 	// (the factor itself is still single-use, but the pending password proof
 	// must not survive a completed sign-in).
 	if err := h.mfa.ConsumeChallenge(r.Context(), ch.Token); err != nil {
 		h.logger.Error("mfa: consume challenge", "user_id", u.ID, "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		return "", fmt.Errorf("%w: %w", errMFAConsumeChallenge, err)
 	}
 
 	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, h.appIDFromReturnTarget(r.Context(), ch.ReturnTo), r.RemoteAddr, r.UserAgent())
@@ -251,8 +305,7 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 			Username: u.Username,
 			Detail:   "session create failed",
 		})
-		http.Redirect(w, r, "/login?flash=error", http.StatusFound)
-		return
+		return "", fmt.Errorf("create session: %w", err)
 	}
 
 	if h.throttle != nil {
@@ -276,16 +329,17 @@ func (h *Handler) PostMFALogin(w http.ResponseWriter, r *http.Request) {
 	if !safeReturnPath(dest) {
 		dest = "/"
 	}
-	http.Redirect(w, r, dest, http.StatusFound)
+	return dest, nil
 }
 
 // renderMFALogin renders the second-factor form. The username only labels the
 // page; it is best-effort and never changes the flow.
-func (h *Handler) renderMFALogin(w http.ResponseWriter, r *http.Request, username string, flash *Flash) {
+func (h *Handler) renderMFALogin(w http.ResponseWriter, r *http.Request, username string, passkey bool, flash *Flash) {
 	h.render(w, r, "login_mfa.html", mfaLoginData{
-		Flash:     flash,
-		CSRFToken: csrf.TokenFromContext(r.Context()),
-		Username:  username,
+		Flash:            flash,
+		CSRFToken:        csrf.TokenFromContext(r.Context()),
+		Username:         username,
+		PasskeyAvailable: passkey,
 	})
 }
 

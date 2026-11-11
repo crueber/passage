@@ -300,3 +300,50 @@ func TestChallengeStore_Expiry(t *testing.T) {
 		t.Fatal("expected error for expired challenge, got nil")
 	}
 }
+
+func TestChallengeStore_SecondFactorRoundTrip(t *testing.T) {
+	store := webauthn.NewChallengeStore()
+
+	data := gowebauthn.SessionData{Challenge: "test-challenge-mfa"}
+	store.SetSecondFactor("mfa-token-1", data)
+
+	got, err := store.GetSecondFactor("mfa-token-1")
+	if err != nil {
+		t.Fatalf("GetSecondFactor: %v", err)
+	}
+	if got.Challenge != data.Challenge {
+		t.Errorf("Challenge: got %q, want %q", got.Challenge, data.Challenge)
+	}
+
+	// Second get must fail — a ceremony is single-use.
+	if _, err := store.GetSecondFactor("mfa-token-1"); err == nil {
+		t.Fatal("expected error on second GetSecondFactor, got nil")
+	}
+}
+
+// TestChallengeStore_SecondFactorBinding proves the second-factor namespace is
+// separate from the login one: a ceremony stored under one bind key is not
+// reachable under another, and an authentication entry cannot be finished as a
+// second factor (or vice versa).
+func TestChallengeStore_SecondFactorBinding(t *testing.T) {
+	store := webauthn.NewChallengeStore()
+
+	store.SetSecondFactor("token-a", gowebauthn.SessionData{Challenge: "for-a"})
+	store.SetAuthentication("token-b", gowebauthn.SessionData{Challenge: "for-b"})
+
+	if _, err := store.GetSecondFactor("token-b"); err == nil {
+		t.Fatal("an authentication entry was readable as a second-factor ceremony")
+	}
+	if _, err := store.GetAuthentication("token-a"); err == nil {
+		t.Fatal("a second-factor entry was readable as a login ceremony")
+	}
+
+	// The failed lookups consumed nothing: token-a is still finishable.
+	got, err := store.GetSecondFactor("token-a")
+	if err != nil {
+		t.Fatalf("GetSecondFactor(token-a): %v", err)
+	}
+	if got.Challenge != "for-a" {
+		t.Errorf("Challenge = %q, want for-a", got.Challenge)
+	}
+}

@@ -50,10 +50,22 @@ type CredentialStore interface {
 // ChallengeStorer is the interface for storing and retrieving WebAuthn challenge
 // session data. Both the in-memory ChallengeStore and the SQLiteChallengeStore
 // implement this interface.
+//
+// Entries are namespaced by ceremony — "reg:" for registration, "auth:" for
+// passwordless login, "mfa:" for a second-factor assertion bound to a pending
+// MFA challenge — and every Get is destructive (single-use). A ceremony can
+// only be finished with the key it was begun under, so an assertion started
+// for one pending sign-in cannot complete another.
 type ChallengeStorer interface {
 	SetRegistration(sessionID string, session gowebauthn.SessionData)
 	SetAuthentication(sessionID string, session gowebauthn.SessionData)
 	GetRegistration(sessionID string) (gowebauthn.SessionData, error)
 	GetAuthentication(sessionID string) (gowebauthn.SessionData, error)
+	// SetSecondFactor stores a second-factor assertion challenge bound to the
+	// pending MFA challenge token bindKey.
+	SetSecondFactor(bindKey string, session gowebauthn.SessionData)
+	// GetSecondFactor retrieves and removes the second-factor ceremony begun
+	// under bindKey.
+	GetSecondFactor(bindKey string) (gowebauthn.SessionData, error)
 	DeleteExpired(ctx context.Context) error
 }
