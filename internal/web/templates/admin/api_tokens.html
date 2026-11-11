@@ -1,0 +1,109 @@
+{{define "admin-api-tokens"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API tokens — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">API tokens</h1>
+      <p class="page-sub">Bearer tokens for the read-only administrative API under <code class="td-mono">/api/v1</code>.</p>
+    </div>
+  </div>
+
+  {{if .NewToken}}
+  <div class="note note-success mb-5" role="alert">
+    <p class="font-medium">Token &ldquo;{{.NewTokenName}}&rdquo; created &mdash; copy it now, it will not be shown again:</p>
+    <p class="mt-2 flex flex-wrap items-center gap-2">
+      <code id="new-api-token" class="min-w-0 flex-1 rounded-md bg-surface/70 px-3 py-2 font-mono text-sm break-all">{{.NewToken}}</code>
+      <button type="button" class="btn btn-outline btn-sm" data-copy="#new-api-token">Copy</button>
+    </p>
+    <p class="mt-2 text-sm">Send it as <code class="td-mono">Authorization: Bearer &lt;token&gt;</code>. Only a hash is stored, so it cannot be recovered later.</p>
+  </div>
+  {{end}}
+
+  <div class="max-w-3xl">
+    <section class="card p-5 sm:p-6">
+      <h2 class="font-semibold text-ink">Create a token</h2>
+      <form method="POST" action="/admin/api-tokens" class="mt-4 flex flex-wrap items-end gap-2">
+        {{csrfField .CSRFToken}}
+        <div class="min-w-0 flex-1">
+          <label class="label" for="name">Name</label>
+          <input class="input" type="text" id="name" name="name" maxlength="100" required
+                 autocomplete="off" value="{{.Name}}" placeholder="grafana exporter">
+          <p class="help">A reminder of where this token is used. It is not secret.</p>
+        </div>
+        <button type="submit" class="btn btn-primary">Create token</button>
+      </form>
+    </section>
+
+    <section class="mt-6">
+      <h2 class="mb-3 font-semibold text-ink">Existing tokens</h2>
+      {{if .Tokens}}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Created</th>
+              <th scope="col">Last used</th>
+              <th scope="col">State</th>
+              <th scope="col" class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Tokens}}
+            <tr>
+              <td class="font-medium">{{.Name}}</td>
+              <td class="td-mono whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+              <td class="td-mono whitespace-nowrap">{{if .LastUsedAt.IsZero}}&mdash;{{else}}{{.LastUsedAt.Format "2006-01-02 15:04"}}{{end}}</td>
+              <td>
+                {{if .Revoked}}
+                <span class="badge badge-gray">Revoked</span>
+                {{else}}
+                <span class="badge badge-green">Active</span>
+                {{end}}
+              </td>
+              <td>
+                {{if .Revoked}}
+                <p class="text-right text-xs text-muted">{{.RevokedAt.Format "2006-01-02 15:04"}}</p>
+                {{else}}
+                <form method="POST" class="text-right" action="/admin/api-tokens/{{.ID}}/revoke">
+                  {{csrfField $.CSRFToken}}
+                  <button type="submit" class="btn btn-danger btn-sm"
+                          data-confirm="Revoke this API token? Requests using it will start failing immediately.">Revoke</button>
+                </form>
+                {{end}}
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="empty">
+        {{template "ic-key"}}
+        <p class="empty-title">No API tokens</p>
+        <p class="empty-sub">Create one above to query the administrative API from a script.</p>
+      </div>
+      {{end}}
+    </section>
+  </div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

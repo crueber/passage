@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/crueber/passage/internal/admin"
+	"github.com/crueber/passage/internal/adminapi"
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
@@ -71,6 +72,7 @@ type fixture struct {
 	authStore     *authlog.Store
 	throttle      *ratelimit.AccountService
 	throttleStore *ratelimit.AccountStore
+	apiTokens     *adminapi.Service
 }
 
 // newFixture builds all dependencies wired to an in-memory SQLite database.
@@ -122,7 +124,8 @@ func newFixture(t *testing.T) *fixture {
 		Lockout:     15 * time.Minute,
 	}, time.Now)
 	mfaSvc := mfa.NewService(mfa.NewStore(database, nil), "Passage", nil)
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle)
+	apiTokens := adminapi.NewService(adminapi.NewStore(database), logger)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle, apiTokens)
 
 	return &fixture{
 		db:            database,
@@ -140,6 +143,7 @@ func newFixture(t *testing.T) *fixture {
 		authStore:     authStore,
 		throttle:      throttle,
 		throttleStore: throttleStore,
+		apiTokens:     apiTokens,
 	}
 }
 

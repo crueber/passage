@@ -24,6 +24,7 @@ import (
 	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/crueber/passage/internal/admin"
+	"github.com/crueber/passage/internal/adminapi"
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
@@ -47,6 +48,44 @@ var version = "dev"
 // constant by design: the admin page offers 7/30/90-day windows and nothing
 // needs a shorter history.
 const authLogRetention = 90 * 24 * time.Hour
+
+// Admin API rate limits. The API is token-authenticated and read-only, so the
+// limiter is not a security boundary — it bounds the damage a leaked token or a
+// runaway script can do against the single SQLite connection.
+const (
+	apiRateLimitRequests = 120
+	apiRateLimitWindow   = time.Minute
+)
+
+// auditAPIAdapter adapts the admin audit service to adminapi.auditSource. The
+// admin UI package and the REST API package deliberately do not import each
+// other, so the mapping lives here at the wiring layer.
+type auditAPIAdapter struct {
+	svc *admin.AuditService
+}
+
+func (a *auditAPIAdapter) ListAudit(ctx context.Context, limit, offset int) ([]adminapi.AuditRecord, error) {
+	events, err := a.svc.List(ctx, admin.AuditFilter{Limit: limit, Offset: offset})
+	if err != nil {
+		return nil, fmt.Errorf("list audit events for api: %w", err)
+	}
+	records := make([]adminapi.AuditRecord, len(events))
+	for i, e := range events {
+		records[i] = adminapi.AuditRecord{
+			ID:         e.ID,
+			ActorID:    e.ActorID,
+			ActorName:  e.ActorName,
+			Action:     e.Action,
+			TargetType: e.TargetType,
+			TargetID:   e.TargetID,
+			TargetName: e.TargetName,
+			Detail:     e.Detail,
+			IPAddress:  e.IPAddress,
+			CreatedAt:  e.CreatedAt,
+		}
+	}
+	return records, nil
+}
 
 // appDurationAdapter adapts the app store to session.appDurationReader.
 // It is unexported and lives at the wiring layer to avoid cross-package coupling.
@@ -337,6 +376,7 @@ func run() error {
 	setupLimiter := ratelimit.New(rl.SetupRequests, time.Duration(rl.SetupWindowMinutes)*time.Minute)
 	registerLimiter := ratelimit.New(rl.RegisterRequests, time.Duration(rl.RegisterWindowMinutes)*time.Minute)
 	magicLinkLimiter := ratelimit.New(rl.MagicLinkRequests, time.Duration(rl.MagicLinkWindowMinutes)*time.Minute)
+	apiLimiter := ratelimit.New(apiRateLimitRequests, apiRateLimitWindow)
 
 	// Per-account password-login throttling. SQLite-backed so it survives a
 	// restart, unlike the in-memory per-IP limiters above. Both values are
@@ -348,7 +388,7 @@ func run() error {
 	}, time.Now)
 
 	// Start rate limiter cleanup goroutines (every 5 minutes each).
-	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter, registerLimiter, magicLinkLimiter} {
+	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter, registerLimiter, magicLinkLimiter, apiLimiter} {
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
@@ -366,7 +406,12 @@ func run() error {
 	// Build admin handler.
 	auditStore := admin.NewSQLiteAuditStore(database)
 	auditSvc := admin.NewAuditService(auditStore, logger)
-	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle)
+
+	// API tokens for the read-only administrative REST API (/api/v1).
+	apiTokenSvc := adminapi.NewService(adminapi.NewStore(database), logger)
+	apiHandler := adminapi.NewHandler(userStore, appStore, sessionStore, &auditAPIAdapter{svc: auditSvc}, logger)
+
+	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle, apiTokenSvc)
 
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
@@ -527,6 +572,15 @@ func run() error {
 	// a session on their own.
 	r.With(ratelimit.Middleware(loginLimiter)).Post("/login/mfa/passkey/begin", userHandler.PostMFAPasskeyBegin)
 	r.With(ratelimit.Middleware(loginLimiter)).Post("/login/mfa/passkey/finish", userHandler.PostMFAPasskeyFinish)
+
+	// Administrative REST API — read-only, authenticated by a bearer token
+	// minted from /admin/api-tokens rather than by a session cookie, so it sits
+	// outside every session/CSRF group. There are no mutation endpoints.
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(ratelimit.Middleware(apiLimiter))
+		r.Use(adminapi.RequireToken(apiTokenSvc, authRecorder, logger))
+		apiHandler.Routes(r)
+	})
 
 	// Protected routes require a valid session.
 	// CSRF protection is session-bound for authenticated routes.
