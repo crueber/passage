@@ -102,6 +102,10 @@ The OIDC signing key is RSA-2048. While still considered acceptable, 3072-bit RS
 
 WebAuthn challenges are persisted in SQLite (as of Phase 6 of the security audit). If two Passage instances were run against the same database simultaneously, there would be a race on challenge consumption. Passage is designed for single-instance deployments; this is not a supported configuration.
 
+### 7. Signing-key rotation is manual
+
+The OIDC keyring (see [docs/oauth-signing-key-rotation.md](oauth-signing-key-rotation.md)) signs with the newest active key and publishes every active key in JWKS, so rotating does not invalidate live id_tokens. There is no schedule and no automatic retirement: rotate from **System → Signing keys** and retire the old key once the longest id_token lifetime has passed. A retired key verifies nothing, including a logout `id_token_hint`, and the last active key cannot be retired.
+
 ---
 
 ## Section 4 — Security Event Webhook
@@ -332,7 +336,25 @@ passwords, and a successful code clears the counter.
 
 ---
 
-## Section 6 — Operational Security Checklist
+## Section 6 — Step-up Authentication
+
+`/oauth/authorize` honours `prompt=login`, `prompt=none`, `max_age`, and the
+`acr_values` marker `urn:passage:reauth`. A session older than **60 seconds**
+cannot satisfy a step-up request: the browser is sent through the normal login
+flow (password, passkey, magic link, upstream IdP or MFA) and returns to the
+same authorize URL. That window is the loop guard — the newly created session
+is fresh, so the next request proceeds without bouncing again.
+
+`prompt=none` never shows UI: without a usable session (or when the age/ACR
+requirement is not met) the response is `error=login_required` **redirected to
+the client's registered `redirect_uri` only**. An unregistered or unknown
+client gets a JSON error instead, so the endpoint cannot be used as an open
+redirector. No `acr` claim is added to the id_token; `auth_time` continues to
+reflect when the session was created, which is what the client asked about.
+
+---
+
+## Section 7 — Operational Security Checklist
 
 | Item | Requirement |
 |---|---|
