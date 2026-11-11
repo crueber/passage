@@ -135,7 +135,7 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 				{Kind: kindBool, Key: settings.PasswordEnabled, Label: "Enable password sign-in", Value: boolString(boolValue(settings.PasswordEnabled))},
 				{Kind: kindBool, Key: settings.PasskeyEnabled, Label: "Enable passkeys (WebAuthn)", Value: boolString(boolValue(settings.PasskeyEnabled))},
 				{Kind: kindBool, Key: settings.MagicLinkEnabled, Label: "Enable magic-link sign-in",
-					Help:  magicLinkHelp(h.cfg.SMTP.Host != ""),
+					Help:  magicLinkHelp(settings.String(ctx, h.settings, settings.SMTPHost, h.cfg.SMTP.Host) != ""),
 					Value: boolString(boolValue(settings.MagicLinkEnabled))},
 				{Kind: kindBool, Key: settings.RequireMFA, Label: "Require two-factor authentication",
 					Help:  "Everyone must enrol an authenticator app before using Passage. Passkeys and magic links are not affected.",
@@ -227,7 +227,7 @@ func magicLinkHelp(smtpConfigured bool) string {
 	if smtpConfigured {
 		return "Each request sends an email, so it is rate-limited separately."
 	}
-	return "Requires an SMTP host under Email; the option is unavailable until one is set."
+	return "Set an SMTP host under Email first; saving this switched on without one is refused."
 }
 
 func themeOptions() []settingsOption {

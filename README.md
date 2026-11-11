@@ -7,7 +7,7 @@ A self-hosted authentication service for home labs. Passage provides a single fr
 ## Screenshots
 
 <p align="center">
-  <a href="screenshots/01-sign-in.png"><img src="screenshots/01-sign-in.png" alt="Sign in, with passkey and upstream identity provider options (light theme)" width="31%" /></a>
+  <a href="screenshots/01-sign-in.png"><img src="screenshots/01-sign-in.png" alt="Sign in with a custom header and tagline, passkeys, magic links and upstream providers (light theme)" width="31%" /></a>
   <a href="screenshots/02-my-apps.png"><img src="screenshots/02-my-apps.png" alt="My Apps: a pinned favourite and the condensed-view switch" width="31%" /></a>
   <a href="screenshots/03-security.png"><img src="screenshots/03-security.png" alt="Security page: passkeys and two-factor authentication" width="31%" /></a>
 </p>
@@ -20,6 +20,11 @@ A self-hosted authentication service for home labs. Passage provides a single fr
   <a href="screenshots/07-app-access-policy.png"><img src="screenshots/07-app-access-policy.png" alt="Per-app access policy: group, role, CIDR range, hours and days" width="31%" /></a>
   <a href="screenshots/08-signing-keys.png"><img src="screenshots/08-signing-keys.png" alt="OIDC signing-key history: current, active and retired keys" width="31%" /></a>
   <a href="screenshots/09-api-tokens.png"><img src="screenshots/09-api-tokens.png" alt="Read-only admin API tokens" width="31%" /></a>
+</p>
+<p align="center">
+  <a href="screenshots/10-settings-general.png"><img src="screenshots/10-settings-general.png" alt="Settings: registration, session lifetime and the default theme" width="31%" /></a>
+  <a href="screenshots/11-settings-authentication.png"><img src="screenshots/11-settings-authentication.png" alt="Settings: authentication methods, lockout policy and hashing cost" width="31%" /></a>
+  <a href="screenshots/12-identity-providers.png"><img src="screenshots/12-identity-providers.png" alt="Upstream identity providers managed in the admin UI" width="31%" /></a>
 </p>
 
 <p align="center"><sub>Dark theme throughout; the sign-in page is shown in the light theme. Passage also ships nine other colour themes — see <a href="docs/theming.md">docs/theming.md</a>.</sub></p>
