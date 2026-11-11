@@ -164,7 +164,7 @@ func newFullHandlerFixtureAll(t *testing.T, allowRegistration bool, maxFailures,
 		MaxFailures: maxFailures,
 		Lockout:     time.Duration(lockoutMinutes) * time.Minute,
 	}, clock.Now)
-	mfaSvc := mfa.NewService(mfa.NewStore(db), "Passage", clock.Now)
+	mfaSvc := mfa.NewService(mfa.NewStore(db, nil), "Passage", clock.Now)
 	settings := &fixtureSettings{values: map[string]string{}}
 	h := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settings, mailer, session.UserFromContext, authRecorder, throttle, tmpl, cfg, logger)
 

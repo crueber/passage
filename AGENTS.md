@@ -44,7 +44,7 @@ passage/
     email/              # go-mail wrapper + embedded templates
     oauth/              # OAuth 2.0 / OIDC provider — authorize, token, userinfo, JWKS, PKCE
     webauthn/           # WebAuthn registration/authentication ceremonies + SQLite credential/challenge stores
-    mfa/                # TOTP (RFC 6238) + single-use recovery codes, pending login challenges
+    mfa/                # TOTP (RFC 6238) + single-use recovery codes, pending login challenges, AES-256-GCM secret encryption (cipher.go/key.go)
     csrf/               # CSRF middleware: ProtectAnonymous (double-submit) + ProtectAuthenticated (session-bound HMAC)
     ratelimit/          # in-memory sliding-window limiter + chi Middleware
     web/
@@ -115,6 +115,7 @@ Route groups in `run.go`; when adding routes, pick the right group:
 - `config.Load(path)` reads YAML (default `passage.yaml`, override with `-config`), then applies `PASSAGE_*` env var overrides. A missing config file is **not** an error — defaults + env are enough.
 - Every config change must be validated in `Config.Validate()` (uses `errors.Join` — collect all errors, don't fail on the first).
 - `server.base_url` is required for anything that builds absolute URLs (email links, WebAuthn RP ID/origins, OIDC discovery). WebAuthn falls back to `localhost` / `http://localhost:8080` when unset (dev only).
+- `security.encryption_key` (env `PASSAGE_SECURITY_ENCRYPTION_KEY`) is the optional AES-256-GCM key that encrypts TOTP secrets at rest: 64 hex characters or base64 of 32 bytes. When unset, `mfa.ResolveKey` creates `<database.path>.key` on first use (hex, mode 0600, `O_CREATE|O_EXCL`); a `:memory:` database gets an ephemeral key. Never log it, and never rotate it by overwriting the file — there is no re-keying path, and a lost key makes enrolled secrets unreadable.
 - See `passage.example.yaml` and `.env.example` for the full reference. Update them when adding config keys.
 
 ## Deployment & CI

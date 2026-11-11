@@ -30,7 +30,7 @@ func newFixture(t *testing.T) *fixture {
 	db := testutil.NewTestDB(t)
 	f := &fixture{
 		db:    db,
-		store: mfa.NewStore(db),
+		store: mfa.NewStore(db, nil),
 		now:   time.Unix(1700000000, 0).UTC(),
 	}
 	f.service = mfa.NewService(f.store, "Passage", func() time.Time { return f.now })

@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/theme"
 )
 
@@ -45,6 +46,16 @@ type SecurityConfig struct {
 	// Default 5, valid range 1–60.
 	// Env: PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS.
 	WebhookTimeoutSeconds int `yaml:"webhook_timeout_seconds"`
+
+	// EncryptionKey is the AES-256-GCM key that encrypts TOTP secrets at rest,
+	// as 64 hex characters or the base64 encoding of 32 bytes (for example
+	// `openssl rand -hex 32`). Optional: when empty, a key file named
+	// <database.path>.key is created next to the database on first use, mode
+	// 0600. Either way the key must stay stable across restarts — losing it
+	// makes every enrolled TOTP secret unreadable and each affected user needs
+	// an admin MFA reset.
+	// Env: PASSAGE_SECURITY_ENCRYPTION_KEY.
+	EncryptionKey string `yaml:"encryption_key"`
 }
 
 // UIConfig holds web UI presentation settings.
@@ -324,6 +335,16 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("security.webhook_timeout_seconds must be between 1 and 60, got %d", c.Security.WebhookTimeoutSeconds))
 	}
 
+	// Validate the secret-encryption key format if explicitly set. An empty
+	// value is valid: the key file next to the database is used instead.
+	// ParseKey is the same decoder the server uses, so a value that passes here
+	// cannot fail at startup.
+	if c.Security.EncryptionKey != "" {
+		if _, err := mfa.ParseKey(c.Security.EncryptionKey); err != nil {
+			errs = append(errs, fmt.Errorf("security.encryption_key is invalid: %w", err))
+		}
+	}
+
 	// Validate the UI theme against the registry.
 	if _, ok := theme.Lookup(c.UI.Theme); !ok {
 		errs = append(errs, fmt.Errorf("ui.theme %q is not a known theme (valid: %s)", c.UI.Theme, strings.Join(theme.Names(), ", ")))
@@ -506,6 +527,9 @@ func applyEnvOverrides(cfg *Config) {
 		} else {
 			fmt.Fprintf(os.Stderr, "passage: warning: ignoring malformed env var %s=%q: %v\n", "PASSAGE_SECURITY_WEBHOOK_TIMEOUT_SECONDS", v, err)
 		}
+	}
+	if v := os.Getenv("PASSAGE_SECURITY_ENCRYPTION_KEY"); v != "" {
+		cfg.Security.EncryptionKey = v
 	}
 
 	// UI

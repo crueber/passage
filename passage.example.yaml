@@ -45,6 +45,13 @@ auth:
   require_mfa: false
 
 security:
+  # AES-256-GCM key for TOTP secrets at rest, as 64 hex characters or the
+  # base64 encoding of 32 bytes (`openssl rand -hex 32`). Optional: when empty,
+  # a key file named <database.path>.key is created next to the database on
+  # first use with mode 0600. The key must stay stable across restarts —
+  # without it, enrolled TOTP secrets cannot be read and each affected user
+  # needs an admin MFA reset. The key file is as sensitive as the database.
+  encryption_key: ""
   # POST every authentication event to this endpoint as JSON.
   # Empty disables the webhook. Delivery is asynchronous and at-most-once:
   # a slow or dead endpoint never delays or fails a login.

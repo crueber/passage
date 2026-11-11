@@ -166,13 +166,50 @@ confirm. Recovery codes are shown once, immediately after confirmation.
 
 | Value | At rest |
 |---|---|
-| TOTP secret | `user_mfa.secret`, base32 (no padding). **Not encrypted** — the SQLite file is the trust boundary (see the checklist below). |
+| TOTP secret | `user_mfa.secret`: base32 (no padding), sealed with AES-256-GCM as `v1:` + base64(nonce‖ciphertext). See [Encryption at rest](#encryption-at-rest). |
 | Recovery codes | `user_mfa_recovery_codes.hash`, hex SHA-256 of the normalised code. The plaintext exists once, in the response that issues it. |
 | Pending challenge | `mfa_challenges` row (32 random bytes, hex, 5-minute expiry) named by an HttpOnly `passage_mfa` cookie. It is **not** a session: `RequireSession` never reads it and it grants nothing until a factor verifies. |
 
 No TOTP code, secret, or recovery code is ever written to a log, an
 authentication event, or the security webhook. Events name the method
-(`mfa.success` with detail `totp` or `recovery`) and nothing more.
+(`mfa.success` with detail `totp` or `recovery`) and nothing more. Neither the
+key nor the encryption key file is ever logged.
+
+### Encryption at rest
+
+TOTP secrets are encrypted before they reach the database. Each value uses a
+fresh 96-bit nonce and the owning user's ID as additional authenticated data, so
+a ciphertext copied onto another user's row fails to decrypt instead of
+transferring the second factor. The stored form is
+`v1:` + base64(nonce‖ciphertext).
+
+The key is resolved in this order:
+
+1. `security.encryption_key` (`PASSAGE_SECURITY_ENCRYPTION_KEY`) — 64 hex
+   characters or the base64 encoding of 32 bytes. `openssl rand -hex 32`
+   produces a valid value.
+2. Otherwise a key file next to the database, `<database.path>.key`, created on
+   first use from `crypto/rand`, hex encoded, mode 0600. A `:memory:` database
+   gets a process-local key, since there is nowhere to keep one.
+
+**The key must be stable across restarts, and the key file is exactly as
+sensitive as the database.** Losing it does not corrupt anything, but every
+enrolled secret becomes unreadable: those users cannot complete a second-factor
+challenge and need an **admin MFA reset** from the Users page, after which they
+enrol again. Back it up together with the database, do not overwrite it to
+"rotate" (there is no re-keying path), and treat a copy of it as a credential.
+
+Secrets written before encryption existed (a value with no `v1:` prefix) are
+returned unchanged, so upgrading can never lock anyone out. When a key is in
+use, a single sequential startup pass rewrites those legacy rows in place and
+logs the count; it is idempotent, and a failure is logged without blocking
+startup. After the first start with a key, a scan finds no plaintext row unless
+an older backup was restored — the pass-through is a compatibility window, not
+a supported storage mode.
+
+Rolling back to a release that predates encryption is not a supported path: it
+reads `v1:…` as a plaintext secret, every TOTP verification fails closed, and
+affected users need an admin MFA reset.
 
 ### Single use
 
@@ -234,9 +271,11 @@ passwords, and a successful code clears the counter.
 
 ### Residual risks
 
-1. **The TOTP secret is not encrypted at rest.** Anyone who can read
-   `passage.db` can generate valid codes. Restrict the file to mode 0600 and
-   treat a copy of it as a credential.
+1. **The database and its encryption key are a credential together.** TOTP
+   secrets are encrypted at rest, but by default the key sits next to the
+   database (`passage.db.key`). Anyone who can read both files can generate
+   valid codes. Restrict both to mode 0600, or supply the key through
+   `PASSAGE_SECURITY_ENCRYPTION_KEY` and keep it out of the data directory.
 2. **TOTP is phishable in real time.** A proxy that relays a code as it is typed
    defeats it. Passkeys are the phishing-resistant option and are unaffected by
    this design.
@@ -252,14 +291,15 @@ passwords, and a successful code clears the counter.
 
 | Item | Requirement |
 |---|---|
-| Database file permissions | `chmod 600 passage.db` — readable only by the Passage process user |
+| Database file permissions | `chmod 600 passage.db` — readable only by the Passage process user. The MFA key file (`passage.db.key`, created automatically) needs the same treatment. |
+| TOTP encryption key | Keep `PASSAGE_SECURITY_ENCRYPTION_KEY` (or the generated `<database.path>.key`) stable and backed up with the database. Losing it makes enrolled TOTP secrets unreadable; affected users need an admin MFA reset. It is as sensitive as the database — never commit it or log it. |
 | Secure cookies | `PASSAGE_SESSION_COOKIE_SECURE=true` must be set in production |
 | Network binding | Passage should only listen on `127.0.0.1` or a private interface — never `0.0.0.0` exposed to the internet |
 | Reverse proxy configuration | The reverse proxy must strip any inbound `X-Passage-*` headers before forwarding requests to upstream services, and must only forward requests to Passage's `/auth/*` endpoint — not to the admin UI |
 | Admin credentials | The initial admin account should use a strong passphrase. Add a passkey (WebAuthn credential) as a second factor. |
 | CSRF key | `PASSAGE_CSRF_KEY` should be set to a long random value in production (e.g. `openssl rand -hex 32`). If left unset, Passage will still start but the anonymous CSRF protection falls back to cookie-only signing, which provides weaker defence against subdomain attacks. |
 | Security webhook | If `PASSAGE_SECURITY_WEBHOOK_URL` is set, also set `PASSAGE_SECURITY_WEBHOOK_SECRET` and verify `X-Passage-Signature` at the receiver; otherwise anything that can reach the endpoint can forge events. |
-| Two-factor authentication | Enable `require_mfa` where the threat model warrants it, and keep the database file at mode 0600 — TOTP secrets are stored unencrypted in it. An admin can reset a lost factor from the Users page. |
+| Two-factor authentication | Enable `require_mfa` where the threat model warrants it. TOTP secrets are encrypted at rest with a key that is as sensitive as the database — keep both at mode 0600. An admin can reset a lost factor from the Users page. |
 | HTTPS | TLS must be terminated at the reverse proxy. WebAuthn will not work without HTTPS. |
 | Log retention | Access logs contain request paths, including `/reset/{token}` paths. Implement appropriate log retention and access controls. |
 | `govulncheck` | Run `govulncheck ./...` periodically and after Go toolchain updates. |

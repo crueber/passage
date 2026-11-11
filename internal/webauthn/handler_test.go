@@ -77,7 +77,7 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 		t.Fatalf("create webauthn: %v", err)
 	}
 
-	mfaSvc := mfa.NewService(mfa.NewStore(db), "Passage", nil)
+	mfaSvc := mfa.NewService(mfa.NewStore(db, nil), "Passage", nil)
 	h := webauthn.NewHandler(wa, credStore, challenges, userStore, sessionSvc,
 		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil, nil, mfaSvc)
 
