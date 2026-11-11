@@ -1,0 +1,110 @@
+{{define "admin-signing-keys"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signing keys — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Signing keys</h1>
+      <p class="page-sub">RSA keys that sign OpenID Connect id_tokens. The newest active key signs; every active key is published in the JWKS.</p>
+    </div>
+    <form method="POST" action="/admin/signing-keys/rotate">
+      {{csrfField .CSRFToken}}
+      <button type="submit" class="btn btn-primary"
+              data-confirm="Generate a new signing key and make it current? Older keys stay active, so id_tokens they signed keep verifying until they expire.">
+        Rotate key
+      </button>
+    </form>
+  </div>
+
+  <div class="max-w-4xl space-y-5">
+    <div class="note note-info">
+      <p class="font-medium">How rotation works</p>
+      <p class="mt-1 text-sm">
+        Rotating adds a key and makes it current without retiring the old one.
+        Keep the previous key active at least as long as the longest id_token
+        lifetime (one hour) before retiring it. Retiring a key stops it being
+        served and accepted; only retired keys can be deleted. Live sessions and
+        refresh tokens are opaque and are never affected by a rotation.
+      </p>
+    </div>
+
+    <section>
+      <h2 class="mb-3 font-semibold text-ink">Key history</h2>
+      {{if .Keys}}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Key ID</th>
+              <th scope="col">Created</th>
+              <th scope="col">State</th>
+              <th scope="col" class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Keys}}
+            <tr>
+              <td><code class="td-mono break-all text-xs">{{.KID}}</code></td>
+              <td class="td-mono whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+              <td>
+                {{if .RetiredAt}}
+                <span class="badge badge-gray">Retired</span>
+                {{else if .Current}}
+                <span class="badge badge-green">Current</span>
+                {{else}}
+                <span class="badge badge-amber">Active</span>
+                {{end}}
+              </td>
+              <td>
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                  {{if .RetiredAt}}
+                  <form method="POST" action="/admin/signing-keys/{{.KID}}/delete">
+                    {{csrfField $.CSRFToken}}
+                    <button type="submit" class="btn btn-danger btn-sm"
+                            data-confirm="Delete this retired key? This cannot be undone.">Delete</button>
+                  </form>
+                  {{else if .CanRetire}}
+                  <form method="POST" action="/admin/signing-keys/{{.KID}}/retire">
+                    {{csrfField $.CSRFToken}}
+                    <button type="submit" class="btn btn-outline btn-sm"
+                            data-confirm="Retire this key? It stops being served in the JWKS and id_tokens it signed stop being accepted.">Retire</button>
+                  </form>
+                  {{else}}
+                  <span class="text-xs text-muted">Only active key &mdash; rotate first</span>
+                  {{end}}
+                </div>
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="empty">
+        {{template "ic-key"}}
+        <p class="empty-title">No signing keys</p>
+        <p class="empty-sub">Startup imports the previous OIDC key or generates one. Reload this page after a restart.</p>
+      </div>
+      {{end}}
+    </section>
+  </div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

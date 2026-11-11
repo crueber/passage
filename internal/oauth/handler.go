@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"crypto/rsa"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -46,6 +45,8 @@ type oauthService interface {
 	// IntrospectToken implements RFC 7662 introspection. A nil result means
 	// the token is not active.
 	IntrospectToken(ctx context.Context, token, tokenTypeHint, clientID, clientSecret string) (*TokenInfo, error)
+	// ActiveSigningKeys returns the non-retired keys to publish in the JWKS.
+	ActiveSigningKeys() []*SigningKey
 }
 
 // sessionValidator is the interface the Handler uses to validate and revoke
@@ -67,8 +68,6 @@ type authEventRecorder interface {
 type Handler struct {
 	svc        oauthService
 	sessions   sessionValidator
-	publicKey  *rsa.PublicKey
-	keyID      string // kid included in JWKS and id_token header
 	baseURL    string
 	authEvents authEventRecorder
 	cfg        *config.Config
@@ -79,12 +78,10 @@ type Handler struct {
 }
 
 // NewHandler creates a new Handler with the given dependencies.
-func NewHandler(svc oauthService, sessions sessionValidator, publicKey *rsa.PublicKey, keyID, baseURL string, authEvents authEventRecorder, cfg *config.Config, logger *slog.Logger) *Handler {
+func NewHandler(svc oauthService, sessions sessionValidator, baseURL string, authEvents authEventRecorder, cfg *config.Config, logger *slog.Logger) *Handler {
 	return &Handler{
 		svc:        svc,
 		sessions:   sessions,
-		publicKey:  publicKey,
-		keyID:      keyID,
 		baseURL:    baseURL,
 		authEvents: authEvents,
 		cfg:        cfg,
@@ -162,40 +159,59 @@ func (h *Handler) Discovery(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, doc)
 }
 
-// JWKS returns the JSON Web Key Set containing the RSA public key used to
-// verify id_token signatures.
+// JWKS returns the JSON Web Key Set of every non-retired signing key. Each key
+// carries its own kid, so a client can verify an id_token signed before a
+// rotation by selecting the matching entry.
 func (h *Handler) JWKS(w http.ResponseWriter, r *http.Request) {
-	pub := h.publicKey
-
-	// Encode the modulus (n) as base64url with no padding.
-	nBytes := pub.N.Bytes()
-	nEncoded := base64.RawURLEncoding.EncodeToString(nBytes)
-
-	// Encode the exponent (e) as big-endian bytes then base64url.
-	// e is typically 65537 (0x010001), which fits in 3 bytes.
-	eBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(eBuf, uint32(pub.E)) //nolint:gosec // e fits in uint32
-	// Trim leading zero bytes.
-	i := 0
-	for i < len(eBuf)-1 && eBuf[i] == 0 {
-		i++
+	keys := h.svc.ActiveSigningKeys()
+	if len(keys) == 0 {
+		// Startup guarantees at least one key and the last key cannot be
+		// retired, so this is a broken invariant, not a normal state.
+		h.logger.Error("oauth: JWKS requested with no active signing key")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
-	eEncoded := base64.RawURLEncoding.EncodeToString(eBuf[i:])
 
 	jwks := map[string]any{
-		"keys": []map[string]any{
-			{
-				"kty": "RSA",
-				"use": "sig",
-				"alg": "RS256",
-				"kid": h.keyID,
-				"n":   nEncoded,
-				"e":   eEncoded,
-			},
-		},
+		"keys": jwksFor(keys),
 	}
 
 	h.writeJSON(w, http.StatusOK, jwks)
+}
+
+// jwksFor renders signing keys as RFC 7517 JWK entries.
+func jwksFor(keys []*SigningKey) []map[string]any {
+	jwks := make([]map[string]any, 0, len(keys))
+	for _, key := range keys {
+		pub := key.PublicKey()
+		if pub == nil {
+			continue
+		}
+
+		// Encode the modulus (n) as base64url with no padding.
+		nEncoded := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
+
+		// Encode the exponent (e) as big-endian bytes then base64url.
+		// e is typically 65537 (0x010001), which fits in 3 bytes.
+		eBuf := make([]byte, 4)
+		binary.BigEndian.PutUint32(eBuf, uint32(pub.E)) //nolint:gosec // e fits in uint32
+		// Trim leading zero bytes.
+		i := 0
+		for i < len(eBuf)-1 && eBuf[i] == 0 {
+			i++
+		}
+		eEncoded := base64.RawURLEncoding.EncodeToString(eBuf[i:])
+
+		jwks = append(jwks, map[string]any{
+			"kty": "RSA",
+			"use": "sig",
+			"alg": "RS256",
+			"kid": key.KID,
+			"n":   nEncoded,
+			"e":   eEncoded,
+		})
+	}
+	return jwks
 }
 
 // Authorize handles the OAuth2 authorization endpoint.

@@ -148,6 +148,7 @@ type Handler struct {
 	authRecorder authEventRecorder
 	throttle     loginThrottleAdmin
 	apiTokens    apiTokenManager
+	signingKeys  signingKeyManager
 	mailer       email.Sender
 	tmpl         *template.Template
 	cfg          *config.Config
@@ -172,6 +173,7 @@ func NewHandler(
 	authRecorder authEventRecorder,
 	throttle loginThrottleAdmin,
 	apiTokens apiTokenManager,
+	signingKeys signingKeyManager,
 ) *Handler {
 	return &Handler{
 		userStore:    userStore,
@@ -186,6 +188,7 @@ func NewHandler(
 		authRecorder: authRecorder,
 		throttle:     throttle,
 		apiTokens:    apiTokens,
+		signingKeys:  signingKeys,
 		mailer:       mailer,
 		tmpl:         tmpl,
 		cfg:          cfg,
@@ -246,6 +249,12 @@ func (h *Handler) Routes(r chi.Router) {
 	// Settings
 	r.Get("/settings", h.GetSettings)
 	r.Post("/settings", h.PostSettings)
+
+	// OIDC signing keys (kid history).
+	r.Get("/signing-keys", h.GetSigningKeys)
+	r.Post("/signing-keys/rotate", h.PostRotateSigningKey)
+	r.Post("/signing-keys/{kid}/retire", h.PostRetireSigningKey)
+	r.Post("/signing-keys/{kid}/delete", h.PostDeleteSigningKey)
 
 	// API tokens for the read-only admin REST API (/api/v1).
 	r.Get("/api-tokens", h.GetAPITokens)
@@ -308,6 +317,12 @@ func flashFromQuery(code string) *Flash {
 		return &Flash{Type: "success", Message: "Two-factor authentication reset. The user can sign in with their password and enrol again."}
 	case "api-token-revoked":
 		return &Flash{Type: "success", Message: "API token revoked. Requests using it will fail from now on."}
+	case "key-rotated":
+		return &Flash{Type: "success", Message: "New signing key generated and made current. Existing id_tokens keep verifying until they expire."}
+	case "key-retired":
+		return &Flash{Type: "success", Message: "Signing key retired. It is no longer served in the JWKS and its id_tokens are no longer accepted."}
+	case "key-deleted":
+		return &Flash{Type: "success", Message: "Retired signing key deleted."}
 	case "access-granted":
 		return &Flash{Type: "success", Message: "Access granted."}
 	case "access-revoked":

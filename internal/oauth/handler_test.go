@@ -2,7 +2,6 @@ package oauth_test
 
 import (
 	"context"
-	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -66,11 +65,6 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 	db := testutil.NewTestDB(t)
 	store := oauth.NewStore(db)
 
-	pemBytes, kid, err := store.GetOrCreateRSAKey(ctx)
-	if err != nil {
-		t.Fatalf("buildHandlerTestStack: GetOrCreateRSAKey: %v", err)
-	}
-
 	appID, userID := seedAppAndUserWithCredentials(t, db, testApp, testUser)
 	testApp.ID = appID
 	testUser.ID = userID
@@ -79,12 +73,12 @@ func buildHandlerTestStack(t *testing.T, sv *fakeSessionValidator, testApp *app.
 	apps := &fakeAppClient{app: testApp, access: true}
 	users := &fakeUserReader{u: testUser}
 
-	svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
+	svc, err := oauth.NewService(ctx, store, apps, users, "https://auth.example.com", slog.Default())
 	if err != nil {
 		t.Fatalf("buildHandlerTestStack: NewService: %v", err)
 	}
 
-	h := oauth.NewHandler(svc, sv, svc.PrivateKey().Public().(*rsa.PublicKey), svc.KeyID(), "https://auth.example.com", nil, testConfig(), slog.Default())
+	h := oauth.NewHandler(svc, sv, "https://auth.example.com", nil, testConfig(), slog.Default())
 	return &handlerTestStack{
 		handler: h,
 		svc:     svc,

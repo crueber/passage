@@ -2,7 +2,6 @@ package oauth_test
 
 import (
 	"context"
-	"crypto/rsa"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -104,11 +103,6 @@ func newTestServiceWithDB(t *testing.T, db *sql.DB, testApp *app.App, testUser *
 
 	store := oauth.NewStore(db)
 
-	pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
-	if err != nil {
-		t.Fatalf("newTestServiceWithDB: GetOrCreateRSAKey: %v", err)
-	}
-
 	// Seed the DB with real rows that the FK constraints require.
 	appID, userID := seedAppAndUserWithCredentials(t, db, testApp, testUser)
 
@@ -123,7 +117,7 @@ func newTestServiceWithDB(t *testing.T, db *sql.DB, testApp *app.App, testUser *
 	apps := &fakeAppClient{app: testApp, access: true}
 	users := &fakeUserReader{u: testUser}
 
-	svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
+	svc, err := oauth.NewService(context.Background(), store, apps, users, "https://auth.example.com", slog.Default())
 	if err != nil {
 		t.Fatalf("newTestServiceWithDB: NewService: %v", err)
 	}
@@ -248,13 +242,9 @@ func TestService_Authorize(t *testing.T) {
 			if !tc.setupAccess {
 				// Rebuild with access=false
 				store := oauth.NewStore(db)
-				pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
-				if err != nil {
-					t.Fatalf("GetOrCreateRSAKey: %v", err)
-				}
 				apps := &fakeAppClient{app: testApp, access: false}
 				users := &fakeUserReader{u: testUser}
-				svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
+				svc, err := oauth.NewService(context.Background(), store, apps, users, "https://auth.example.com", slog.Default())
 				if err != nil {
 					t.Fatalf("NewService: %v", err)
 				}
@@ -293,13 +283,9 @@ func TestService_Authorize(t *testing.T) {
 
 		// Override apps to return not-found.
 		store := oauth.NewStore(db)
-		pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
-		if err != nil {
-			t.Fatalf("GetOrCreateRSAKey: %v", err)
-		}
 		apps := &fakeAppClient{getErr: app.ErrNotFound}
 		users := &fakeUserReader{u: testUser}
-		svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
+		svc, err := oauth.NewService(context.Background(), store, apps, users, "https://auth.example.com", slog.Default())
 		if err != nil {
 			t.Fatalf("NewService: %v", err)
 		}
@@ -320,13 +306,9 @@ func TestService_Authorize(t *testing.T) {
 		sc := newTestServiceWithDB(t, db, disabledApp, testUser)
 
 		store := oauth.NewStore(db)
-		pemBytes, kid, err := store.GetOrCreateRSAKey(context.Background())
-		if err != nil {
-			t.Fatalf("GetOrCreateRSAKey: %v", err)
-		}
 		apps := &fakeAppClient{app: disabledApp, access: true}
 		users := &fakeUserReader{u: testUser}
-		svc, err := oauth.NewService(store, apps, users, pemBytes, kid, "https://auth.example.com", slog.Default())
+		svc, err := oauth.NewService(context.Background(), store, apps, users, "https://auth.example.com", slog.Default())
 		if err != nil {
 			t.Fatalf("NewService: %v", err)
 		}
@@ -438,11 +420,10 @@ func TestService_ExchangeCode(t *testing.T) {
 		wrongApp := buildTestApp(t, "wrong-client", plainSecret, []string{redirectURI})
 		wrongApp.ID = "different-app-id" // this ID won't match the code's app_id
 		store := oauth.NewStore(db)
-		pemBytes, kid, _ := store.GetOrCreateRSAKey(ctx)
-		svc2, _ := oauth.NewService(store,
+		svc2, _ := oauth.NewService(ctx, store,
 			&fakeAppClient{app: wrongApp, access: true},
 			&fakeUserReader{u: testUser},
-			pemBytes, kid, "https://auth.example.com", slog.Default(),
+			"https://auth.example.com", slog.Default(),
 		)
 
 		_, err = svc2.ExchangeCode(ctx, code.Code, "wrong-client", plainSecret, redirectURI, "")
@@ -577,11 +558,10 @@ func TestService_RefreshTokens(t *testing.T) {
 		wrongApp := buildTestApp(t, "other-client", plainSecret, []string{redirectURI})
 		wrongApp.ID = "different-app-id"
 		store := oauth.NewStore(db)
-		pemBytes, kid, _ := store.GetOrCreateRSAKey(ctx)
-		svc2, _ := oauth.NewService(store,
+		svc2, _ := oauth.NewService(ctx, store,
 			&fakeAppClient{app: wrongApp, access: true},
 			&fakeUserReader{u: testUser},
-			pemBytes, kid, "https://auth.example.com", slog.Default(),
+			"https://auth.example.com", slog.Default(),
 		)
 
 		_, err = svc2.RefreshTokens(ctx, tokenResp.RefreshToken, "other-client", plainSecret)
@@ -659,11 +639,10 @@ func TestService_RefreshTokens(t *testing.T) {
 
 		// Revoke the user's app access (mirrors admin revocation).
 		store := oauth.NewStore(db)
-		pemBytes, kid, _ := store.GetOrCreateRSAKey(ctx)
-		svc2, err := oauth.NewService(store,
+		svc2, err := oauth.NewService(ctx, store,
 			&fakeAppClient{app: testApp, access: false},
 			&fakeUserReader{u: testUser},
-			pemBytes, kid, "https://auth.example.com", slog.Default(),
+			"https://auth.example.com", slog.Default(),
 		)
 		if err != nil {
 			t.Fatalf("NewService: %v", err)
@@ -888,7 +867,7 @@ func TestService_ExchangeCode_IDTokenClaims(t *testing.T) {
 	}
 
 	// Step 5: Verify the RS256 signature using the service's public key.
-	pubKey := sc.svc.PrivateKey().Public().(*rsa.PublicKey)
+	pubKey := sc.svc.ActiveSigningKeys()[0].PublicKey()
 	parsed, err := jwtlib.Parse(tokenResp.IDToken, func(token *jwtlib.Token) (any, error) {
 		if _, ok := token.Method.(*jwtlib.SigningMethodRSA); !ok {
 			return nil, jwtlib.ErrSignatureInvalid

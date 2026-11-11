@@ -37,6 +37,22 @@ var (
 	// The handler maps it to the OAuth access_denied error with a fixed
 	// description, so the specific rule never reaches the client.
 	ErrAccessDeniedByPolicy = errors.New("oauth: access denied by application policy")
+
+	// ErrNoSigningKey is returned when the keyring has no usable (non-retired)
+	// RSA key. It is a broken-invariant error: startup imports or generates a
+	// key, and retiring the only active key is refused.
+	ErrNoSigningKey = errors.New("oauth: no active signing key")
+
+	// ErrSigningKeyNotFound is returned when a kid does not name a stored key.
+	ErrSigningKeyNotFound = errors.New("oauth: signing key not found")
+
+	// ErrSigningKeyActive is returned when deleting a key that is still active.
+	// Only retired keys may be deleted, so history is never lost by accident.
+	ErrSigningKeyActive = errors.New("oauth: signing key is still active")
+
+	// ErrSigningKeyLast is returned when retiring the only non-retired key.
+	// Rotating first keeps the issuer able to sign at all times.
+	ErrSigningKeyLast = errors.New("oauth: cannot retire the only active signing key")
 )
 
 // PolicyDenialError names the policy rule that denied an authorization request.
@@ -182,8 +198,21 @@ type Store interface {
 	// Cleanup
 	DeleteExpired(ctx context.Context) error
 
-	// OIDC RSA key — generated once at startup, persisted in oidc_config.
-	// Returns the PEM-encoded private key and a stable kid derived from the
-	// public key (base64url SHA-256 thumbprint per RFC 7638).
-	GetOrCreateRSAKey(ctx context.Context) (privateKeyPEM []byte, kid string, err error)
+	// OIDC signing keys (kid history).
+	//
+	// EnsureSigningKeys imports the legacy oidc_config key when the ring is
+	// empty and generates a key when there is none at all; it is idempotent and
+	// called at startup.
+	EnsureSigningKeys(ctx context.Context) error
+	// ListSigningKeys returns every key, newest first, retired keys included.
+	// Each key carries its parsed private key for signing and verification.
+	ListSigningKeys(ctx context.Context) ([]*SigningKey, error)
+	// CreateSigningKey persists key and fills in KID (derived from the public
+	// key) and CreatedAt.
+	CreateSigningKey(ctx context.Context, key *SigningKey) error
+	// RetireSigningKey marks a key retired. It refuses the only active key so
+	// the issuer can always sign.
+	RetireSigningKey(ctx context.Context, kid string) error
+	// DeleteSigningKey removes a retired key. Active keys cannot be deleted.
+	DeleteSigningKey(ctx context.Context, kid string) error
 }
