@@ -20,10 +20,37 @@
     <div class="page-head">
       <div>
         <h1 class="page-title">Security</h1>
-        <p class="page-sub">Passkeys and two-factor authentication for your account.</p>
+        <p class="page-sub">Your profile, passkeys and two-factor authentication.</p>
       </div>
     </div>
     {{template "flash" .}}
+
+    <section class="card p-5 sm:p-6" aria-labelledby="profile-heading">
+      <h2 id="profile-heading" class="font-semibold text-ink">Profile</h2>
+      <p class="mt-1 text-sm text-muted">Your display name is shown to administrators and used in email greetings.</p>
+
+      <form method="POST" action="/profile" class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+        {{csrfField .CSRFToken}}
+        <div class="flex-1">
+          <label class="label" for="display-name">Display name</label>
+          <input class="input" type="text" id="display-name" name="display_name" maxlength="100"
+                 autocomplete="name" value="{{.User.Name}}" placeholder="e.g. Sam Rivera">
+          <p class="help">Optional. Leave it empty if you prefer no display name.</p>
+        </div>
+        <button type="submit" class="btn btn-primary">Save profile</button>
+      </form>
+
+      <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+        <div>
+          <dt class="label mb-0">Username</dt>
+          <dd class="td-mono">{{.User.Username}}</dd>
+        </div>
+        <div>
+          <dt class="label mb-0">Email</dt>
+          <dd class="td-mono break-all">{{.User.Email}}</dd>
+        </div>
+      </dl>
+    </section>
 
     <section class="card p-5 sm:p-6" aria-labelledby="register-heading">
       <h2 id="register-heading" class="font-semibold text-ink">Register a new passkey</h2>

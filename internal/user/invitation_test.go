@@ -51,12 +51,12 @@ func TestInvitation_Lifecycle(t *testing.T) {
 		t.Fatalf("pending invitations = %+v, want the one just created", pending)
 	}
 
-	u, err := svc.AcceptInvitation(ctx, inv.Token, "invitee", "password123")
+	u, err := svc.AcceptInvitation(ctx, inv.Token, "invitee", "Chosen Name", "password123")
 	if err != nil {
 		t.Fatalf("AcceptInvitation: %v", err)
 	}
-	if u.Email != "invitee@example.com" || u.Name != "Invitee Person" {
-		t.Errorf("accepted user = %+v, want the invitation's email and name", u)
+	if u.Email != "invitee@example.com" || u.Name != "Chosen Name" {
+		t.Errorf("accepted user = %+v, want the invitation's email and the submitted display name", u)
 	}
 	if !u.IsActive || !u.EmailVerified {
 		t.Errorf("accepted user active=%v verified=%v, want both true", u.IsActive, u.EmailVerified)
@@ -66,7 +66,7 @@ func TestInvitation_Lifecycle(t *testing.T) {
 	}
 
 	// The link is single-use.
-	if _, err := svc.AcceptInvitation(ctx, inv.Token, "invitee2", "password123"); !errors.Is(err, user.ErrInvitationAccepted) {
+	if _, err := svc.AcceptInvitation(ctx, inv.Token, "invitee2", "", "password123"); !errors.Is(err, user.ErrInvitationAccepted) {
 		t.Errorf("second accept: got %v, want ErrInvitationAccepted", err)
 	}
 
@@ -180,10 +180,10 @@ func TestAcceptInvitation_UsernameTakenKeepsLinkUsable(t *testing.T) {
 		t.Fatalf("CreateInvitation: %v", err)
 	}
 
-	if _, err := svc.AcceptInvitation(ctx, inv.Token, "taken", "password123"); !errors.Is(err, user.ErrUsernameTaken) {
+	if _, err := svc.AcceptInvitation(ctx, inv.Token, "taken", "", "password123"); !errors.Is(err, user.ErrUsernameTaken) {
 		t.Fatalf("accept with taken username: got %v, want ErrUsernameTaken", err)
 	}
-	if _, err := svc.AcceptInvitation(ctx, inv.Token, "fresh", "password123"); err != nil {
+	if _, err := svc.AcceptInvitation(ctx, inv.Token, "fresh", "", "password123"); err != nil {
 		t.Fatalf("accept after retry: %v", err)
 	}
 }
@@ -213,7 +213,7 @@ func TestInvitation_ExpiryAndRevoke(t *testing.T) {
 		if _, err := svc.GetPendingInvitation(ctx, inv.Token); !errors.Is(err, user.ErrInvitationExpired) {
 			t.Errorf("GetPendingInvitation: got %v, want ErrInvitationExpired", err)
 		}
-		if _, err := svc.AcceptInvitation(ctx, inv.Token, "late", "password123"); !errors.Is(err, user.ErrInvitationExpired) {
+		if _, err := svc.AcceptInvitation(ctx, inv.Token, "late", "", "password123"); !errors.Is(err, user.ErrInvitationExpired) {
 			t.Errorf("AcceptInvitation: got %v, want ErrInvitationExpired", err)
 		}
 		if _, err := store.GetByEmail(ctx, "late@example.com"); !errors.Is(err, user.ErrNotFound) {
@@ -281,7 +281,7 @@ func TestHandler_GetInviteAccept(t *testing.T) {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
 		body := rec.Body.String()
-		for _, want := range []string{"newbie@example.com", "New Bie", `name="username"`, `name="confirm_password"`} {
+		for _, want := range []string{"newbie@example.com", "New Bie", `name="username"`, `name="display_name"`, `value="New Bie"`, `name="confirm_password"`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("body missing %q", want)
 			}
@@ -320,6 +320,7 @@ func TestHandler_PostInviteAccept(t *testing.T) {
 
 	form := url.Values{}
 	form.Set("username", "joiner")
+	form.Set("display_name", "Joiner Chosen")
 	form.Set("password", "password123")
 	form.Set("confirm_password", "password123")
 	req := withChiToken(httptest.NewRequest(http.MethodPost, "/invite/"+inv.Token, strings.NewReader(form.Encode())), inv.Token)
@@ -348,11 +349,14 @@ func TestHandler_PostInviteAccept(t *testing.T) {
 	if !u.IsActive || !u.EmailVerified {
 		t.Errorf("accepted user active=%v verified=%v, want both true", u.IsActive, u.EmailVerified)
 	}
+	if u.Name != "Joiner Chosen" {
+		t.Errorf("display name = %q, want the value submitted on the acceptance form", u.Name)
+	}
 	if len(sender.sentInvitations()) != 0 {
 		t.Error("accepting an invite sent another email")
 	}
 
-	if _, err := f.userSvc.AcceptInvitation(ctx, inv.Token, "joiner2", "password123"); !errors.Is(err, user.ErrInvitationAccepted) {
+	if _, err := f.userSvc.AcceptInvitation(ctx, inv.Token, "joiner2", "", "password123"); !errors.Is(err, user.ErrInvitationAccepted) {
 		t.Errorf("replayed invite: got %v, want ErrInvitationAccepted", err)
 	}
 }

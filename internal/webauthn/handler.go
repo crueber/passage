@@ -197,6 +197,10 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("flash") {
 	case "deleted":
 		flash = &user.Flash{Type: "success", Message: "Passkey removed."}
+	case "profile-saved":
+		flash = &user.Flash{Type: "success", Message: "Profile updated."}
+	case "profile-invalid":
+		flash = &user.Flash{Type: "error", Message: fmt.Sprintf("Display name must be at most %d characters.", user.MaxDisplayNameLength)}
 	case "error":
 		flash = &user.Flash{Type: "error", Message: "An error occurred."}
 	case "mfa-enabled":

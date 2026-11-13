@@ -711,6 +711,9 @@ func run() error {
 		// this group entirely.
 		userHandler.MFARoutes(r, loginLimiter)
 		passkeyHandler.ProfileRoutes(r)
+		// Account details live on the Security page; editing the display name
+		// stays outside the MFA gate so a user who must still enrol can set it.
+		r.Post("/profile", userHandler.PostUpdateProfile)
 
 		// Everything else is behind the policy gate.
 		r.Group(func(r chi.Router) {

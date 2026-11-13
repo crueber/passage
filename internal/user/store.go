@@ -184,6 +184,23 @@ func (s *SQLiteStore) SetEmailVerified(ctx context.Context, id string, verified 
 	return nil
 }
 
+// SetName sets only the display name for the given user.
+func (s *SQLiteStore) SetName(ctx context.Context, id, name string) error {
+	const query = `UPDATE users SET name = ?, updated_at = ? WHERE id = ?`
+	res, err := s.db.ExecContext(ctx, query, name, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("user store set name: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("user store set name rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("user store set name: %w", ErrNotFound)
+	}
+	return nil
+}
+
 // Delete removes a user by ID.
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	const query = `DELETE FROM users WHERE id = ?`

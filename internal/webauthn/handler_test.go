@@ -731,6 +731,44 @@ func TestGetPasskeys_ShowsTwoFactorSection(t *testing.T) {
 	})
 }
 
+// TestGetPasskeys_ProfileSection renders the self-service display-name form
+// with the current value, and the top bar shows the name instead of the
+// username once one is set.
+func TestGetPasskeys_ProfileSection(t *testing.T) {
+	t.Parallel()
+	f := newHandlerFixture(t)
+	ctx := context.Background()
+
+	if _, err := f.userSvc.Register(ctx, "named", "named@example.com", "password123"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u, err := f.userStore.GetByUsername(ctx, "named")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if err := f.userSvc.UpdateDisplayName(ctx, u.ID, "Sam Rivera"); err != nil {
+		t.Fatalf("update display name: %v", err)
+	}
+	token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	body := getPasskeysPage(t, f, token).Body.String()
+	for _, want := range []string{
+		"Profile",
+		`action="/profile"`,
+		`name="display_name"`,
+		`value="Sam Rivera"`,
+		">Sam Rivera<",
+		`title="named"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("profile section missing %q", want)
+		}
+	}
+}
+
 // TestGetPasskeys_FlashCodes pins the MFA flash codes the Security page
 // understands, so a typo in a redirect target cannot silently drop the message.
 func TestGetPasskeys_FlashCodes(t *testing.T) {
@@ -759,6 +797,8 @@ func TestGetPasskeys_FlashCodes(t *testing.T) {
 		{"mfa-required", "requires two-factor authentication"},
 		{"mfa-password-invalid", "password was incorrect"},
 		{"deleted", "Passkey removed"},
+		{"profile-saved", "Profile updated"},
+		{"profile-invalid", "at most 100 characters"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {

@@ -28,7 +28,7 @@
       <a href="/" class="wordmark">{{template "logo"}}<span class="hidden sm:inline">passage</span></a>
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
-      {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
+      {{if .User}}<span class="topuser" title="{{.User.Username}}">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</span>{{end}}
       <a href="/passkeys" class="toplink">Security</a>
       <a href="/sessions" class="toplink">Sessions</a>
       <a href="/logout" class="toplink">Sign out</a>
@@ -45,7 +45,7 @@
       <a href="/" class="wordmark">{{template "logo"}}<span class="hidden sm:inline">passage</span></a>
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
-      {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
+      {{if .User}}<span class="topuser" title="{{.User.Username}}">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</span>{{end}}
       <a href="/passkeys" class="toplink toplink-active" aria-current="page">{{template "ic-shield"}}Security</a>
       <a href="/sessions" class="toplink">Sessions</a>
       <a href="/logout" class="toplink">Sign out</a>
@@ -62,7 +62,7 @@
       <a href="/" class="wordmark">{{template "logo"}}<span class="hidden sm:inline">passage</span></a>
     </div>
     <nav class="flex items-center gap-1" aria-label="Main navigation">
-      {{if .User}}<span class="topuser">{{.User.Username}}</span>{{end}}
+      {{if .User}}<span class="topuser" title="{{.User.Username}}">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</span>{{end}}
       <a href="/passkeys" class="toplink">Security</a>
       <a href="/sessions" class="toplink toplink-active" aria-current="page">{{template "ic-devices"}}Sessions</a>
       <a href="/logout" class="toplink">Sign out</a>

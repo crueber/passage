@@ -39,6 +39,13 @@
       </div>
 
       <div>
+        <label class="label" for="display_name">Display name <span class="text-faint">(optional)</span></label>
+        <input class="input" type="text" id="display_name" name="display_name"
+               autocomplete="name" maxlength="100" value="{{.Name}}" placeholder="e.g. Sam Rivera">
+        <p class="help">Shown to administrators and used in email greetings. You can change it later under Security.</p>
+      </div>
+
+      <div>
         <label class="label" for="password">Password</label>
         <input class="input" type="password" id="password" name="password"
                autocomplete="new-password" required minlength="8">

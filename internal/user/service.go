@@ -520,6 +520,24 @@ func (s *Service) MarkEmailVerified(ctx context.Context, userID string) error {
 // admin form does not say otherwise.
 const InvitationTTLDefault = 7 * 24 * time.Hour
 
+// MaxDisplayNameLength bounds the free-text display name. It is long enough
+// for any real name and short enough that it cannot be used to break a layout.
+const MaxDisplayNameLength = 100
+
+// UpdateDisplayName sets the account's display name. The value is trimmed and
+// may be empty, which the UI renders as "no display name". Only the name
+// column is written, so a concurrent admin edit to other fields survives.
+func (s *Service) UpdateDisplayName(ctx context.Context, userID, name string) error {
+	name = strings.TrimSpace(name)
+	if len(name) > MaxDisplayNameLength {
+		return ErrNameTooLong
+	}
+	if err := s.store.SetName(ctx, userID, name); err != nil {
+		return fmt.Errorf("user: update display name: %w", err)
+	}
+	return nil
+}
+
 // CreateInvitation records a pending invitation and returns it. Nothing is
 // written to users: the account springs into existence only when the recipient
 // accepts. An address that already has an account is refused, because the
@@ -568,22 +586,26 @@ func (s *Service) GetPendingInvitation(ctx context.Context, token string) (*Invi
 }
 
 // AcceptInvitation creates the user described by an invitation, consuming it.
-// The address and display name come from the invitation (the recipient cannot
-// change them), while the recipient chooses a username and password. Using the
-// link proves control of the mailbox, so the new account starts verified.
+// The address comes from the invitation (the recipient cannot change it); the
+// recipient chooses a username, display name and password. Using the link
+// proves control of the mailbox, so the new account starts verified.
 //
 // The invitation is marked accepted only after the user row is written: if
 // username validation fails, the link stays usable. The email uniqueness
 // constraint closes the concurrent-accept race.
-func (s *Service) AcceptInvitation(ctx context.Context, token, username, password string) (*User, error) {
+func (s *Service) AcceptInvitation(ctx context.Context, token, username, displayName, password string) (*User, error) {
 	inv, err := s.GetPendingInvitation(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
 	username = strings.TrimSpace(username)
+	displayName = strings.TrimSpace(displayName)
 	if username == "" {
 		return nil, ErrUsernameRequired
+	}
+	if len(displayName) > MaxDisplayNameLength {
+		return nil, ErrNameTooLong
 	}
 	if len(password) < 8 {
 		return nil, ErrPasswordTooShort
@@ -603,7 +625,7 @@ func (s *Service) AcceptInvitation(ctx context.Context, token, username, passwor
 	u := &User{
 		Username:     username,
 		Email:        inv.Email,
-		Name:         inv.Name,
+		Name:         displayName,
 		PasswordHash: string(hash),
 		IsActive:     true,
 		Roles:        "[]",

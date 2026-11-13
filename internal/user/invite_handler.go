@@ -2,6 +2,7 @@ package user
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -59,40 +60,45 @@ func (h *Handler) PostInviteAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderErr := func(msg, username string) {
+	renderErr := func(msg, username, displayName string) {
 		h.render(w, r, "invite.html", inviteAcceptData{
 			Flash:     &Flash{Type: "error", Message: msg},
 			Token:     token,
 			Email:     inv.Email,
-			Name:      inv.Name,
+			Name:      displayName,
 			Username:  username,
 			CSRFToken: csrf.TokenFromContext(r.Context()),
 		})
 	}
 
 	if err := r.ParseForm(); err != nil {
-		renderErr("Invalid form submission.", "")
+		renderErr("Invalid form submission.", "", "")
 		return
 	}
 
 	username := strings.TrimSpace(r.FormValue("username"))
+	displayName := strings.TrimSpace(r.FormValue("display_name"))
 	password := r.FormValue("password")
 	confirm := r.FormValue("confirm_password")
 
 	if username == "" {
-		renderErr("Username is required.", username)
+		renderErr("Username is required.", username, displayName)
+		return
+	}
+	if len(displayName) > MaxDisplayNameLength {
+		renderErr(fmt.Sprintf("Display name must be at most %d characters.", MaxDisplayNameLength), username, displayName)
 		return
 	}
 	if len(password) < 8 {
-		renderErr("Password must be at least 8 characters.", username)
+		renderErr("Password must be at least 8 characters.", username, displayName)
 		return
 	}
 	if password != confirm {
-		renderErr("The passwords do not match.", username)
+		renderErr("The passwords do not match.", username, displayName)
 		return
 	}
 
-	u, err := h.users.AcceptInvitation(r.Context(), token, username, password)
+	u, err := h.users.AcceptInvitation(r.Context(), token, username, displayName, password)
 	if err != nil {
 		msg := "Could not create the account. Please try again."
 		switch {
@@ -102,11 +108,13 @@ func (h *Handler) PostInviteAccept(w http.ResponseWriter, r *http.Request) {
 			msg = "An account with this email address already exists. Sign in instead."
 		case errors.Is(err, ErrPasswordTooShort):
 			msg = "Password must be at least 8 characters."
+		case errors.Is(err, ErrNameTooLong):
+			msg = fmt.Sprintf("Display name must be at most %d characters.", MaxDisplayNameLength)
 		case errors.Is(err, ErrInvitationExpired), errors.Is(err, ErrInvitationAccepted), errors.Is(err, ErrInvitationNotFound):
 			h.redirectInviteError(w, r, err)
 			return
 		}
-		renderErr(msg, username)
+		renderErr(msg, username, displayName)
 		return
 	}
 

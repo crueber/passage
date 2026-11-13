@@ -19,6 +19,7 @@ var (
 	ErrPasswordTooShort     = errors.New("user: password must be at least 8 characters")
 	ErrUsernameRequired     = errors.New("user: username is required")
 	ErrEmailRequired        = errors.New("user: email is required")
+	ErrNameTooLong          = errors.New("user: display name is too long")
 
 	ErrMagicLinkTokenNotFound = errors.New("user: magic link token not found")
 	ErrMagicLinkTokenExpired  = errors.New("user: magic link token expired")
@@ -117,6 +118,9 @@ type Store interface {
 	// the verification flow and by magic-link sign-in (which proves control of
 	// the address) so a concurrent profile edit cannot be clobbered.
 	SetEmailVerified(ctx context.Context, id string, verified bool) error
+	// SetName sets only the display name for one user, so the self-service
+	// profile form cannot overwrite a concurrent admin edit to other fields.
+	SetName(ctx context.Context, id, name string) error
 	// HasAdmin reports whether at least one admin user exists in the database.
 	// Used at startup to determine whether the /setup endpoint should be active.
 	HasAdmin(ctx context.Context) (bool, error)
