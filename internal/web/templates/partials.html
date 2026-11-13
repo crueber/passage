@@ -22,68 +22,132 @@
 
 {{/* Top navigation for the user dashboard ("My Apps" active). */}}
 {{define "topnav-apps"}}
+<input type="checkbox" id="usernav-toggle" class="sr-only" title="Toggle navigation">
 <header class="topbar">
   <div class="topbar-inner">
     <div class="flex items-center gap-2">
       <a href="/" class="wordmark">{{template "logo"}}<span class="hidden sm:inline">passage</span></a>
     </div>
-    <nav class="flex items-center gap-1" aria-label="Main navigation">
+    <div class="flex items-center gap-1">
       {{if .User}}<a href="/profile" class="topuser" title="Edit your profile">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</a>{{end}}
-      <a href="/passkeys" class="toplink">Security</a>
-      <a href="/sessions" class="toplink">Sessions</a>
-      <a href="/logout" class="toplink">Sign out</a>
-    </nav>
+      <nav class="usernav-links" aria-label="Main navigation">
+        <a href="/passkeys" class="toplink">Security</a>
+        <a href="/sessions" class="toplink">Sessions</a>
+        <a href="/logout" class="toplink">Sign out</a>
+      </nav>
+      <label for="usernav-toggle" class="usernav-burger">
+        {{template "ic-menu"}}
+        <span class="sr-only">Menu</span>
+      </label>
+    </div>
   </div>
+  <label for="usernav-toggle" class="usernav-overlay md:hidden" aria-hidden="true"></label>
+  <nav class="usernav-panel md:hidden" aria-label="Account menu">
+    {{if .User}}<a href="/profile" class="usernav-item">{{template "ic-users"}}<span class="truncate">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</span></a>{{end}}
+    <div class="usernav-divider"></div>
+    <a href="/passkeys" class="usernav-item">{{template "ic-shield"}}Security</a>
+    <a href="/sessions" class="usernav-item">{{template "ic-devices"}}Sessions</a>
+    <div class="usernav-divider"></div>
+    <a href="/logout" class="usernav-item">{{template "ic-logout"}}Sign out</a>
+  </nav>
 </header>
 {{end}}
 
 {{/* Top navigation for the profile page ("Profile" active). */}}
 {{define "topnav-profile"}}
+<input type="checkbox" id="usernav-toggle" class="sr-only" title="Toggle navigation">
 <header class="topbar">
   <div class="topbar-inner">
     <div class="flex items-center gap-2">
       <a href="/" class="wordmark">{{template "logo"}}<span class="hidden sm:inline">passage</span></a>
     </div>
-    <nav class="flex items-center gap-1" aria-label="Main navigation">
+    <div class="flex items-center gap-1">
       {{if .User}}<a href="/profile" class="topuser topuser-active" title="Your profile" aria-current="page">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</a>{{end}}
-      <a href="/passkeys" class="toplink">Security</a>
-      <a href="/sessions" class="toplink">Sessions</a>
-      <a href="/logout" class="toplink">Sign out</a>
-    </nav>
+      <nav class="usernav-links" aria-label="Main navigation">
+        <a href="/passkeys" class="toplink">Security</a>
+        <a href="/sessions" class="toplink">Sessions</a>
+        <a href="/logout" class="toplink">Sign out</a>
+      </nav>
+      <label for="usernav-toggle" class="usernav-burger">
+        {{template "ic-menu"}}
+        <span class="sr-only">Menu</span>
+      </label>
+    </div>
   </div>
+  <label for="usernav-toggle" class="usernav-overlay md:hidden" aria-hidden="true"></label>
+  <nav class="usernav-panel md:hidden" aria-label="Account menu">
+    {{if .User}}<a href="/profile" class="usernav-item is-active" aria-current="page">{{template "ic-users"}}<span class="truncate">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</span></a>{{end}}
+    <div class="usernav-divider"></div>
+    <a href="/passkeys" class="usernav-item">{{template "ic-shield"}}Security</a>
+    <a href="/sessions" class="usernav-item">{{template "ic-devices"}}Sessions</a>
+    <div class="usernav-divider"></div>
+    <a href="/logout" class="usernav-item">{{template "ic-logout"}}Sign out</a>
+  </nav>
 </header>
 {{end}}
 
 {{/* Top navigation for the security page ("Security" active). */}}
 {{define "topnav-passkeys"}}
+<input type="checkbox" id="usernav-toggle" class="sr-only" title="Toggle navigation">
 <header class="topbar">
   <div class="topbar-inner">
     <div class="flex items-center gap-2">
       <a href="/" class="wordmark">{{template "logo"}}<span class="hidden sm:inline">passage</span></a>
     </div>
-    <nav class="flex items-center gap-1" aria-label="Main navigation">
+    <div class="flex items-center gap-1">
       {{if .User}}<a href="/profile" class="topuser" title="Edit your profile">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</a>{{end}}
-      <a href="/passkeys" class="toplink toplink-active" aria-current="page">{{template "ic-shield"}}Security</a>
-      <a href="/sessions" class="toplink">Sessions</a>
-      <a href="/logout" class="toplink">Sign out</a>
-    </nav>
+      <nav class="usernav-links" aria-label="Main navigation">
+        <a href="/passkeys" class="toplink toplink-active" aria-current="page">{{template "ic-shield"}}Security</a>
+        <a href="/sessions" class="toplink">Sessions</a>
+        <a href="/logout" class="toplink">Sign out</a>
+      </nav>
+      <label for="usernav-toggle" class="usernav-burger">
+        {{template "ic-menu"}}
+        <span class="sr-only">Menu</span>
+      </label>
+    </div>
   </div>
+  <label for="usernav-toggle" class="usernav-overlay md:hidden" aria-hidden="true"></label>
+  <nav class="usernav-panel md:hidden" aria-label="Account menu">
+    {{if .User}}<a href="/profile" class="usernav-item">{{template "ic-users"}}<span class="truncate">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</span></a>{{end}}
+    <div class="usernav-divider"></div>
+    <a href="/passkeys" class="usernav-item is-active" aria-current="page">{{template "ic-shield"}}Security</a>
+    <a href="/sessions" class="usernav-item">{{template "ic-devices"}}Sessions</a>
+    <div class="usernav-divider"></div>
+    <a href="/logout" class="usernav-item">{{template "ic-logout"}}Sign out</a>
+  </nav>
 </header>
 {{end}}
 
 {{/* Top navigation for the sessions page ("Sessions" active). */}}
 {{define "topnav-sessions"}}
+<input type="checkbox" id="usernav-toggle" class="sr-only" title="Toggle navigation">
 <header class="topbar">
   <div class="topbar-inner">
     <div class="flex items-center gap-2">
       <a href="/" class="wordmark">{{template "logo"}}<span class="hidden sm:inline">passage</span></a>
     </div>
-    <nav class="flex items-center gap-1" aria-label="Main navigation">
+    <div class="flex items-center gap-1">
       {{if .User}}<a href="/profile" class="topuser" title="Edit your profile">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</a>{{end}}
-      <a href="/passkeys" class="toplink">Security</a>
-      <a href="/sessions" class="toplink toplink-active" aria-current="page">{{template "ic-devices"}}Sessions</a>
-      <a href="/logout" class="toplink">Sign out</a>
-    </nav>
+      <nav class="usernav-links" aria-label="Main navigation">
+        <a href="/passkeys" class="toplink">Security</a>
+        <a href="/sessions" class="toplink toplink-active" aria-current="page">{{template "ic-devices"}}Sessions</a>
+        <a href="/logout" class="toplink">Sign out</a>
+      </nav>
+      <label for="usernav-toggle" class="usernav-burger">
+        {{template "ic-menu"}}
+        <span class="sr-only">Menu</span>
+      </label>
+    </div>
   </div>
+  <label for="usernav-toggle" class="usernav-overlay md:hidden" aria-hidden="true"></label>
+  <nav class="usernav-panel md:hidden" aria-label="Account menu">
+    {{if .User}}<a href="/profile" class="usernav-item">{{template "ic-users"}}<span class="truncate">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Username}}{{end}}</span></a>{{end}}
+    <div class="usernav-divider"></div>
+    <a href="/passkeys" class="usernav-item">{{template "ic-shield"}}Security</a>
+    <a href="/sessions" class="usernav-item is-active" aria-current="page">{{template "ic-devices"}}Sessions</a>
+    <div class="usernav-divider"></div>
+    <a href="/logout" class="usernav-item">{{template "ic-logout"}}Sign out</a>
+  </nav>
 </header>
 {{end}}

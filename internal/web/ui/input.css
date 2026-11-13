@@ -352,13 +352,59 @@
   .toplink-active {
     @apply bg-primary-soft font-medium text-on-primary-soft;
   }
+  /* The display name is the link to the profile page. It is a chip rather than
+     a text button so it reads as identity, not another nav action, and mr-4
+     keeps it clearly separated from the first button. */
   .topuser {
-    /* The display name is the link to the profile page, so it stays visible on
-       small screens; truncation keeps four nav items and a long name on one row. */
-    @apply inline-block max-w-24 truncate align-middle text-sm text-muted transition-colors hover:text-ink sm:max-w-40;
+    @apply mr-4 hidden max-w-44 truncate rounded-md bg-raised px-2.5 py-1.5 align-middle text-sm font-medium text-ink transition-colors hover:bg-line md:inline-block;
   }
   .topuser-active {
-    @apply font-medium text-ink;
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .usernav-links {
+    @apply hidden items-center gap-1 md:flex;
+  }
+  .usernav-burger {
+    @apply inline-flex items-center justify-center rounded-lg p-2 text-muted transition-colors hover:bg-raised hover:text-ink md:hidden;
+  }
+  /* Mobile flyout: a JS-free checkbox toggle, the same pattern as the admin
+     drawer. The overlay starts below the bar so the burger stays tappable. */
+  .usernav-overlay {
+    @apply pointer-events-none fixed inset-x-0 top-14 bottom-0 z-40 bg-brand-950/40 opacity-0 transition-opacity duration-150;
+  }
+  .usernav-panel {
+    @apply invisible absolute inset-x-0 top-full z-50 origin-top scale-95 border-b border-line bg-surface p-2 opacity-0 shadow-pop transition-all duration-150;
+  }
+  .usernav-item {
+    @apply flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
+  .usernav-item .ic {
+    @apply size-4.5 shrink-0 text-faint;
+  }
+  .usernav-item:hover .ic {
+    @apply text-muted;
+  }
+  .usernav-item.is-active {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .usernav-item.is-active .ic {
+    @apply text-primary;
+  }
+  .usernav-divider {
+    @apply my-2 border-t border-line;
+  }
+
+  @media (width < 48rem) {
+    #usernav-toggle:checked ~ .topbar .usernav-panel {
+      @apply visible scale-100 opacity-100;
+    }
+    #usernav-toggle:checked ~ .topbar .usernav-overlay {
+      @apply pointer-events-auto opacity-100;
+    }
+    #usernav-toggle:focus-visible ~ .topbar .usernav-burger {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
   }
 
   /* ── Admin shell ─────────────────────────────────────────────────────── */

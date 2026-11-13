@@ -763,6 +763,9 @@ func TestGetPasskeys_Tabs(t *testing.T) {
 			`href="/passkeys?tab=mfa"`,
 			"Register a new passkey",
 			"Your passkeys",
+			`id="usernav-toggle"`,
+			`usernav-burger`,
+			`usernav-panel`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("passkeys tab missing %q", want)
