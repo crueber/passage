@@ -527,8 +527,8 @@ func TestMFASetup_EnrollFlow(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/mfa/setup", nil).WithContext(ctx)
 	rec = httptest.NewRecorder()
 	f.handler.GetMFASetup(rec, req)
-	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?flash=mfa-on" {
-		t.Errorf("Location = %q; want /passkeys?flash=mfa-on", loc)
+	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?tab=mfa&flash=mfa-on" {
+		t.Errorf("Location = %q; want /passkeys?tab=mfa&flash=mfa-on", loc)
 	}
 
 	// A second POST cannot rotate the working credential.
@@ -536,8 +536,8 @@ func TestMFASetup_EnrollFlow(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
 	f.handler.PostMFASetup(rec, req)
-	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?flash=mfa-on" {
-		t.Errorf("re-POST Location = %q; want /passkeys?flash=mfa-on", loc)
+	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?tab=mfa&flash=mfa-on" {
+		t.Errorf("re-POST Location = %q; want /passkeys?tab=mfa&flash=mfa-on", loc)
 	}
 
 	// The session that enrolled is untouched (the flow never revokes sessions).
@@ -566,7 +566,7 @@ func TestMFADisable_RequiresPassword(t *testing.T) {
 	}
 
 	rec := post("wrong-password")
-	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?flash=mfa-password-invalid" {
+	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?tab=mfa&flash=mfa-password-invalid" {
 		t.Fatalf("wrong password Location = %q", loc)
 	}
 	if st, _ := f.mfaSvc.Status(ctx, u.ID); !st.Enabled {
@@ -574,7 +574,7 @@ func TestMFADisable_RequiresPassword(t *testing.T) {
 	}
 
 	rec = post("password123")
-	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?flash=mfa-disabled" {
+	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?tab=mfa&flash=mfa-disabled" {
 		t.Fatalf("right password Location = %q", loc)
 	}
 	if st, _ := f.mfaSvc.Status(ctx, u.ID); st.Enabled {
@@ -607,7 +607,7 @@ func TestMFARecoveryCodes_Regenerate(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	f.handler.PostMFARecoveryCodes(rec, req)
-	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?flash=mfa-password-invalid" {
+	if loc := rec.Result().Header.Get("Location"); loc != "/passkeys?tab=mfa&flash=mfa-password-invalid" {
 		t.Fatalf("wrong password Location = %q", loc)
 	}
 

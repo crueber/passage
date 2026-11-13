@@ -128,7 +128,7 @@ narrower, or plumbed but not actually reachable · **absent**.
 | Account activation/deactivation | supported | `User.IsActive`, checked in session validation *and* token validation | |
 | Admin password reset for a user | supported | `PostResetUserPassword` | |
 | User self-service password reset | supported | `handler.go:332` — single-use 1 h token, uniform response + 200 ms floor to defeat timing enumeration | Better anti-enumeration than most OSS IdPs. |
-| Profile fields | partial | `User{Username, Email, Name, IsAdmin, IsActive}`; display name is self-service on the Security page (`POST /profile`), username and email are admin-edited; a vestigial `Roles string` column always `"[]"` | No arbitrary `user_metadata`/`app_metadata`. Auth0 metadata is core. |
+| Profile fields | partial | `User{Username, Email, Name, IsAdmin, IsActive}`; display name is self-service on `/profile` (linked from the top-bar name), username and email are admin-edited; a vestigial `Roles string` column always `"[]"` | No arbitrary `user_metadata`/`app_metadata`. Auth0 metadata is core. |
 | User search / filter / pagination | absent | `admin.GetUsers` calls `userStore.List` and renders everything | Fine at 20 users, painful at 200. |
 | Bulk import / export | absent | no CSV/JSON endpoints; no Jobs equivalent | Auth0: user import on all plans, Jobs API. |
 | Invitations | supported | admin page `/admin/users/invite` sends a single-use link; `invitations` table (`migrations/029`) stores no user until the recipient accepts and chooses credentials | Works while public registration is off. |

@@ -20,153 +20,134 @@
     <div class="page-head">
       <div>
         <h1 class="page-title">Security</h1>
-        <p class="page-sub">Your profile, passkeys and two-factor authentication.</p>
+        <p class="page-sub">Passkeys and two-factor authentication.</p>
       </div>
     </div>
     {{template "flash" .}}
 
-    <section class="card p-5 sm:p-6" aria-labelledby="profile-heading">
-      <h2 id="profile-heading" class="font-semibold text-ink">Profile</h2>
-      <p class="mt-1 text-sm text-muted">Your display name is shown to administrators and used in email greetings.</p>
+    <nav class="tabs" aria-label="Security sections">
+      <a href="/passkeys" class="tab{{if eq .ActiveTab "passkeys"}} is-active{{end}}"{{if eq .ActiveTab "passkeys"}} aria-current="page"{{end}}>Passkeys</a>
+      <a href="/passkeys?tab=mfa" class="tab{{if eq .ActiveTab "mfa"}} is-active{{end}}"{{if eq .ActiveTab "mfa"}} aria-current="page"{{end}}>Two-factor authentication</a>
+    </nav>
 
-      <form method="POST" action="/profile" class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-        {{csrfField .CSRFToken}}
-        <div class="flex-1">
-          <label class="label" for="display-name">Display name</label>
-          <input class="input" type="text" id="display-name" name="display_name" maxlength="100"
-                 autocomplete="name" value="{{.User.Name}}" placeholder="e.g. Sam Rivera">
-          <p class="help">Optional. Leave it empty if you prefer no display name.</p>
-        </div>
-        <button type="submit" class="btn btn-primary">Save profile</button>
-      </form>
+    {{if eq .ActiveTab "mfa"}}
+    <section class="card p-6 sm:p-8" aria-labelledby="mfa-heading">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 id="mfa-heading" class="font-semibold text-ink">Two-factor authentication</h2>
+        {{if .MFAEnabled}}<span class="badge badge-green">Enabled</span>{{else}}<span class="badge badge-gray">Off</span>{{end}}
+      </div>
+      <p class="mt-2 text-sm text-muted">
+        A 6-digit code from an authenticator app is required after your password.
+        A registered passkey can be used instead.
+      </p>
 
-      <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+      {{if .MFAEnabled}}
+      <dl class="mt-6 grid grid-cols-1 gap-x-8 gap-y-5 text-sm sm:grid-cols-2">
         <div>
-          <dt class="label mb-0">Username</dt>
-          <dd class="td-mono">{{.User.Username}}</dd>
+          <dt class="text-xs font-medium uppercase tracking-wide text-faint">Enabled since</dt>
+          <dd class="td-mono mt-1.5">{{.MFAEnabledAt.Format "2006-01-02"}}</dd>
         </div>
         <div>
-          <dt class="label mb-0">Email</dt>
-          <dd class="td-mono break-all">{{.User.Email}}</dd>
+          <dt class="text-xs font-medium uppercase tracking-wide text-faint">Recovery codes left</dt>
+          <dd class="td-mono mt-1.5">{{.MFARemainingCodes}} of 10</dd>
         </div>
       </dl>
+
+      <div class="mt-8 grid grid-cols-1 gap-6 border-t border-line pt-6 sm:grid-cols-2">
+        <form method="POST" action="/mfa/recovery-codes">
+          {{csrfField .CSRFToken}}
+          <h3 class="font-medium text-ink">Regenerate recovery codes</h3>
+          <p class="help mt-1">Issues 10 new codes and invalidates every old one.</p>
+          <div class="mt-4">
+            <label class="label" for="regen-password">Current password</label>
+            <input class="input" type="password" id="regen-password" name="password"
+                   autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-outline mt-4"
+                  data-confirm="Replace all recovery codes? Existing codes will stop working.">Regenerate codes</button>
+        </form>
+
+        <form method="POST" action="/mfa/disable">
+          {{csrfField .CSRFToken}}
+          <h3 class="font-medium text-ink">Turn off two-factor</h3>
+          <p class="help mt-1">Removes the authenticator and all recovery codes.</p>
+          <div class="mt-4">
+            <label class="label" for="disable-password">Current password</label>
+            <input class="input" type="password" id="disable-password" name="password"
+                   autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-danger mt-4"
+                  data-confirm="Turn off two-factor authentication? Your account will only need a password.">Disable</button>
+        </form>
+      </div>
+      {{else}}
+      <p class="mt-6 text-sm text-muted">
+        You have not enabled two-factor authentication. You will need an
+        authenticator app such as 1Password, Bitwarden, Aegis, or Google
+        Authenticator.
+      </p>
+      <a class="btn btn-primary mt-6" href="/mfa/setup">{{template "ic-shield"}}Set up two-factor</a>
+      {{end}}
     </section>
+    {{else}}
+    <div class="space-y-8">
+      <section class="card p-6 sm:p-8" aria-labelledby="register-heading">
+        <h2 id="register-heading" class="font-semibold text-ink">Register a new passkey</h2>
+        <p class="mt-2 text-sm text-muted">
+          Passkeys let you sign in securely without a password, and can also serve
+          as your second factor.
+        </p>
 
-    <section class="card p-5 sm:p-6" aria-labelledby="register-heading">
-      <h2 id="register-heading" class="font-semibold text-ink">Register a new passkey</h2>
-      <p class="mt-1 text-sm text-muted">Passkeys let you sign in securely without a password, and can also serve as your second factor.</p>
-
-      <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div class="flex-1">
+        <div class="mt-6 max-w-md">
           <label class="label" for="passkey-name">Passkey name <span class="font-normal text-faint">(optional)</span></label>
           <input class="input" type="text" id="passkey-name" name="passkey-name"
                  placeholder="e.g. MacBook Touch ID" maxlength="64" autocomplete="off">
           <p class="help">A label to help you identify this passkey.</p>
         </div>
-        <button type="button" id="register-passkey-btn" class="btn btn-primary">{{template "ic-key"}}Register passkey</button>
-      </div>
-      <p id="passkey-register-status" class="help" aria-live="polite"></p>
-    </section>
+        <button type="button" id="register-passkey-btn" class="btn btn-primary mt-6">{{template "ic-key"}}Register passkey</button>
+        <p id="passkey-register-status" class="help" aria-live="polite"></p>
+      </section>
 
-    <section class="mt-6" aria-labelledby="your-passkeys-heading">
-      <h2 id="your-passkeys-heading" class="mb-3 font-semibold text-ink">Your passkeys</h2>
-      {{if .Credentials}}
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Registered</th>
-              <th scope="col">Last used</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Credentials}}
-            <tr>
-              <td class="font-medium">{{if .Name}}{{.Name}}{{else}}<em class="text-muted">Unnamed passkey</em>{{end}}</td>
-              <td class="td-mono">{{.CreatedAt.Format "2006-01-02"}}</td>
-              <td class="td-mono">{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}<span class="text-faint">Never</span>{{end}}</td>
-              <td class="text-right">
-                <form method="POST" action="/passkeys/delete/{{.ID}}">
-                  {{csrfField $.CSRFToken}}
-                  <button type="submit" class="btn btn-danger btn-sm" data-confirm="Remove this passkey?">Remove</button>
-                </form>
-              </td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-      {{else}}
-      <div class="empty">
-        {{template "ic-key"}}
-        <p class="empty-title">You have no passkeys registered yet.</p>
-        <p class="empty-sub">Register one above to sign in without a password.</p>
-      </div>
-      {{end}}
-    </section>
-
-    <section class="card mt-6 p-5 sm:p-6" aria-labelledby="mfa-heading">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 id="mfa-heading" class="font-semibold text-ink">Two-factor authentication</h2>
-          <p class="mt-1 text-sm text-muted">
-            A 6-digit code from an authenticator app is required after your password.
-            A registered passkey can be used instead.
-          </p>
+      <section aria-labelledby="your-passkeys-heading">
+        <h2 id="your-passkeys-heading" class="mb-3 font-semibold text-ink">Your passkeys</h2>
+        {{if .Credentials}}
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Registered</th>
+                <th scope="col">Last used</th>
+                <th scope="col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Credentials}}
+              <tr>
+                <td class="font-medium">{{if .Name}}{{.Name}}{{else}}<em class="text-muted">Unnamed passkey</em>{{end}}</td>
+                <td class="td-mono">{{.CreatedAt.Format "2006-01-02"}}</td>
+                <td class="td-mono">{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}<span class="text-faint">Never</span>{{end}}</td>
+                <td class="text-right">
+                  <form method="POST" action="/passkeys/delete/{{.ID}}">
+                    {{csrfField $.CSRFToken}}
+                    <button type="submit" class="btn btn-danger btn-sm" data-confirm="Remove this passkey?">Remove</button>
+                  </form>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
         </div>
-        {{if .MFAEnabled}}<span class="badge badge-green">Enabled</span>{{else}}<span class="badge badge-gray">Off</span>{{end}}
-      </div>
-
-      {{if .MFAEnabled}}
-      <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-        <div>
-          <dt class="label mb-0">Enabled since</dt>
-          <dd class="td-mono">{{.MFAEnabledAt.Format "2006-01-02"}}</dd>
+        {{else}}
+        <div class="empty">
+          {{template "ic-key"}}
+          <p class="empty-title">You have no passkeys registered yet.</p>
+          <p class="empty-sub">Register one above to sign in without a password.</p>
         </div>
-        <div>
-          <dt class="label mb-0">Recovery codes left</dt>
-          <dd class="td-mono">{{.MFARemainingCodes}} of 10</dd>
-        </div>
-      </dl>
-
-      <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <form method="POST" action="/mfa/recovery-codes" class="space-y-2">
-          {{csrfField .CSRFToken}}
-          <h3 class="font-medium text-ink">Regenerate recovery codes</h3>
-          <p class="help mt-0">Issues 10 new codes and invalidates every old one.</p>
-          <div>
-            <label class="label" for="regen-password">Current password</label>
-            <input class="input" type="password" id="regen-password" name="password"
-                   autocomplete="current-password" required>
-          </div>
-          <button type="submit" class="btn btn-outline btn-sm"
-                  data-confirm="Replace all recovery codes? Existing codes will stop working.">Regenerate codes</button>
-        </form>
-
-        <form method="POST" action="/mfa/disable" class="space-y-2">
-          {{csrfField .CSRFToken}}
-          <h3 class="font-medium text-ink">Turn off two-factor</h3>
-          <p class="help mt-0">Removes the authenticator and all recovery codes.</p>
-          <div>
-            <label class="label" for="disable-password">Current password</label>
-            <input class="input" type="password" id="disable-password" name="password"
-                   autocomplete="current-password" required>
-          </div>
-          <button type="submit" class="btn btn-danger btn-sm"
-                  data-confirm="Turn off two-factor authentication? Your account will only need a password.">Disable</button>
-        </form>
-      </div>
-      {{else}}
-      <p class="mt-4 text-sm text-muted">
-        You have not enabled two-factor authentication. You will need an
-        authenticator app such as 1Password, Bitwarden, Aegis, or Google
-        Authenticator.
-      </p>
-      <a class="btn btn-primary mt-4" href="/mfa/setup">{{template "ic-shield"}}Set up two-factor</a>
-      {{end}}
-    </section>
+        {{end}}
+      </section>
+    </div>
+    {{end}}
   </div>
 </main>
 

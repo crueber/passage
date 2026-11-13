@@ -1,0 +1,60 @@
+{{define "profile.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body class="flex min-h-dvh flex-col">
+{{template "topnav-profile" .}}
+
+<main class="content w-full">
+  <div class="mx-auto max-w-2xl">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Profile</h1>
+        <p class="page-sub">Your account details.</p>
+      </div>
+    </div>
+    {{template "flash" .}}
+
+    <section class="card p-6 sm:p-8" aria-labelledby="display-name-heading">
+      <h2 id="display-name-heading" class="font-semibold text-ink">Display name</h2>
+      <p class="mt-2 text-sm text-muted">
+        Shown to administrators and used in email greetings. This is optional.
+      </p>
+
+      <form method="POST" action="/profile" class="mt-6">
+        {{csrfField .CSRFToken}}
+        <div class="max-w-md">
+          <label class="label" for="display-name">Display name</label>
+          <input class="input" type="text" id="display-name" name="display_name"
+                 maxlength="100" autocomplete="name" value="{{.User.Name}}"
+                 placeholder="e.g. Sam Rivera">
+          <p class="help">Leave it empty if you prefer no display name.</p>
+        </div>
+        <button type="submit" class="btn btn-primary mt-6">Save changes</button>
+      </form>
+
+      <dl class="mt-8 grid grid-cols-1 gap-x-8 gap-y-5 border-t border-line pt-6 text-sm sm:grid-cols-2">
+        <div>
+          <dt class="text-xs font-medium uppercase tracking-wide text-faint">Username</dt>
+          <dd class="td-mono mt-1.5">{{.User.Username}}</dd>
+        </div>
+        <div>
+          <dt class="text-xs font-medium uppercase tracking-wide text-faint">Email</dt>
+          <dd class="td-mono mt-1.5 break-all">{{.User.Email}}</dd>
+        </div>
+      </dl>
+    </section>
+  </div>
+</main>
+
+{{template "app-footer" .}}
+</body>
+</html>
+{{end}}

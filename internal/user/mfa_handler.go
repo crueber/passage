@@ -436,7 +436,7 @@ func (h *Handler) GetMFASetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.mfa == nil {
-		http.Redirect(w, r, "/passkeys", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa", http.StatusFound)
 		return
 	}
 
@@ -447,7 +447,7 @@ func (h *Handler) GetMFASetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if st.Enabled {
-		http.Redirect(w, r, "/passkeys?flash=mfa-on", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa&flash=mfa-on", http.StatusFound)
 		return
 	}
 
@@ -456,7 +456,7 @@ func (h *Handler) GetMFASetup(w http.ResponseWriter, r *http.Request) {
 		// A concurrent tab finished enrollment between the status check and the
 		// upsert: send it to the Security page rather than reporting an error.
 		if errors.Is(err, mfa.ErrNotPending) {
-			http.Redirect(w, r, "/passkeys?flash=mfa-on", http.StatusFound)
+			http.Redirect(w, r, "/passkeys?tab=mfa&flash=mfa-on", http.StatusFound)
 			return
 		}
 		h.logger.Error("mfa: begin enrollment", "user_id", u.ID, "error", err)
@@ -476,7 +476,7 @@ func (h *Handler) PostMFASetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.mfa == nil {
-		http.Redirect(w, r, "/passkeys", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa", http.StatusFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -492,7 +492,7 @@ func (h *Handler) PostMFASetup(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, mfa.ErrNotPending):
 			// Already enabled: a second POST (double submit, stale tab) must not
 			// rotate the working credential.
-			http.Redirect(w, r, "/passkeys?flash=mfa-on", http.StatusFound)
+			http.Redirect(w, r, "/passkeys?tab=mfa&flash=mfa-on", http.StatusFound)
 			return
 		case errors.Is(err, mfa.ErrNotFound):
 			// Pending row vanished (admin reset mid-enrollment): start over.
@@ -554,17 +554,17 @@ func (h *Handler) PostMFADisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.mfa == nil {
-		http.Redirect(w, r, "/passkeys", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa", http.StatusFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/passkeys", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa", http.StatusFound)
 		return
 	}
 
 	if err := h.reauthenticate(r.Context(), u, r.FormValue("password")); err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
-			http.Redirect(w, r, "/passkeys?flash=mfa-password-invalid", http.StatusFound)
+			http.Redirect(w, r, "/passkeys?tab=mfa&flash=mfa-password-invalid", http.StatusFound)
 			return
 		}
 		h.logger.Error("mfa: re-authenticate for disable", "user_id", u.ID, "error", err)
@@ -574,7 +574,7 @@ func (h *Handler) PostMFADisable(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.mfa.Disable(r.Context(), u.ID); err != nil {
 		h.logger.Error("mfa: disable", "user_id", u.ID, "error", err)
-		http.Redirect(w, r, "/passkeys?flash=error", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa&flash=error", http.StatusFound)
 		return
 	}
 
@@ -584,7 +584,7 @@ func (h *Handler) PostMFADisable(w http.ResponseWriter, r *http.Request) {
 		UserID:   u.ID,
 		Username: u.Username,
 	})
-	http.Redirect(w, r, "/passkeys?flash=mfa-disabled", http.StatusFound)
+	http.Redirect(w, r, "/passkeys?tab=mfa&flash=mfa-disabled", http.StatusFound)
 }
 
 // PostMFARecoveryCodes issues a fresh set of recovery codes, invalidating the
@@ -596,17 +596,17 @@ func (h *Handler) PostMFARecoveryCodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.mfa == nil {
-		http.Redirect(w, r, "/passkeys", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa", http.StatusFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/passkeys", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa", http.StatusFound)
 		return
 	}
 
 	if err := h.reauthenticate(r.Context(), u, r.FormValue("password")); err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
-			http.Redirect(w, r, "/passkeys?flash=mfa-password-invalid", http.StatusFound)
+			http.Redirect(w, r, "/passkeys?tab=mfa&flash=mfa-password-invalid", http.StatusFound)
 			return
 		}
 		h.logger.Error("mfa: re-authenticate for recovery codes", "user_id", u.ID, "error", err)
@@ -617,11 +617,11 @@ func (h *Handler) PostMFARecoveryCodes(w http.ResponseWriter, r *http.Request) {
 	codes, err := h.mfa.RegenerateRecoveryCodes(r.Context(), u.ID)
 	if err != nil {
 		if errors.Is(err, mfa.ErrNotEnabled) {
-			http.Redirect(w, r, "/passkeys?flash=mfa-on", http.StatusFound)
+			http.Redirect(w, r, "/passkeys?tab=mfa&flash=mfa-on", http.StatusFound)
 			return
 		}
 		h.logger.Error("mfa: regenerate recovery codes", "user_id", u.ID, "error", err)
-		http.Redirect(w, r, "/passkeys?flash=error", http.StatusFound)
+		http.Redirect(w, r, "/passkeys?tab=mfa&flash=error", http.StatusFound)
 		return
 	}
 

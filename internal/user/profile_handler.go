@@ -2,12 +2,48 @@ package user
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/crueber/passage/internal/csrf"
 )
 
+// profileData is the render data for the self-service profile page.
+type profileData struct {
+	User      *User
+	Flash     *Flash
+	CSRFToken string
+}
+
+// GetProfile renders the account details page. It is reachable by clicking the
+// display name in the top bar, so it needs no separate navigation entry.
+func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
+	u, ok := h.userCtx(r.Context())
+	if !ok || u == nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	var flash *Flash
+	switch r.URL.Query().Get("flash") {
+	case "saved":
+		flash = &Flash{Type: "success", Message: "Profile updated."}
+	case "invalid":
+		flash = &Flash{Type: "error", Message: fmt.Sprintf("Display name must be at most %d characters.", MaxDisplayNameLength)}
+	case "error":
+		flash = &Flash{Type: "error", Message: "Could not save your profile. Please try again."}
+	}
+
+	h.render(w, r, "profile.html", profileData{
+		User:      u,
+		Flash:     flash,
+		CSRFToken: csrf.TokenFromContext(r.Context()),
+	})
+}
+
 // PostUpdateProfile updates the signed-in user's display name and returns to
-// the Security page, where the form lives.
+// the profile page.
 //
 // Only the name column is written; username, email and credentials are managed
 // elsewhere (an administrator edits them, and the password flows have their
@@ -20,20 +56,20 @@ func (h *Handler) PostUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/passkeys?flash=error", http.StatusFound)
+		http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
 		return
 	}
 
 	name := strings.TrimSpace(r.FormValue("display_name"))
 	if err := h.users.UpdateDisplayName(r.Context(), u.ID, name); err != nil {
 		if errors.Is(err, ErrNameTooLong) {
-			http.Redirect(w, r, "/passkeys?flash=profile-invalid", http.StatusFound)
+			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
 			return
 		}
 		h.logger.Error("profile: update display name", "user_id", u.ID, "error", err)
-		http.Redirect(w, r, "/passkeys?flash=error", http.StatusFound)
+		http.Redirect(w, r, "/profile?flash=error", http.StatusFound)
 		return
 	}
 
-	http.Redirect(w, r, "/passkeys?flash=profile-saved", http.StatusFound)
+	http.Redirect(w, r, "/profile?flash=saved", http.StatusFound)
 }

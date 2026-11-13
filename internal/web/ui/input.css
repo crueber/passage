@@ -344,16 +344,21 @@
     @apply sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur;
   }
   .topbar-inner {
-    @apply mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6;
+    @apply mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6;
   }
   .toplink {
-    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:bg-raised hover:text-ink sm:px-2.5;
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1.5 text-sm text-muted transition-colors hover:bg-raised hover:text-ink sm:px-2.5;
   }
   .toplink-active {
     @apply bg-primary-soft font-medium text-on-primary-soft;
   }
   .topuser {
-    @apply hidden text-sm text-muted sm:inline;
+    /* The display name is the link to the profile page, so it stays visible on
+       small screens; truncation keeps four nav items and a long name on one row. */
+    @apply inline-block max-w-24 truncate align-middle text-sm text-muted transition-colors hover:text-ink sm:max-w-40;
+  }
+  .topuser-active {
+    @apply font-medium text-ink;
   }
 
   /* ── Admin shell ─────────────────────────────────────────────────────── */

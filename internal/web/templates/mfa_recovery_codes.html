@@ -35,7 +35,7 @@
       </ul>
       <div class="mt-4 flex flex-wrap items-center gap-2">
         <button type="button" class="btn btn-outline btn-sm" data-copy="#mfa-codes">Copy all</button>
-        <a class="btn btn-primary btn-sm" href="/passkeys?flash={{if .Regenerated}}mfa-codes-regenerated{{else}}mfa-enabled{{end}}">Done</a>
+        <a class="btn btn-primary btn-sm" href="/passkeys?tab=mfa&flash={{if .Regenerated}}mfa-codes-regenerated{{else}}mfa-enabled{{end}}">Done</a>
       </div>
     </section>
   </div>

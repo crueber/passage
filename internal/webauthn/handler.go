@@ -170,6 +170,10 @@ type passkeysData struct {
 	Flash       *user.Flash
 	CSRFToken   string
 
+	// ActiveTab is "passkeys" (default) or "mfa". The two halves of this page
+	// are separate tasks, so each gets its own tab rather than one long scroll.
+	ActiveTab string
+
 	// Two-factor state, read from the MFA service. The page renders the TOTP
 	// section from these three fields; the forms POST to /mfa/* (owned by the
 	// user package), so this page never needs the MFA store directly.
@@ -197,10 +201,6 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("flash") {
 	case "deleted":
 		flash = &user.Flash{Type: "success", Message: "Passkey removed."}
-	case "profile-saved":
-		flash = &user.Flash{Type: "success", Message: "Profile updated."}
-	case "profile-invalid":
-		flash = &user.Flash{Type: "error", Message: fmt.Sprintf("Display name must be at most %d characters.", user.MaxDisplayNameLength)}
 	case "error":
 		flash = &user.Flash{Type: "error", Message: "An error occurred."}
 	case "mfa-enabled":
@@ -230,11 +230,17 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	activeTab := "passkeys"
+	if r.URL.Query().Get("tab") == "mfa" {
+		activeTab = "mfa"
+	}
+
 	h.render(w, r, "passkeys.html", passkeysData{
 		User:              u,
 		Credentials:       creds,
 		Flash:             flash,
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
+		ActiveTab:         activeTab,
 		MFAEnabled:        status.Enabled,
 		MFAEnabledAt:      status.EnabledAt,
 		MFARemainingCodes: status.RemainingCodes,

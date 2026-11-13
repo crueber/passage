@@ -23,8 +23,52 @@ func profileRequest(t *testing.T, form url.Values, u *user.User) *http.Request {
 	return req
 }
 
+// TestHandler_GetProfile renders the profile page with the current display
+// name and the save button below the field.
+func TestHandler_GetProfile(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+	ctx := context.Background()
+
+	u, err := f.userSvc.Register(ctx, "profilepage", "profilepage@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := f.userSvc.UpdateDisplayName(ctx, u.ID, "Chris Rueber"); err != nil {
+		t.Fatalf("UpdateDisplayName: %v", err)
+	}
+	u, err = f.userStore.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/profile?flash=saved", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	rec := httptest.NewRecorder()
+	f.handler.GetProfile(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"<title>Profile — Passage</title>",
+		`action="/profile"`,
+		`name="display_name"`,
+		`value="Chris Rueber"`,
+		"Save changes",
+		"profilepage",
+		"profilepage@example.com",
+		"Profile updated.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("profile page missing %q", want)
+		}
+	}
+}
+
 // TestHandler_PostUpdateProfile covers the self-service display-name edit that
-// the Security page exposes.
+// the profile page exposes.
 func TestHandler_PostUpdateProfile(t *testing.T) {
 	t.Parallel()
 
@@ -44,8 +88,8 @@ func TestHandler_PostUpdateProfile(t *testing.T) {
 		if rec.Code != http.StatusFound {
 			t.Fatalf("status = %d, want 302", rec.Code)
 		}
-		if loc := rec.Header().Get("Location"); loc != "/passkeys?flash=profile-saved" {
-			t.Errorf("Location = %q, want the Security page with a success flash", loc)
+		if loc := rec.Header().Get("Location"); loc != "/profile?flash=saved" {
+			t.Errorf("Location = %q, want the profile page with a success flash", loc)
 		}
 
 		fresh, err := f.userStore.GetByID(ctx, u.ID)
@@ -110,7 +154,7 @@ func TestHandler_PostUpdateProfile(t *testing.T) {
 		if rec.Code != http.StatusFound {
 			t.Fatalf("status = %d, want 302", rec.Code)
 		}
-		if loc := rec.Header().Get("Location"); loc != "/passkeys?flash=profile-invalid" {
+		if loc := rec.Header().Get("Location"); loc != "/profile?flash=invalid" {
 			t.Errorf("Location = %q, want the invalid-name flash", loc)
 		}
 		fresh, err := f.userStore.GetByID(ctx, u.ID)

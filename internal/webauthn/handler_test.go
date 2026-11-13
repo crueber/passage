@@ -667,7 +667,7 @@ func TestGetPasskeys_ShowsTwoFactorSection(t *testing.T) {
 			t.Fatalf("create session: %v", err)
 		}
 
-		rec := getPasskeysPage(t, f, token)
+		rec := getPasskeysPageAt(t, f, token, "/passkeys?tab=mfa")
 		body := rec.Body.String()
 		for _, want := range []string{
 			"Two-factor authentication",
@@ -711,7 +711,7 @@ func TestGetPasskeys_ShowsTwoFactorSection(t *testing.T) {
 			t.Fatalf("create session: %v", err)
 		}
 
-		rec := getPasskeysPage(t, f, token)
+		rec := getPasskeysPageAt(t, f, token, "/passkeys?tab=mfa")
 		body := rec.Body.String()
 		for _, want := range []string{
 			"Enabled since",
@@ -731,18 +731,18 @@ func TestGetPasskeys_ShowsTwoFactorSection(t *testing.T) {
 	})
 }
 
-// TestGetPasskeys_ProfileSection renders the self-service display-name form
-// with the current value, and the top bar shows the name instead of the
-// username once one is set.
-func TestGetPasskeys_ProfileSection(t *testing.T) {
+// TestGetPasskeys_Tabs proves the two tasks live on separate tabs: the default
+// page is passkeys, and ?tab=mfa swaps the content without a long scroll. The
+// display name in the top bar links to the profile page.
+func TestGetPasskeys_Tabs(t *testing.T) {
 	t.Parallel()
 	f := newHandlerFixture(t)
 	ctx := context.Background()
 
-	if _, err := f.userSvc.Register(ctx, "named", "named@example.com", "password123"); err != nil {
+	if _, err := f.userSvc.Register(ctx, "tabbed", "tabbed@example.com", "password123"); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	u, err := f.userStore.GetByUsername(ctx, "named")
+	u, err := f.userStore.GetByUsername(ctx, "tabbed")
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -754,19 +754,41 @@ func TestGetPasskeys_ProfileSection(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	body := getPasskeysPage(t, f, token).Body.String()
-	for _, want := range []string{
-		"Profile",
-		`action="/profile"`,
-		`name="display_name"`,
-		`value="Sam Rivera"`,
-		">Sam Rivera<",
-		`title="named"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("profile section missing %q", want)
+	t.Run("passkeys tab is the default", func(t *testing.T) {
+		t.Parallel()
+		body := getPasskeysPage(t, f, token).Body.String()
+		for _, want := range []string{
+			`href="/profile"`,
+			"Sam Rivera",
+			`href="/passkeys?tab=mfa"`,
+			"Register a new passkey",
+			"Your passkeys",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("passkeys tab missing %q", want)
+			}
 		}
-	}
+		if strings.Contains(body, "Set up two-factor") {
+			t.Error("passkeys tab renders the two-factor section")
+		}
+	})
+
+	t.Run("mfa tab swaps the content", func(t *testing.T) {
+		t.Parallel()
+		body := getPasskeysPageAt(t, f, token, "/passkeys?tab=mfa").Body.String()
+		for _, want := range []string{
+			"Set up two-factor",
+			`href="/passkeys"`,
+			"Two-factor authentication",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("mfa tab missing %q", want)
+			}
+		}
+		if strings.Contains(body, "Register a new passkey") {
+			t.Error("mfa tab renders the passkeys form")
+		}
+	})
 }
 
 // TestGetPasskeys_FlashCodes pins the MFA flash codes the Security page
@@ -797,8 +819,6 @@ func TestGetPasskeys_FlashCodes(t *testing.T) {
 		{"mfa-required", "requires two-factor authentication"},
 		{"mfa-password-invalid", "password was incorrect"},
 		{"deleted", "Passkey removed"},
-		{"profile-saved", "Profile updated"},
-		{"profile-invalid", "at most 100 characters"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
@@ -820,7 +840,13 @@ func TestGetPasskeys_FlashCodes(t *testing.T) {
 // is what puts the user in the request context.
 func getPasskeysPage(t *testing.T, f *handlerFixture, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/passkeys", nil)
+	return getPasskeysPageAt(t, f, token, "/passkeys")
+}
+
+// getPasskeysPageAt is getPasskeysPage with an explicit path (for ?tab=mfa).
+func getPasskeysPageAt(t *testing.T, f *handlerFixture, token, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.AddCookie(&http.Cookie{Name: f.cfg.Session.CookieName, Value: token})
 	rec := httptest.NewRecorder()
 	buildPasskeyRouter(f).ServeHTTP(rec, req)
