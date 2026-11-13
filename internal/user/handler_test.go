@@ -35,6 +35,9 @@ type noopSender struct{}
 func (noopSender) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
 func (noopSender) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
 func (noopSender) SendVerifyEmail(_ context.Context, _, _, _ string) error   { return nil }
+func (noopSender) SendInvite(_ context.Context, _, _, _, _ string, _ time.Duration) error {
+	return nil
+}
 
 // noopSettings satisfies the settingsReader interface with a no-op implementation.
 // Always returns an error so the handler falls back to the static config.

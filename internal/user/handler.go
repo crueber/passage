@@ -945,6 +945,12 @@ func flashFromCode(code string) *Flash {
 		return &Flash{Type: "error", Message: "This verification link has expired. Sign in to request a new one."}
 	case "verify-link-used":
 		return &Flash{Type: "error", Message: "This verification link has already been used."}
+	case "invite-invalid":
+		return &Flash{Type: "error", Message: "This invitation link is invalid. Ask an administrator for a new invitation."}
+	case "invite-expired":
+		return &Flash{Type: "error", Message: "This invitation has expired. Ask an administrator for a new invitation."}
+	case "invite-used":
+		return &Flash{Type: "error", Message: "This invitation has already been used. Sign in instead, or ask an administrator for a new invitation."}
 	case "idp-failed":
 		return &Flash{Type: "error", Message: "Sign-in with the external provider failed. Please try again."}
 	case "idp-no-account":

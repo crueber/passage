@@ -418,6 +418,24 @@ func run() error {
 		}
 	}()
 
+	// Start invitation cleanup goroutine. Expired, never-accepted invitations
+	// are removed hourly; acceptance already checks expiry, so this is
+	// housekeeping rather than the security boundary.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := userSvc.DeleteExpiredInvitations(ctx); err != nil {
+					logger.Error("invitation cleanup failed", "error", err)
+				}
+			}
+		}
+	}()
+
 	// Rate limiters — in-memory sliding-window, no external dependencies.
 	// Limits and window durations are driven by configuration (ratelimit section).
 	rl := cfg.RateLimit
@@ -618,6 +636,10 @@ func run() error {
 		r.With(ratelimit.Middleware(loginLimiter)).Post("/login", userHandler.PostLogin)
 		r.Get("/register", userHandler.GetRegister)
 		r.With(ratelimit.Middleware(registerLimiter)).Post("/register", userHandler.PostRegister)
+		// Invitations are the admin-controlled way in while self-registration is
+		// off. The link proves the invitation, so no registration check runs.
+		r.Get("/invite/{token}", userHandler.GetInviteAccept)
+		r.With(ratelimit.Middleware(registerLimiter)).Post("/invite/{token}", userHandler.PostInviteAccept)
 		r.Get("/reset", userHandler.GetResetRequest)
 		r.With(ratelimit.Middleware(resetLimiter)).Post("/reset", userHandler.PostResetRequest)
 		r.Get("/reset/{token}", userHandler.GetResetConfirm)

@@ -18,6 +18,8 @@ const (
 	AuditActionUserPasswordReset    = "user.password_reset"
 	AuditActionUserUnlock           = "user.unlock"
 	AuditActionUserMFAReset         = "user.mfa_reset"
+	AuditActionUserInvite           = "user.invite"
+	AuditActionUserInviteRevoke     = "user.invite_revoke"
 	AuditActionAppCreate            = "app.create"
 	AuditActionAppUpdate            = "app.update"
 	AuditActionAppDelete            = "app.delete"

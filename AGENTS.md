@@ -35,7 +35,7 @@ passage/
   internal/
     config/             # config loading — YAML file + PASSAGE_* env var overrides
     db/                 # SQLite open + goose migrations
-      migrations/       # *.sql embedded migration files (001_*.sql … 025_*.sql)
+      migrations/       # *.sql embedded migration files (001_*.sql … 029_*.sql)
     user/               # model, store, service, handler, magic links, setup tokens
     app/                # model, store, service (host pattern matching, per-app session duration, auth method flags)
     session/            # model, store, service, middleware (RequireSession), user sessions page
@@ -100,6 +100,7 @@ All wiring lives in `cmd/passage/run.go` — construction order matters. Key fac
 - **OAuth access tokens**: issued as RS256 JWTs signed by the current keyring (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `scope`, `client_id`); `aud` is the RFC 8707 `resource` when one was granted, else the client id. `apps.scopes` / `apps.resources` are opt-in per-app registries (one value per line, empty = today's behaviour). Opaque tokens issued before this change still validate through the `oauth_tokens` path, so an upgrade never forces a re-login. Revoking a JWT writes its `jti` to `oauth_revoked_jti`; introspection, userinfo and `ValidateAccessToken` consult it, and the hourly cleanup prunes expired rows.
 - **Per-app access policies**: `internal/policy` evaluates group/role/CIDR/admin-only/hours; enforced in forward-auth (403), at OAuth authorize (`access_denied`) and again at the token endpoint (code exchange and every refresh, `invalid_grant`), never on the dashboard. An empty policy returns before any DB work. Empty fields mean no restriction.
 - **Upstream IdPs**: providers live in `idp_providers` (migration 028) and are managed at `/admin/providers`; client secrets are sealed with the instance cipher, bound to the provider id. The list is read per request, so an added provider works immediately. Sign-in is state+nonce+PKCE, linked by (provider, subject) then verified email, optionally auto-created. Like passkeys and magic links, it never gets an MFA step.
+- **Invitations**: the way an administrator creates an account while `allow_registration` is off. `/admin/users/invite` emails a single-use link (`invitations`, migration 029); no `users` row exists until the recipient opens `/invite/{token}`, chooses a username and password, and the service creates the account — verified, because clicking the link proves mailbox control. The accept route is deliberately outside the registration policy; the invitation row is the authorisation. Re-inviting an address replaces the pending link; a consumed link keeps its `accepted_at` row. Expired, never-accepted rows are pruned hourly.
 - **Single template set**: `web.Parse` parses `templates/*.html` and `templates/admin/*.html` into one `*template.Template` — user and admin pages share one `{{define}}` namespace. The `csrfField` template function must be provided in the `FuncMap`.
 
 ## Routing & Middleware (chi)

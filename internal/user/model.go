@@ -27,6 +27,11 @@ var (
 	ErrEmailVerificationTokenNotFound = errors.New("user: email verification token not found")
 	ErrEmailVerificationTokenExpired  = errors.New("user: email verification token expired")
 	ErrEmailVerificationTokenUsed     = errors.New("user: email verification token already used")
+
+	ErrInvitationNotFound = errors.New("user: invitation not found")
+	ErrInvitationExpired  = errors.New("user: invitation expired")
+	ErrInvitationAccepted = errors.New("user: invitation already accepted")
+	ErrSMTPNotConfigured  = errors.New("user: SMTP is not configured")
 )
 
 // User represents a Passage user account.
@@ -78,6 +83,26 @@ type EmailVerificationToken struct {
 	CreatedAt time.Time
 }
 
+// Invitation is a pending offer of an account, sent to an address that has no
+// user yet. No user row exists until the recipient accepts: the invitation
+// carries the address and display name, and acceptance creates the account.
+type Invitation struct {
+	ID         string
+	Token      string
+	Email      string
+	Name       string
+	InvitedBy  string
+	ExpiresAt  time.Time
+	AcceptedAt *time.Time // nil = still pending
+	CreatedAt  time.Time
+}
+
+// Pending reports whether the invitation can still be accepted: not consumed
+// and not past its expiry.
+func (i *Invitation) Pending() bool {
+	return i != nil && i.AcceptedAt == nil && time.Now().UTC().Before(i.ExpiresAt)
+}
+
 // Store is the persistence interface for users. It is defined here, at the
 // consumer boundary, as per Go convention.
 type Store interface {
@@ -117,4 +142,19 @@ type TokenStore interface {
 	CreateEmailVerificationToken(ctx context.Context, userID, emailAddr string, ttl time.Duration) (*EmailVerificationToken, error)
 	GetEmailVerificationToken(ctx context.Context, token string) (*EmailVerificationToken, error)
 	MarkEmailVerificationTokenUsed(ctx context.Context, token string) error
+
+	// Invitations. Creating one invalidates any earlier pending invitation for
+	// the same address, so only the newest link works. No user row is written
+	// until the invitation is accepted.
+	CreateInvitation(ctx context.Context, emailAddr, name, invitedBy string, ttl time.Duration) (*Invitation, error)
+	GetInvitation(ctx context.Context, token string) (*Invitation, error)
+	// MarkInvitationAccepted consumes the invitation atomically. It returns
+	// ErrInvitationAccepted when another request already consumed it.
+	MarkInvitationAccepted(ctx context.Context, token string) error
+	// DeleteInvitation removes one pending invitation by ID (admin revoke).
+	DeleteInvitation(ctx context.Context, id string) error
+	ListPendingInvitations(ctx context.Context) ([]*Invitation, error)
+	// DeleteExpiredInvitations removes invitations that expired and were never
+	// accepted. Consumed rows are kept as a short audit trail.
+	DeleteExpiredInvitations(ctx context.Context) error
 }

@@ -131,7 +131,7 @@ narrower, or plumbed but not actually reachable · **absent**.
 | Profile fields | partial | `User{Username, Email, Name, IsAdmin, IsActive}`; a vestigial `Roles string` column always `"[]"` | No arbitrary `user_metadata`/`app_metadata`. Auth0 metadata is core. |
 | User search / filter / pagination | absent | `admin.GetUsers` calls `userStore.List` and renders everything | Fine at 20 users, painful at 200. |
 | Bulk import / export | absent | no CSV/JSON endpoints; no Jobs equivalent | Auth0: user import on all plans, Jobs API. |
-| Invitations | absent | — | |
+| Invitations | supported | admin page `/admin/users/invite` sends a single-use link; `invitations` table (`migrations/029`) stores no user until the recipient accepts and chooses credentials | Works while public registration is off. |
 | Email verification | absent | see 1.1 | |
 | Account linking | absent | — | |
 | SCIM / JIT provisioning | absent | — | Auth0: inbound SCIM free/B2B, Enterprise tier. |

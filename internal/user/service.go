@@ -515,3 +515,143 @@ func (s *Service) MarkEmailVerified(ctx context.Context, userID string) error {
 	}
 	return nil
 }
+
+// InvitationTTLDefault is how long an invitation link stays valid when the
+// admin form does not say otherwise.
+const InvitationTTLDefault = 7 * 24 * time.Hour
+
+// CreateInvitation records a pending invitation and returns it. Nothing is
+// written to users: the account springs into existence only when the recipient
+// accepts. An address that already has an account is refused, because the
+// invite link creates a new account rather than signing an existing one in.
+func (s *Service) CreateInvitation(ctx context.Context, emailAddr, name, invitedBy string, ttl time.Duration) (*Invitation, error) {
+	normalized := strings.ToLower(strings.TrimSpace(emailAddr))
+	if normalized == "" || !strings.Contains(normalized, "@") {
+		return nil, ErrEmailRequired
+	}
+	if !s.smtpConfigured() {
+		// The whole feature is email; without a usable sender the link could
+		// never reach anyone.
+		return nil, ErrSMTPNotConfigured
+	}
+
+	if _, err := s.store.GetByEmail(ctx, normalized); err == nil {
+		return nil, ErrEmailTaken
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, fmt.Errorf("create invitation check email: %w", err)
+	}
+
+	inv, err := s.tokenStore.CreateInvitation(ctx, normalized, strings.TrimSpace(name), invitedBy, ttl)
+	if err != nil {
+		return nil, fmt.Errorf("user: create invitation: %w", err)
+	}
+	return inv, nil
+}
+
+// GetPendingInvitation returns an invitation that can still be accepted, or a
+// typed error describing why it cannot (missing, expired, already accepted).
+func (s *Service) GetPendingInvitation(ctx context.Context, token string) (*Invitation, error) {
+	inv, err := s.tokenStore.GetInvitation(ctx, token)
+	if err != nil {
+		if errors.Is(err, ErrInvitationNotFound) {
+			return nil, ErrInvitationNotFound
+		}
+		return nil, fmt.Errorf("user: get invitation: %w", err)
+	}
+	if inv.AcceptedAt != nil {
+		return nil, ErrInvitationAccepted
+	}
+	if !inv.Pending() {
+		return nil, ErrInvitationExpired
+	}
+	return inv, nil
+}
+
+// AcceptInvitation creates the user described by an invitation, consuming it.
+// The address and display name come from the invitation (the recipient cannot
+// change them), while the recipient chooses a username and password. Using the
+// link proves control of the mailbox, so the new account starts verified.
+//
+// The invitation is marked accepted only after the user row is written: if
+// username validation fails, the link stays usable. The email uniqueness
+// constraint closes the concurrent-accept race.
+func (s *Service) AcceptInvitation(ctx context.Context, token, username, password string) (*User, error) {
+	inv, err := s.GetPendingInvitation(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return nil, ErrUsernameRequired
+	}
+	if len(password) < 8 {
+		return nil, ErrPasswordTooShort
+	}
+
+	if _, err := s.store.GetByEmail(ctx, inv.Email); err == nil {
+		return nil, ErrEmailTaken
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, fmt.Errorf("accept invitation check email: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.cfg.Auth.BcryptCost)
+	if err != nil {
+		return nil, fmt.Errorf("accept invitation hash password: %w", err)
+	}
+
+	u := &User{
+		Username:     username,
+		Email:        inv.Email,
+		Name:         inv.Name,
+		PasswordHash: string(hash),
+		IsActive:     true,
+		Roles:        "[]",
+		// Clicking the emailed link proves control of the mailbox.
+		EmailVerified: true,
+	}
+
+	if err := s.store.Create(ctx, u); err != nil {
+		return nil, fmt.Errorf("accept invitation create user: %w", err)
+	}
+
+	if err := s.tokenStore.MarkInvitationAccepted(ctx, token); err != nil {
+		if errors.Is(err, ErrInvitationAccepted) {
+			// Another request consumed the invitation first. Roll back the
+			// account this call just created so the two cannot both win.
+			if delErr := s.store.Delete(ctx, u.ID); delErr != nil {
+				return nil, fmt.Errorf("accept invitation roll back user: %w", errors.Join(err, delErr))
+			}
+			return nil, ErrInvitationAccepted
+		}
+		return nil, fmt.Errorf("accept invitation mark accepted: %w", err)
+	}
+
+	return u, nil
+}
+
+// ListPendingInvitations returns the invitations an administrator can still
+// revoke or that are still waiting on a recipient.
+func (s *Service) ListPendingInvitations(ctx context.Context) ([]*Invitation, error) {
+	invitations, err := s.tokenStore.ListPendingInvitations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("user: list pending invitations: %w", err)
+	}
+	return invitations, nil
+}
+
+// RevokeInvitation deletes one pending invitation, invalidating its link.
+func (s *Service) RevokeInvitation(ctx context.Context, id string) error {
+	if err := s.tokenStore.DeleteInvitation(ctx, id); err != nil {
+		return fmt.Errorf("user: revoke invitation: %w", err)
+	}
+	return nil
+}
+
+// DeleteExpiredInvitations removes expired, never-accepted invitations.
+func (s *Service) DeleteExpiredInvitations(ctx context.Context) error {
+	if err := s.tokenStore.DeleteExpiredInvitations(ctx); err != nil {
+		return fmt.Errorf("user: delete expired invitations: %w", err)
+	}
+	return nil
+}

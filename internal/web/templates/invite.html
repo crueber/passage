@@ -1,0 +1,64 @@
+{{define "invite.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accept invitation — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+</head>
+<body>
+<main class="auth-shell">
+  <a href="/" class="wordmark text-xl">{{template "logo"}}<span>passage</span></a>
+
+  <div class="w-full max-w-md">{{template "flash" .}}</div>
+
+  <div class="auth-card">
+    <h1 class="auth-title">Create your account</h1>
+    <p class="auth-sub">
+      {{if .Name}}Welcome, {{.Name}}. {{end}}This invitation is for
+      <strong class="text-ink">{{.Email}}</strong>. Choose a username and
+      password to finish setting up.
+    </p>
+
+    <form method="POST" action="/invite/{{.Token}}" class="mt-5 space-y-4">
+      {{csrfField .CSRFToken}}
+
+      <div>
+        <label class="label" for="email">Email address</label>
+        <input class="input" type="email" id="email" value="{{.Email}}" disabled>
+        <p class="help">Set by the administrator who invited you.</p>
+      </div>
+
+      <div>
+        <label class="label" for="username">Username</label>
+        <input class="input" type="text" id="username" name="username"
+               autocomplete="username" required autofocus value="{{.Username}}">
+      </div>
+
+      <div>
+        <label class="label" for="password">Password</label>
+        <input class="input" type="password" id="password" name="password"
+               autocomplete="new-password" required minlength="8">
+        <p class="help">At least 8 characters.</p>
+      </div>
+
+      <div>
+        <label class="label" for="confirm_password">Confirm password</label>
+        <input class="input" type="password" id="confirm_password" name="confirm_password"
+               autocomplete="new-password" required minlength="8">
+      </div>
+
+      <button type="submit" class="btn btn-primary w-full">Create account</button>
+    </form>
+
+    <p class="auth-alt">
+      Already have an account? <a href="/login">Sign in</a>
+    </p>
+  </div>
+</main>
+</body>
+</html>
+{{end}}

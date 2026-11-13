@@ -92,7 +92,7 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 			Sub: "Registration, session lifetime and the default theme.",
 			Fields: []settingsField{
 				{Kind: kindBool, Key: settings.AllowRegistration, Label: "Allow public registration",
-					Help:  "When off, /register explains that an administrator creates accounts.",
+					Help:  "When off, /register explains that an administrator creates accounts. Invitations sent from Users keep working either way.",
 					Value: boolString(boolValue(settings.AllowRegistration))},
 				{Kind: kindNumber, Key: settings.SessionDurationHours, Label: "Session duration (hours)",
 					Help: "Default lifetime for a sign-in. Per-app overrides are set on the app's edit page.",

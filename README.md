@@ -69,7 +69,7 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **Prometheus metrics** — `/metrics` with authentication, session and HTTP counters plus instance gauges (optional bearer token)
 - **Security webhook** — POST every authentication event as JSON, optionally HMAC-signed
 - **Admin web UI** — manage users, apps (OAuth clients, access policies, groups and roles), sessions, settings, logs, API tokens and signing keys without touching config files
-- **Email** — optional self-registration with address verification, password reset, and magic-link sign-in
+- **Email** — optional self-registration with address verification, administrator invitations, password reset, and magic-link sign-in
 - **Secrets encrypted at rest** — TOTP secrets are sealed with AES-256-GCM; the key comes from config or a `0600` file beside the database
 - **Ten colour themes** — slate, nord, gruvbox, solarized, catppuccin, tokyo-night, rose-pine, everforest, kanagawa, paper
 - **Single static binary** — no runtime dependencies, no CGo, no Docker required to run

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,12 +32,45 @@ import (
 	"github.com/crueber/passage/internal/web"
 )
 
-// noopMailer satisfies the email.Sender interface with a no-op implementation.
-type noopMailer struct{}
+// noopMailer satisfies the email.Sender interface. Invitations are recorded so
+// the admin invite flow can be asserted without SMTP.
+type noopMailer struct {
+	mu      sync.Mutex
+	err     error
+	invites []sentInvite
+}
 
-func (noopMailer) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
-func (noopMailer) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
-func (noopMailer) SendVerifyEmail(_ context.Context, _, _, _ string) error   { return nil }
+// sentInvite is one recorded invitation message.
+type sentInvite struct {
+	To        string
+	Name      string
+	Inviter   string
+	URL       string
+	ExpiresIn time.Duration
+}
+
+func (*noopMailer) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
+func (*noopMailer) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
+func (*noopMailer) SendVerifyEmail(_ context.Context, _, _, _ string) error   { return nil }
+
+func (m *noopMailer) SendInvite(_ context.Context, to, name, inviter, url string, expiresIn time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return m.err
+	}
+	m.invites = append(m.invites, sentInvite{To: to, Name: name, Inviter: inviter, URL: url, ExpiresIn: expiresIn})
+	return nil
+}
+
+// sentInvites returns a copy of the recorded invitation messages.
+func (m *noopMailer) sentInvites() []sentInvite {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]sentInvite, len(m.invites))
+	copy(out, m.invites)
+	return out
+}
 
 // noopCredentialCounter satisfies the credentialCounter interface with a zero-returning implementation.
 type noopCredentialCounter struct{}
@@ -75,6 +109,7 @@ type fixture struct {
 	throttleStore *ratelimit.AccountStore
 	apiTokens     *adminapi.Service
 	oauthSvc      *oauth.Service
+	mailer        *noopMailer
 }
 
 // newFixture builds all dependencies wired to an in-memory SQLite database.
@@ -127,11 +162,12 @@ func newFixture(t *testing.T) *fixture {
 	}, time.Now)
 	mfaSvc := mfa.NewService(mfa.NewStore(database, nil), "Passage", nil)
 	apiTokens := adminapi.NewService(adminapi.NewStore(database), logger)
+	mailer := &noopMailer{}
 	oauthSvc, err := oauth.NewService(context.Background(), oauth.NewStore(database), appSvc, userStore, cfg.Server.BaseURL, logger)
 	if err != nil {
 		t.Fatalf("build oauth service: %v", err)
 	}
-	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, noopMailer{}, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle, apiTokens, oauthSvc)
+	h := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settings, noopCredentialCounter{}, mfaSvc, mailer, tmpl, cfg, logger, auditLog, authStore, authlog.NewRecorder(authStore, nil, logger), throttle, apiTokens, oauthSvc)
 
 	return &fixture{
 		db:            database,
@@ -151,6 +187,7 @@ func newFixture(t *testing.T) *fixture {
 		throttleStore: throttleStore,
 		apiTokens:     apiTokens,
 		oauthSvc:      oauthSvc,
+		mailer:        mailer,
 	}
 }
 

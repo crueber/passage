@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/email"
@@ -59,6 +60,47 @@ func TestSendPasswordReset_SMTPNotConfigured(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("SendPasswordReset with empty SMTP host: expected error, got nil")
+	}
+}
+
+// TestSendInvite_SMTPNotConfigured verifies SendInvite fails cleanly when SMTP
+// cannot send, so the admin handler can remove the unsent invitation.
+func TestSendInvite_SMTPNotConfigured(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		host string
+		from string
+	}{
+		{name: "empty host", host: "", from: "passage@example.com"},
+		{name: "empty from", host: "smtp.example.com", from: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := testConfig(tc.host)
+			cfg.SMTP.From = tc.from
+
+			sender, err := email.NewSMTPSender(cfg, slog.Default())
+			if err != nil {
+				t.Fatalf("NewSMTPSender: %v", err)
+			}
+
+			err = sender.SendInvite(
+				context.Background(),
+				"user@example.com",
+				"Test User",
+				"Admin",
+				"https://auth.example.com/invite/sometoken",
+				7*24*time.Hour,
+			)
+			if err == nil {
+				t.Fatal("SendInvite without usable SMTP: expected error, got nil")
+			}
+		})
 	}
 }
 

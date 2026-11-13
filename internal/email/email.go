@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"log/slog"
 	ttext "text/template"
+	"time"
 
 	mail "github.com/wneessen/go-mail"
 
@@ -23,6 +24,7 @@ type Sender interface {
 	SendPasswordReset(ctx context.Context, toEmail, toName, resetURL string) error
 	SendMagicLink(ctx context.Context, toEmail, toName, magicURL string) error
 	SendVerifyEmail(ctx context.Context, toEmail, toName, verifyURL string) error
+	SendInvite(ctx context.Context, toEmail, toName, inviter, inviteURL string, expiresIn time.Duration) error
 }
 
 // resetData holds the data passed to password reset email templates.
@@ -43,6 +45,14 @@ type verifyEmailData struct {
 	VerifyURL string
 }
 
+// inviteData holds the data passed to invitation email templates.
+type inviteData struct {
+	Name      string
+	Inviter   string
+	InviteURL string
+	ExpiresIn string
+}
+
 // SMTPSender sends emails via SMTP using go-mail.
 type SMTPSender struct {
 	cfg               *config.Config
@@ -53,6 +63,8 @@ type SMTPSender struct {
 	magicLinkTextTmpl *ttext.Template
 	verifyHTMLTmpl    *template.Template
 	verifyTextTmpl    *ttext.Template
+	inviteHTMLTmpl    *template.Template
+	inviteTextTmpl    *ttext.Template
 }
 
 // NewSMTPSender creates a new SMTPSender. Templates are parsed at construction time.
@@ -81,6 +93,14 @@ func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error)
 	if err != nil {
 		return nil, fmt.Errorf("email: parse verify email text template: %w", err)
 	}
+	inviteHTMLTmpl, err := template.ParseFS(templateFS, "templates/invite.html")
+	if err != nil {
+		return nil, fmt.Errorf("email: parse invite html template: %w", err)
+	}
+	inviteTextTmpl, err := ttext.ParseFS(templateFS, "templates/invite.txt")
+	if err != nil {
+		return nil, fmt.Errorf("email: parse invite text template: %w", err)
+	}
 	return &SMTPSender{
 		cfg:               cfg,
 		logger:            logger,
@@ -90,6 +110,8 @@ func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error)
 		magicLinkTextTmpl: magicLinkTextTmpl,
 		verifyHTMLTmpl:    verifyHTMLTmpl,
 		verifyTextTmpl:    verifyTextTmpl,
+		inviteHTMLTmpl:    inviteHTMLTmpl,
+		inviteTextTmpl:    inviteTextTmpl,
 	}, nil
 }
 
@@ -260,4 +282,84 @@ func (s *SMTPSender) SendVerifyEmail(ctx context.Context, toEmail, toName, verif
 		return fmt.Errorf("email: send verification email: %w", err)
 	}
 	return nil
+}
+
+// SendInvite sends an invitation link to an address that does not yet have an
+// account. If SMTP is not usable an error is returned and the caller should not
+// leave a dangling invitation behind.
+func (s *SMTPSender) SendInvite(ctx context.Context, toEmail, toName, inviter, inviteURL string, expiresIn time.Duration) error {
+	if s.cfg.SMTP.Host == "" || s.cfg.SMTP.From == "" {
+		s.logger.Warn("SMTP not configured: cannot send invitation email", "to", toEmail)
+		return fmt.Errorf("email: SMTP host or from address is not configured")
+	}
+
+	data := inviteData{
+		Name:      toName,
+		Inviter:   inviter,
+		InviteURL: inviteURL,
+		ExpiresIn: humanDuration(expiresIn),
+	}
+
+	var htmlBuf, textBuf bytes.Buffer
+	if err := s.inviteHTMLTmpl.Execute(&htmlBuf, data); err != nil {
+		return fmt.Errorf("email: render invite html template: %w", err)
+	}
+	if err := s.inviteTextTmpl.Execute(&textBuf, data); err != nil {
+		return fmt.Errorf("email: render invite text template: %w", err)
+	}
+
+	// Build the go-mail client options.
+	opts := []mail.Option{
+		mail.WithPort(s.cfg.SMTP.Port),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithUsername(s.cfg.SMTP.Username),
+		mail.WithPassword(s.cfg.SMTP.Password),
+	}
+	switch s.cfg.SMTP.TLS {
+	case "tls":
+		opts = append(opts, mail.WithSSL())
+	case "none":
+		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
+	default: // "starttls" and anything else
+		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
+	}
+
+	client, err := mail.NewClient(s.cfg.SMTP.Host, opts...)
+	if err != nil {
+		return fmt.Errorf("email: create smtp client: %w", err)
+	}
+
+	msg := mail.NewMsg()
+	if err := msg.From(s.cfg.SMTP.From); err != nil {
+		return fmt.Errorf("email: set from: %w", err)
+	}
+	if err := msg.AddToFormat(toName, toEmail); err != nil {
+		return fmt.Errorf("email: set to: %w", err)
+	}
+	msg.Subject("You have been invited to Passage")
+	msg.SetBodyString(mail.TypeTextPlain, textBuf.String())
+	msg.AddAlternativeString(mail.TypeTextHTML, htmlBuf.String())
+
+	if err := client.DialAndSendWithContext(ctx, msg); err != nil {
+		return fmt.Errorf("email: send invitation email: %w", err)
+	}
+	return nil
+}
+
+// humanDuration renders a TTL the way an email reads: whole days when it is at
+// least one, otherwise hours. A zero or negative value never reaches a
+// template (invitations always carry a positive TTL).
+func humanDuration(d time.Duration) string {
+	if d >= 24*time.Hour {
+		days := int(d / (24 * time.Hour))
+		if days == 1 {
+			return "1 day"
+		}
+		return fmt.Sprintf("%d days", days)
+	}
+	hours := int(d / time.Hour)
+	if hours <= 1 {
+		return "1 hour"
+	}
+	return fmt.Sprintf("%d hours", hours)
 }

@@ -1,0 +1,121 @@
+{{define "admin-invite-user"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invite user — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/theme.js"></script>
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Invite user</h1>
+      <p class="page-sub">Email someone a link to create their own account.</p>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/admin/users">{{template "ic-chevron-left"}}Back to users</a>
+  </div>
+
+  <div class="max-w-3xl">
+    <section class="card p-5 sm:p-6">
+      <h2 class="font-semibold text-ink">New invitation</h2>
+      <p class="mt-1 text-sm text-muted">
+        No account is created now. The recipient chooses a username and password
+        from the link, and only then does the account appear in this list.
+      </p>
+
+      {{if not .SMTPConfigured}}
+      <div class="note note-info mt-4">
+        Invitations need an SMTP server. Configure one under
+        <a href="/admin/settings?tab=email" class="link">Settings → Email</a> first.
+      </div>
+      {{end}}
+
+      <form method="POST" action="/admin/users/invite" class="mt-4 space-y-4">
+        {{csrfField .CSRFToken}}
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="label" for="email">Email address</label>
+            <input class="input" type="email" id="email" name="email" required
+                   autocomplete="off" value="{{.Email}}" placeholder="person@example.com">
+          </div>
+          <div>
+            <label class="label" for="name">Display name <span class="text-faint">(optional)</span></label>
+            <input class="input" type="text" id="name" name="name"
+                   autocomplete="off" value="{{.Name}}">
+          </div>
+        </div>
+
+        <div>
+          <label class="label" for="expiry_days">Link expires after</label>
+          <div class="flex items-center gap-2">
+            <input class="input sm:max-w-32" type="number" id="expiry_days" name="expiry_days"
+                   min="1" max="30" step="1" required value="{{.ExpiryDays}}">
+            <span class="text-sm text-muted">days</span>
+          </div>
+          <p class="help">Between 1 and 30 days.</p>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button type="submit" class="btn btn-primary" {{if not .SMTPConfigured}}disabled{{end}}>Send invitation</button>
+          <a class="btn btn-outline" href="/admin/users">Cancel</a>
+        </div>
+      </form>
+    </section>
+
+    <section class="mt-6">
+      <h2 class="mb-3 font-semibold text-ink">Pending invitations</h2>
+      {{if .Invitations}}
+      <div class="table-wrap table-wrap-cards">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Email</th>
+              <th scope="col">Name</th>
+              <th scope="col">Invited by</th>
+              <th scope="col">Expires</th>
+              <th scope="col" class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Invitations}}
+            <tr>
+              <td class="font-medium" data-label="Email">{{.Email}}</td>
+              <td data-label="Name">{{if .Name}}{{.Name}}{{else}}<span class="text-faint">&mdash;</span>{{end}}</td>
+              <td class="td-muted" data-label="Invited by">{{if .InvitedBy}}{{.InvitedBy}}{{else}}<span class="text-faint">&mdash;</span>{{end}}</td>
+              <td class="td-mono whitespace-nowrap" data-label="Expires">{{.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+              <td data-label="">
+                <form method="POST" class="text-right" action="/admin/users/invitations/{{.ID}}/revoke">
+                  {{csrfField $.CSRFToken}}
+                  <button type="submit" class="btn btn-danger btn-sm"
+                          data-confirm="Revoke this invitation? The link will stop working.">Revoke</button>
+                </form>
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="empty">
+        {{template "ic-users"}}
+        <p class="empty-title">No pending invitations</p>
+        <p class="empty-sub">Send one above and it will show here until it is accepted or expires.</p>
+      </div>
+      {{end}}
+    </section>
+  </div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

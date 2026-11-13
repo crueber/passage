@@ -26,12 +26,22 @@ type verificationEmail struct {
 	URL  string
 }
 
-// recordingSender is an email.Sender test double that records verification
-// emails and can be made to fail, without touching SMTP.
+// invitationEmail records one outbound invitation message.
+type invitationEmail struct {
+	To        string
+	Name      string
+	Inviter   string
+	URL       string
+	ExpiresIn time.Duration
+}
+
+// recordingSender is an email.Sender test double that records verification and
+// invitation emails and can be made to fail, without touching SMTP.
 type recordingSender struct {
 	mu            sync.Mutex
 	err           error
 	verifications []verificationEmail
+	invitations   []invitationEmail
 }
 
 func (s *recordingSender) SendVerifyEmail(_ context.Context, to, name, url string) error {
@@ -44,6 +54,16 @@ func (s *recordingSender) SendVerifyEmail(_ context.Context, to, name, url strin
 	return nil
 }
 
+func (s *recordingSender) SendInvite(_ context.Context, to, name, inviter, url string, expiresIn time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	s.invitations = append(s.invitations, invitationEmail{To: to, Name: name, Inviter: inviter, URL: url, ExpiresIn: expiresIn})
+	return nil
+}
+
 func (s *recordingSender) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
 func (s *recordingSender) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
 
@@ -53,6 +73,15 @@ func (s *recordingSender) sent() []verificationEmail {
 	defer s.mu.Unlock()
 	out := make([]verificationEmail, len(s.verifications))
 	copy(out, s.verifications)
+	return out
+}
+
+// sentInvitations returns a copy of the recorded invitation emails (race-safe).
+func (s *recordingSender) sentInvitations() []invitationEmail {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]invitationEmail, len(s.invitations))
+	copy(out, s.invitations)
 	return out
 }
 

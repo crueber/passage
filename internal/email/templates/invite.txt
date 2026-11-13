@@ -1,0 +1,9 @@
+{{if .Name}}Hi {{.Name}},
+
+{{end}}{{if .Inviter}}{{.Inviter}} has invited you{{else}}You have been invited{{end}} to create an account on Passage, a self-hosted sign-in service.
+
+Choose a username and password to finish setting up your account. The link can only be used once and expires in {{.ExpiresIn}}.
+
+Accept the invitation: {{.InviteURL}}
+
+If you were not expecting this invitation, you can ignore this email. No account exists until you accept.

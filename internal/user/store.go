@@ -443,6 +443,175 @@ func (s *SQLiteStore) MarkEmailVerificationTokenUsed(ctx context.Context, token 
 	return nil
 }
 
+// CreateInvitation stores a new invitation and invalidates any earlier pending
+// one for the same address. The token is 32 bytes from crypto/rand; the delete
+// and insert share a transaction so two concurrent invites cannot leave two
+// live links for one address (the partial unique index is the backstop).
+func (s *SQLiteStore) CreateInvitation(ctx context.Context, emailAddr, name, invitedBy string, ttl time.Duration) (*Invitation, error) {
+	if ttl <= 0 {
+		ttl = 7 * 24 * time.Hour
+	}
+
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, fmt.Errorf("generate invitation token: %w", err)
+	}
+
+	id, err := newUUID()
+	if err != nil {
+		return nil, fmt.Errorf("generate invitation id: %w", err)
+	}
+
+	now := time.Now().UTC()
+	inv := &Invitation{
+		ID:        id,
+		Token:     hex.EncodeToString(b),
+		Email:     emailAddr,
+		Name:      name,
+		InvitedBy: invitedBy,
+		ExpiresAt: now.Add(ttl),
+		CreatedAt: now,
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("store invitation begin: %w", err)
+	}
+	// Rollback after a successful commit is a no-op; the error is deliberately
+	// ignored so it cannot mask the real result.
+	defer func() { _ = tx.Rollback() }()
+
+	const deleteQuery = `DELETE FROM invitations WHERE email = ? AND accepted_at IS NULL`
+	if _, err := tx.ExecContext(ctx, deleteQuery, emailAddr); err != nil {
+		return nil, fmt.Errorf("store invitation invalidate previous: %w", err)
+	}
+
+	const insertQuery = `
+		INSERT INTO invitations (id, token, email, name, invited_by, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	if _, err := tx.ExecContext(ctx, insertQuery,
+		inv.ID, inv.Token, inv.Email, inv.Name, inv.InvitedBy, inv.ExpiresAt, inv.CreatedAt,
+	); err != nil {
+		return nil, fmt.Errorf("store invitation insert: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("store invitation commit: %w", err)
+	}
+	return inv, nil
+}
+
+// GetInvitation looks up an invitation by its emailed token.
+func (s *SQLiteStore) GetInvitation(ctx context.Context, token string) (*Invitation, error) {
+	const query = `
+		SELECT id, token, email, name, invited_by, expires_at, accepted_at, created_at
+		FROM invitations WHERE token = ?`
+	row := s.db.QueryRowContext(ctx, query, token)
+	inv, err := scanInvitation(row)
+	if err != nil {
+		return nil, fmt.Errorf("get invitation: %w", err)
+	}
+	return inv, nil
+}
+
+// MarkInvitationAccepted atomically consumes an invitation. A token that is
+// already consumed (or has vanished) changes no rows, which closes the
+// double-accept window between two concurrent clicks.
+func (s *SQLiteStore) MarkInvitationAccepted(ctx context.Context, token string) error {
+	const query = `UPDATE invitations SET accepted_at = ? WHERE token = ? AND accepted_at IS NULL`
+	res, err := s.db.ExecContext(ctx, query, time.Now().UTC(), token)
+	if err != nil {
+		return fmt.Errorf("mark invitation accepted: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark invitation accepted rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrInvitationAccepted
+	}
+	return nil
+}
+
+// DeleteInvitation removes one still-pending invitation by ID. A consumed
+// invitation is never deleted this way: it is the record that the address was
+// once invited, and deleting it would not undo the account.
+func (s *SQLiteStore) DeleteInvitation(ctx context.Context, id string) error {
+	const query = `DELETE FROM invitations WHERE id = ? AND accepted_at IS NULL`
+	res, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("delete invitation: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete invitation rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrInvitationNotFound
+	}
+	return nil
+}
+
+// ListPendingInvitations returns unaccepted, unexpired invitations, newest
+// first. Expired rows are excluded so the admin list only shows links that can
+// still be used.
+func (s *SQLiteStore) ListPendingInvitations(ctx context.Context) ([]*Invitation, error) {
+	const query = `
+		SELECT id, token, email, name, invited_by, expires_at, accepted_at, created_at
+		FROM invitations
+		WHERE accepted_at IS NULL AND expires_at > ?
+		ORDER BY created_at DESC`
+	rows, err := s.db.QueryContext(ctx, query, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("list pending invitations: %w", err)
+	}
+	defer rows.Close()
+
+	var invitations []*Invitation
+	for rows.Next() {
+		inv, err := scanInvitation(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list pending invitations scan: %w", err)
+		}
+		invitations = append(invitations, inv)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list pending invitations rows: %w", err)
+	}
+	return invitations, nil
+}
+
+// DeleteExpiredInvitations removes invitations that expired before they were
+// accepted. Consumed rows are kept: they are the only record that an address
+// was invited, and they are tiny.
+func (s *SQLiteStore) DeleteExpiredInvitations(ctx context.Context) error {
+	const query = `DELETE FROM invitations WHERE accepted_at IS NULL AND expires_at < ?`
+	if _, err := s.db.ExecContext(ctx, query, time.Now().UTC()); err != nil {
+		return fmt.Errorf("delete expired invitations: %w", err)
+	}
+	return nil
+}
+
+// scanInvitation scans an invitation from a row result.
+func scanInvitation(s scanner) (*Invitation, error) {
+	var inv Invitation
+	var acceptedAt sql.NullTime
+	err := s.Scan(
+		&inv.ID, &inv.Token, &inv.Email, &inv.Name, &inv.InvitedBy,
+		&inv.ExpiresAt, &acceptedAt, &inv.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrInvitationNotFound
+		}
+		return nil, err
+	}
+	if acceptedAt.Valid {
+		inv.AcceptedAt = &acceptedAt.Time
+	}
+	return &inv, nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error
