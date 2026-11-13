@@ -147,6 +147,20 @@ func (h *Handler) passkeyEnabled(ctx context.Context) bool {
 	return strings.ToLower(strings.TrimSpace(val)) != "false"
 }
 
+// passwordEnabled mirrors the password sign-in policy, so the Password tab
+// disappears when an operator has turned password sign-in off. Fail-open:
+// missing key or DB error means enabled.
+func (h *Handler) passwordEnabled(ctx context.Context) bool {
+	if h.settings == nil {
+		return true
+	}
+	val, err := h.settings.Get(ctx, "auth_password_enabled")
+	if err != nil {
+		return true
+	}
+	return strings.ToLower(strings.TrimSpace(val)) != "false"
+}
+
 // ProfileRoutes registers passkey management routes. The router must already have
 // RequireSession middleware applied.
 func (h *Handler) ProfileRoutes(r chi.Router) {
@@ -170,9 +184,18 @@ type passkeysData struct {
 	Flash       *user.Flash
 	CSRFToken   string
 
-	// ActiveTab is "passkeys" (default) or "mfa". The two halves of this page
-	// are separate tasks, so each gets its own tab rather than one long scroll.
+	// ActiveTab is "passkeys" (default), "mfa", or "password". The parts of
+	// this page are separate tasks, so each gets its own tab rather than one
+	// long scroll.
 	ActiveTab string
+
+	// PasswordEnabled mirrors the global password-sign-in policy; when false
+	// the Password tab is not rendered.
+	PasswordEnabled bool
+
+	// HasPassword says whether this account already has a password, so the form
+	// can ask for it before replacing it (or offer to set the first one).
+	HasPassword bool
 
 	// Two-factor state, read from the MFA service. The page renders the TOTP
 	// section from these three fields; the forms POST to /mfa/* (owned by the
@@ -215,6 +238,18 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 		flash = &user.Flash{Type: "info", Message: "An administrator requires two-factor authentication."}
 	case "mfa-password-invalid":
 		flash = &user.Flash{Type: "error", Message: "Your password was incorrect. Nothing was changed."}
+	case "password-changed":
+		flash = &user.Flash{Type: "success", Message: "Password changed. Every other session has been signed out."}
+	case "password-invalid":
+		flash = &user.Flash{Type: "error", Message: "Your current password was incorrect. Nothing was changed."}
+	case "password-too-short":
+		flash = &user.Flash{Type: "error", Message: "New password must be at least 8 characters."}
+	case "password-mismatch":
+		flash = &user.Flash{Type: "error", Message: "The new passwords do not match."}
+	case "password-error":
+		flash = &user.Flash{Type: "error", Message: "Could not change your password. Please try again."}
+	case "password-disabled":
+		flash = &user.Flash{Type: "error", Message: "Password sign-in is disabled on this instance."}
 	}
 
 	// A failure to read MFA state must not take down the Security page: render
@@ -231,8 +266,14 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activeTab := "passkeys"
-	if r.URL.Query().Get("tab") == "mfa" {
+	passwordEnabled := h.passwordEnabled(r.Context())
+	switch r.URL.Query().Get("tab") {
+	case "mfa":
 		activeTab = "mfa"
+	case "password":
+		if passwordEnabled {
+			activeTab = "password"
+		}
 	}
 
 	h.render(w, r, "passkeys.html", passkeysData{
@@ -241,6 +282,8 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 		Flash:             flash,
 		CSRFToken:         csrf.TokenFromContext(r.Context()),
 		ActiveTab:         activeTab,
+		PasswordEnabled:   passwordEnabled,
+		HasPassword:       u.PasswordHash != "",
 		MFAEnabled:        status.Enabled,
 		MFAEnabledAt:      status.EnabledAt,
 		MFARemainingCodes: status.RemainingCodes,

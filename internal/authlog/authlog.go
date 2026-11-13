@@ -20,6 +20,7 @@ const (
 	EventMagicLinkLogin    = "magiclink.login"
 	EventMagicLinkFailure  = "magiclink.failure"
 	EventRegisterSuccess   = "register.success"
+	EventPasswordChanged   = "password.changed"
 	EventOAuthAuthorize    = "oauth.authorize"
 	EventOAuthToken        = "oauth.token"
 	EventOAuthTokenFailed  = "oauth.token_failure"
@@ -93,6 +94,7 @@ func Names() []string {
 		EventMagicLinkLogin,
 		EventMagicLinkFailure,
 		EventRegisterSuccess,
+		EventPasswordChanged,
 		EventOAuthAuthorize,
 		EventOAuthToken,
 		EventOAuthTokenFailed,

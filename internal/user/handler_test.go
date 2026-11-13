@@ -143,10 +143,12 @@ func newFullHandlerFixtureAll(t *testing.T, allowRegistration bool, maxFailures,
 		mutate(cfg)
 	}
 
-	userSvc := user.NewService(userStore, userStore, nil, cfg)
-
+	// The session service is built first so the user service can revoke
+	// sessions on a password change, matching run.go's wiring.
 	sessionStore := session.NewStore(db)
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
+
+	userSvc := user.NewService(userStore, userStore, sessionSvc, cfg)
 
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },

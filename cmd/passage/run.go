@@ -715,6 +715,9 @@ func run() error {
 		// stays outside the MFA gate so a user who must still enrol can set it.
 		r.Get("/profile", userHandler.GetProfile)
 		r.Post("/profile", userHandler.PostUpdateProfile)
+		// Password change lives on the Security page's Password tab. The login
+		// limiter bounds current-password guessing from a borrowed session.
+		r.With(ratelimit.Middleware(loginLimiter)).Post("/password", userHandler.PostChangePassword)
 
 		// Everything else is behind the policy gate.
 		r.Group(func(r chi.Router) {

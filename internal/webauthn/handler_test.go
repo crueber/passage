@@ -43,7 +43,34 @@ type handlerFixture struct {
 	handler      *webauthn.Handler
 }
 
+// testSettingsReader is the settings surface the webauthn handler consumes.
+// Defined here so tests can drive policies such as auth_password_enabled.
+type testSettingsReader interface {
+	Get(ctx context.Context, key string) (string, error)
+}
+
+// mapSettings is a settings reader backed by a map. A missing key returns an
+// error, which makes the handler fall back to its default, exactly as the
+// production store does for an unset row.
+type mapSettings map[string]string
+
+func (m mapSettings) Get(_ context.Context, key string) (string, error) {
+	v, ok := m[key]
+	if !ok {
+		return "", errors.New("not found")
+	}
+	return v, nil
+}
+
 func newHandlerFixture(t *testing.T) *handlerFixture {
+	t.Helper()
+	return newHandlerFixtureWithSettings(t, nil)
+}
+
+// newHandlerFixtureWithSettings builds the graph with a settings reader, so a
+// test can exercise policies such as auth_password_enabled. A nil reader means
+// every policy falls back to its default.
+func newHandlerFixtureWithSettings(t *testing.T, settings testSettingsReader) *handlerFixture {
 	t.Helper()
 	db := testutil.NewTestDB(t)
 
@@ -80,7 +107,7 @@ func newHandlerFixture(t *testing.T) *handlerFixture {
 
 	mfaSvc := mfa.NewService(mfa.NewStore(db, nil), "Passage", nil)
 	h := webauthn.NewHandler(wa, credStore, challenges, userStore, sessionSvc,
-		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, nil, nil, mfaSvc)
+		cfg.Session.CookieName, cfg.Session.CookieSecure, tmpl, logger, settings, nil, mfaSvc)
 
 	return &handlerFixture{
 		db:           db,
@@ -761,6 +788,7 @@ func TestGetPasskeys_Tabs(t *testing.T) {
 			`href="/profile"`,
 			"Sam Rivera",
 			`href="/passkeys?tab=mfa"`,
+			`href="/passkeys?tab=password"`,
 			"Register a new passkey",
 			"Your passkeys",
 			`id="usernav-toggle"`,
@@ -794,6 +822,96 @@ func TestGetPasskeys_Tabs(t *testing.T) {
 	})
 }
 
+// TestGetPasskeys_PasswordTab covers the Password tab: it asks for the current
+// password on an account that has one, offers to set a first password on an
+// account that does not, and disappears with the policy when password sign-in
+// is disabled.
+func TestGetPasskeys_PasswordTab(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("existing password asks for it", func(t *testing.T) {
+		t.Parallel()
+		f := newHandlerFixture(t)
+		if _, err := f.userSvc.Register(ctx, "haspassword", "haspassword@example.com", "password123"); err != nil {
+			t.Fatalf("register: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "haspassword")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+		token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
+		if err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+
+		body := getPasskeysPageAt(t, f, token, "/passkeys?tab=password").Body.String()
+		for _, want := range []string{
+			"Change password",
+			`action="/password"`,
+			`name="current_password"`,
+			`name="new_password"`,
+			`name="confirm_password"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("password tab missing %q", want)
+			}
+		}
+	})
+
+	t.Run("account without a password can set one", func(t *testing.T) {
+		t.Parallel()
+		f := newHandlerFixture(t)
+		u, err := f.userSvc.CreateExternalUser(ctx, "nopassword", "nopassword@example.com", "No Password", true)
+		if err != nil {
+			t.Fatalf("create external user: %v", err)
+		}
+		token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
+		if err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+
+		body := getPasskeysPageAt(t, f, token, "/passkeys?tab=password").Body.String()
+		if !strings.Contains(body, "Set a password") {
+			t.Error("password tab does not offer to set a first password")
+		}
+		if strings.Contains(body, `name="current_password"`) {
+			t.Error("password tab asks for a current password that does not exist")
+		}
+	})
+
+	t.Run("disabled policy hides the tab and falls back", func(t *testing.T) {
+		t.Parallel()
+		f := newHandlerFixtureWithSettings(t, mapSettings{"auth_password_enabled": "false"})
+		if _, err := f.userSvc.Register(ctx, "nopasswordpolicy", "nopasswordpolicy@example.com", "password123"); err != nil {
+			t.Fatalf("register: %v", err)
+		}
+		u, err := f.userStore.GetByUsername(ctx, "nopasswordpolicy")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+		token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
+		if err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+
+		body := getPasskeysPage(t, f, token).Body.String()
+		if strings.Contains(body, `href="/passkeys?tab=password"`) {
+			t.Error("Password tab is rendered while password sign-in is disabled")
+		}
+
+		// A bookmarked URL falls back to the Passkeys tab instead of exposing
+		// a form the policy would refuse.
+		tabbed := getPasskeysPageAt(t, f, token, "/passkeys?tab=password").Body.String()
+		if strings.Contains(tabbed, `action="/password"`) {
+			t.Error("password form rendered while password sign-in is disabled")
+		}
+		if !strings.Contains(tabbed, "Register a new passkey") {
+			t.Error("disabled password tab did not fall back to Passkeys")
+		}
+	})
+}
+
 // TestGetPasskeys_FlashCodes pins the MFA flash codes the Security page
 // understands, so a typo in a redirect target cannot silently drop the message.
 func TestGetPasskeys_FlashCodes(t *testing.T) {
@@ -822,6 +940,9 @@ func TestGetPasskeys_FlashCodes(t *testing.T) {
 		{"mfa-required", "requires two-factor authentication"},
 		{"mfa-password-invalid", "password was incorrect"},
 		{"deleted", "Passkey removed"},
+		{"password-changed", "Password changed"},
+		{"password-too-short", "at least 8 characters"},
+		{"password-mismatch", "do not match"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
