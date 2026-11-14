@@ -201,3 +201,44 @@ button { font: inherit; }
 .result-row .flag { margin-left: auto; color: var(--faint); font-size: 11px; }
 .launcher-foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; }
 .launcher-foot .kbd { margin-right: 2px; }
+
+/* Mobile floating search trigger */
+.fab {
+  position: fixed; right: 18px; bottom: 18px; z-index: 20;
+  width: 54px; height: 54px; border-radius: 999px; display: grid; place-items: center;
+  background: var(--primary); color: #0b1118; border: 0; font-size: 22px;
+  box-shadow: 0 12px 30px -10px rgb(0 0 0 / 0.8); cursor: pointer;
+}
+.mobile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mobile-wrap { max-width: 390px; margin: 0 auto; padding: 22px 16px 90px; }
+.mobile-wrap .h1 { font-size: 23px; }
+.mobile-wrap .page-head { margin-bottom: 16px; }
+.mobile-wrap .section-head { margin-top: 20px; }
+.mobile-wrap .tile { min-height: 92px; padding: 10px 6px; gap: 7px; }
+.mobile-wrap .tile .icon { width: 34px; height: 34px; }
+.mobile-wrap .tile .name { font-size: 11.5px; }
+.mobile-wrap .fav-grid { grid-template-columns: 1fr; }
+
+/* Profile setting mock */
+.card-panel {
+  max-width: 640px; padding: 24px 26px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--surface); margin-top: 10px;
+}
+.card-panel h2 { margin: 0; font-size: 16px; }
+.card-panel p { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.field-row label { font-weight: 550; }
+.field-row .help { color: var(--faint); font-size: 12px; margin-top: 3px; }
+.select { min-width: 190px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+
+@media (max-width: 700px) {
+  .topbar { padding: 0 16px; }
+  .nav a:not(.name) { display: none; }
+  .nav .name { margin-right: 0; }
+  .page { padding: 24px 16px 90px; }
+  .view-switch { align-self: flex-start; }
+}
+
+@media (max-width: 700px) {
+  .wire-label { display: none; }
+}

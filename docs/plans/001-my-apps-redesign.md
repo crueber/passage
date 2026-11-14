@@ -159,8 +159,12 @@ stays visually quiet.
 - `↑`/`↓` moves the selection, `Enter` opens, `Esc` closes.
 - The dialog traps focus while open, restores focus to the page on close, and
   has an explicit empty-results state.
-- Mobile has no keyboard chord, so the page head gets a small search icon that
-  opens the same modal. The shortcut hint is shown only where it applies.
+- Mobile has no keyboard chord, so a floating search button in the lower-right
+  corner opens the same modal. The shortcut hint is shown only where it applies.
+
+![Mobile My Apps with the floating search button](assets/001-my-apps/09-mobile-floating-search.png)
+
+![The command launcher on mobile](assets/001-my-apps/10-mobile-launcher.png)
 
 ### What this resolves
 
@@ -173,15 +177,24 @@ stays visually quiet.
 - Single-app accounts: each mode has a deliberate state rather than a grid with
   one card.
 
-### Remaining implementation decisions
+### Resolved decisions
 
-1. Does the switch persist per browser (reusing the current density
-   localStorage key) or per account? The current density preference is local.
-2. Does the command launcher include a “Recent” section? That needs
-   `last_opened_at` data, so it can ship later without blocking the redesign.
-3. Should the star in a tile be always visible (shown here) or revealed on hover
-   for pointer devices with an always-visible variant on touch?
-4. Mobile search trigger placement: page-head icon vs a floating button.
+1. **Density stays per browser, with an account default as well.** The switch
+   writes a browser preference (reusing the spirit of the current density
+   preference; old `standard`/`condensed` values map to
+   `comfortable`/`iconized`). Profile gains a **Default app view** setting stored
+   on the account. Effective mode is: browser preference → account default →
+   Comfortable. The account setting is the starting point on a new browser; it
+   does not overwrite a choice already made on an existing one.
+2. **No Recent section in the command launcher.** It lists favourites first,
+   then all apps. No `last_opened_at` work is required for this redesign.
+3. **Every tile shows its star at all times.** Outlined when not favourited,
+   amber when it is; no hover-only affordance. The target is large enough for
+   touch.
+4. **Mobile search is a floating button in the lower-right corner**, not a
+   field in the page head. It opens the same modal as the keyboard shortcut.
+
+![Profile: default app view setting](assets/001-my-apps/11-profile-default-view.png)
 
 ## Comparison
 
@@ -199,12 +212,15 @@ stays visually quiet.
 
 1. Replace the current card grid with the hybrid page: grouped Comfortable
    rows, Iconized shelf + tile grid, and the Comfortable/Iconized switch.
-2. Add the star button to every tile, reusing the existing
+2. Keep the browser preference local (with a mapping from the old
+   standard/condensed values) and add `users.app_view` for the account default,
+   exposed on Profile. Use browser preference → account default → Comfortable.
+3. Add the star button to every tile, reusing the existing
    `POST /apps/{id}/favorite` endpoint with an accessible label and optimistic
    state handling.
-3. Build the command launcher as a single reusable dialog: type-ahead filter,
-   keyboard navigation, focus trap, empty state, and the mobile search trigger.
-4. Keep the existing dashboard data model for the first release; add
-   `last_opened_at` and Recent grouping only if the launcher needs it later.
-5. Add regression tests for many apps, one app, favourite toggling, and the
-   launcher’s filter/select/enter behaviour.
+4. Build the command launcher as a single reusable dialog: type-ahead filter,
+   keyboard navigation, focus trap, empty state, and the mobile floating
+   button. No Recent section.
+5. Add regression tests for many apps, one app, favourite toggling, the
+   launcher’s filter/select/enter behaviour, and the precedence of browser vs
+   account view mode.
