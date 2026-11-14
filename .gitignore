@@ -1,0 +1,51 @@
+# Binaries
+/passage
+/passage.exe
+
+# Build artifacts
+dist/
+*.db
+*.db-shm
+*.db-wal
+
+# Test output
+*.test
+*.out
+
+# Go module download cache (not the go.sum — that's checked in)
+vendor/
+
+# Editor and IDE files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+*.env.local
+.env.*
+!.env.example
+
+# Air live-reload
+tmp/
+
+# golangci-lint cache
+.golangci-lint-cache/
+
+# Git worktrees
+.worktrees/
+
+# Implementation plans (local only)
+/plans/
+
+# Tailwind standalone CLI (fetched locally, not committed) — tools/build-css.sh is tracked
+tools/tailwindcss*
+
+# Local redesign screenshots (uncommitted per contract)
+/redesign-screenshots/
+
+# Agent session state (opencode goals etc.) — never commit
+.opencode/

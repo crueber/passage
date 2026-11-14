@@ -1,0 +1,44 @@
+{{define "reset_confirm.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choose a new password — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+</head>
+<body>
+<main class="auth-shell">
+  <a href="/" class="wordmark text-xl">{{template "logo"}}<span>passage</span></a>
+
+  <div class="w-full max-w-md">{{template "flash" .}}</div>
+
+  <div class="auth-card">
+    <h1 class="auth-title">Choose a new password</h1>
+    <p class="auth-sub">Pick something strong &mdash; at least 8 characters.</p>
+
+    <form method="POST" action="/reset/{{.Token}}" class="mt-5 space-y-4">
+      {{csrfField .CSRFToken}}
+
+      <div>
+        <label class="label" for="password">New password</label>
+        <input class="input" type="password" id="password" name="password"
+               autocomplete="new-password" required autofocus minlength="8">
+      </div>
+
+      <div>
+        <label class="label" for="password_confirm">Confirm new password</label>
+        <input class="input" type="password" id="password_confirm" name="password_confirm"
+               autocomplete="new-password" required minlength="8">
+      </div>
+
+      <button type="submit" class="btn btn-primary w-full">Set new password</button>
+    </form>
+
+    <p class="auth-alt"><a href="/login">Back to sign in</a></p>
+  </div>
+</main>
+</body>
+</html>
+{{end}}

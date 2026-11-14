@@ -1,0 +1,99 @@
+{{define "admin-users"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Users</h1>
+      <p class="page-sub">People who can sign in to Passage.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn btn-primary btn-sm" href="/admin/users/invite">{{template "ic-users"}}Invite user</a>
+      <a class="btn btn-outline btn-sm" href="/admin/users/new">New User</a>
+    </div>
+  </div>
+
+  {{if .Users}}
+  <div class="table-wrap table-wrap-cards">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">Email</th>
+          <th scope="col">Name</th>
+          <th scope="col">Flags</th>
+          <th scope="col" class="text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Users}}
+        <tr>
+          <td data-label=""><a class="font-medium link" href="/admin/users/{{.ID}}">{{.Username}}</a></td>
+          <td class="td-muted" data-label="Email">{{.Email}}</td>
+          <td data-label="Name">{{.Name}}</td>
+          <td data-label="Flags">
+            <div class="flex flex-wrap items-center gap-1.5 sm:flex-nowrap sm:whitespace-nowrap">
+              {{if .IsAdmin}}<span class="badge badge-green">Admin</span>{{end}}
+              {{if not .IsActive}}<span class="badge badge-red">Inactive</span>{{end}}
+              {{if $.IsLocked .Username}}<span class="badge badge-red">Locked</span>{{end}}
+              {{if $.MFAEnabled .ID}}<span class="badge badge-amber">MFA</span>{{end}}
+              {{if and (not .IsAdmin) .IsActive (not ($.IsLocked .Username)) (not ($.MFAEnabled .ID))}}<span class="text-faint">&mdash;</span>{{end}}
+            </div>
+          </td>
+          <td data-label="">
+            <div class="flex flex-wrap justify-start gap-1.5 sm:justify-end">
+              {{if $.IsLocked .Username}}
+              <form method="POST" action="/admin/users/{{.ID}}/unlock">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-outline btn-sm" data-confirm="Unlock this account?">Unlock</button>
+              </form>
+              {{end}}
+              <a class="btn btn-outline btn-sm" href="/admin/users/{{.ID}}/apps">{{template "ic-apps"}}Access</a>
+              <form method="POST" action="/admin/users/{{.ID}}/reset-password">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-ghost btn-sm">Send reset</button>
+              </form>
+              {{if $.MFAEnabled .ID}}
+              <form method="POST" action="/admin/users/{{.ID}}/reset-mfa">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-ghost btn-sm" data-confirm="Reset two-factor authentication for this user? Their authenticator and recovery codes will stop working.">Reset MFA</button>
+              </form>
+              {{end}}
+              <form method="POST" action="/admin/users/{{.ID}}/delete">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty">
+    {{template "ic-users"}}
+    <p class="empty-title">No users yet</p>
+    <p class="empty-sub">Create the first user to get started.</p>
+  </div>
+  {{end}}
+
+  {{template "admin-pagination" .Pager}}
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

@@ -1,0 +1,109 @@
+{{define "admin-user-form"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{if .IsNew}}New User{{else}}Edit User{{end}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{if .IsNew}}New User{{else}}{{if .EditUser}}{{.EditUser.Username}}{{else}}Edit User{{end}}{{end}}</h1>
+      <p class="page-sub">{{if .IsNew}}Create an account manually.{{else}}Account details and credentials.{{end}}</p>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/admin/users">{{template "ic-chevron-left"}}Back to users</a>
+  </div>
+
+  <div class="max-w-2xl">
+    <form method="POST" action="{{if .IsNew}}/admin/users{{else}}/admin/users/{{.EditUser.ID}}{{end}}" class="card space-y-4 p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="label" for="username">Username</label>
+          <input class="input" type="text" id="username" name="username" required autocomplete="off"
+                 value="{{if .EditUser}}{{.EditUser.Username}}{{end}}">
+        </div>
+        <div>
+          <label class="label" for="email">Email</label>
+          <input class="input" type="email" id="email" name="email" required autocomplete="off"
+                 value="{{if .EditUser}}{{.EditUser.Email}}{{end}}">
+        </div>
+      </div>
+
+      <div>
+        <label class="label" for="name">Display name</label>
+        <input class="input" type="text" id="name" name="name" autocomplete="off"
+               value="{{if .EditUser}}{{.EditUser.Name}}{{end}}">
+      </div>
+
+      {{if .IsNew}}
+      <div>
+        <label class="label" for="password">Password</label>
+        <input class="input sm:max-w-xs" type="password" id="password" name="password"
+               required autocomplete="new-password" minlength="8">
+        <p class="help">At least 8 characters.</p>
+      </div>
+      {{end}}
+
+      <div class="flex gap-6">
+        <label class="checkbox" for="is_admin">
+          <input type="checkbox" id="is_admin" name="is_admin"
+                 {{if .EditUser}}{{if .EditUser.IsAdmin}}checked{{end}}{{end}}>
+          Admin
+        </label>
+        <label class="checkbox" for="is_active">
+          <input type="checkbox" id="is_active" name="is_active"
+                 {{if .IsNew}}checked{{else}}{{if .EditUser}}{{if .EditUser.IsActive}}checked{{end}}{{end}}{{end}}>
+          Active
+        </label>
+      </div>
+
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="btn btn-primary">{{if .IsNew}}Create User{{else}}Save Changes{{end}}</button>
+        <a class="btn btn-outline" href="/admin/users">Cancel</a>
+      </div>
+    </form>
+
+    {{if not .IsNew}}
+    <div class="mt-6 space-y-4">
+      <section class="card p-5">
+        <h2 class="font-semibold text-ink">Passkeys</h2>
+        {{if gt .PasskeyCount 0}}
+        <p class="mt-1 text-sm text-muted">This user has <strong class="text-ink">{{.PasskeyCount}}</strong> passkey{{if gt .PasskeyCount 1}}s{{end}} registered.</p>
+        {{else}}
+        <p class="mt-1 text-sm text-muted">This user has no passkeys registered.</p>
+        {{end}}
+      </section>
+
+      <section class="card p-5">
+        <h2 class="font-semibold text-ink">App access</h2>
+        <p class="mt-1 text-sm text-muted">Choose which apps this user can reach.</p>
+        <a class="btn btn-outline btn-sm mt-3" href="/admin/users/{{.EditUser.ID}}/apps">{{template "ic-apps"}}Manage App Access</a>
+      </section>
+
+      <section class="card border-danger/30 p-5">
+        <h2 class="font-semibold text-ink">Sessions</h2>
+        <p class="mt-1 text-sm text-muted">Immediately invalidates all active sessions for this user.</p>
+        <form method="POST" action="/admin/users/{{.EditUser.ID}}/sessions/revoke-all" class="mt-3">
+          {{csrfField .CSRFToken}}
+          <button type="submit" class="btn btn-danger btn-sm">Revoke All Sessions</button>
+        </form>
+      </section>
+    </div>
+    {{end}}
+  </div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

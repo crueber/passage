@@ -1,0 +1,40 @@
+name: CI
+
+# Installed by scripts/publish-to-github.sh; edit scripts/publish/ci.yml in the
+# development repository instead.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify compiled CSS is up to date
+        run: |
+          ./tools/fetch-tailwind.sh
+          ./tools/build-css.sh
+          git diff --exit-code internal/web/static/passage.css
+
+      - name: Verify compiled theme CSS is up to date
+        run: ./tools/build-themes.sh --check
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Run tests (with race detector)
+        run: go test -race ./...

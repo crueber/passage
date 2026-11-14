@@ -1,0 +1,32 @@
+{{define "magic_link_sent.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Check your email — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+</head>
+<body>
+<main class="auth-shell">
+  <a href="/" class="wordmark text-xl">{{template "logo"}}<span>passage</span></a>
+
+  <div class="auth-card text-center">
+    <div class="mx-auto grid size-12 place-items-center rounded-full bg-primary-soft text-primary">
+      {{template "ic-mail"}}
+    </div>
+    <h1 class="auth-title mt-4">Check your email</h1>
+    <p class="auth-sub">
+      We&rsquo;ve sent you a sign-in link. Click the link in the email to sign in.
+      The link can only be used once and expires shortly.
+    </p>
+    <p class="mt-5 text-sm text-muted">
+      Didn&rsquo;t receive it? Check your spam folder, or
+      <a class="link" href="/login/magic">request a new link</a>.
+    </p>
+  </div>
+</main>
+</body>
+</html>
+{{end}}

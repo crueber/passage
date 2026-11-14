@@ -1,0 +1,152 @@
+{{define "admin-app-named-items"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Plural}} — {{.App.Name}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{.App.Name}}</h1>
+      <p class="page-sub td-mono">{{.App.Slug}}</p>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/admin/apps">{{template "ic-chevron-left"}}Back to apps</a>
+  </div>
+  {{template "admin-app-tabs" .}}
+
+  {{if .IsEdit}}
+  <h2 class="mb-4 font-semibold text-ink">Edit {{if eq .Kind "groups"}}group{{else}}role{{end}}</h2>
+  <div class="max-w-2xl">
+    <form method="POST" action="/admin/apps/{{.App.ID}}/{{.Kind}}/{{.EditItem.ID}}" class="card space-y-4 p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+      <div>
+        <label class="label" for="item-name">Name</label>
+        <input class="input" type="text" id="item-name" name="name" value="{{.EditItem.Name}}" required>
+      </div>
+      <div>
+        <label class="label" for="item-description">Description</label>
+        <input class="input" type="text" id="item-description" name="description" value="{{.EditItem.Description}}">
+      </div>
+      {{if eq .Kind "roles"}}
+      <fieldset class="rounded-lg border border-line p-4">
+        <legend class="label px-1">Groups granted by this role</legend>
+        <div class="check-list">
+          {{range .AllGroups}}
+          <label class="checkbox">
+            <input type="checkbox" name="group_ids" value="{{.ID}}" {{if index $.CheckedGroups .ID}}checked{{end}}>
+            <span class="min-w-0">
+              <span class="block truncate">{{.Name}}</span>
+              {{if .Description}}<span class="block truncate text-xs text-faint">{{.Description}}</span>{{end}}
+            </span>
+          </label>
+          {{else}}
+          <p class="text-sm text-faint"><em>No groups defined for this app yet.</em></p>
+          {{end}}
+        </div>
+      </fieldset>
+      {{end}}
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <a class="btn btn-outline" href="/admin/apps/{{.App.ID}}/{{.Kind}}">Cancel</a>
+      </div>
+    </form>
+  </div>
+  {{else}}
+  <h2 class="mb-4 font-semibold text-ink">Add {{if eq .Kind "groups"}}group{{else}}role{{end}}</h2>
+  <div class="max-w-2xl">
+    <form method="POST" action="/admin/apps/{{.App.ID}}/{{.Kind}}" class="card space-y-4 p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="label" for="item-name">Name</label>
+          <input class="input" type="text" id="item-name" name="name" value="{{.AddName}}" required>
+        </div>
+        <div>
+          <label class="label" for="item-description">Description</label>
+          <input class="input" type="text" id="item-description" name="description" value="{{.AddDescription}}">
+        </div>
+      </div>
+      {{if eq .Kind "roles"}}
+      <fieldset class="rounded-lg border border-line p-4">
+        <legend class="label px-1">Groups granted by this role</legend>
+        <div class="check-list">
+          {{range .AllGroups}}
+          <label class="checkbox">
+            <input type="checkbox" name="group_ids" value="{{.ID}}" {{if index $.CheckedGroups .ID}}checked{{end}}>
+            <span class="min-w-0">
+              <span class="block truncate">{{.Name}}</span>
+              {{if .Description}}<span class="block truncate text-xs text-faint">{{.Description}}</span>{{end}}
+            </span>
+          </label>
+          {{else}}
+          <p class="text-sm text-faint"><em>No groups defined for this app yet.</em></p>
+          {{end}}
+        </div>
+      </fieldset>
+      {{end}}
+      <div><button type="submit" class="btn btn-primary">Add</button></div>
+    </form>
+  </div>
+  {{end}}
+
+  {{if not .IsEdit}}
+  <h2 class="mb-3 mt-8 font-semibold text-ink">Existing {{.Kind}}</h2>
+  {{if .Items}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Description</th>
+          {{if eq .Kind "roles"}}<th scope="col">Groups</th>{{end}}
+          <th scope="col" class="text-right"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+      {{range .Items}}
+        <tr>
+          <td class="font-medium">{{.Name}}</td>
+          <td class="td-muted">{{.Description}}</td>
+          {{if eq $.Kind "roles"}}
+          <td>
+            {{range .Groups}}<span class="tag is-info is-light">{{.}}</span> {{else}}<span class="text-faint">&mdash;</span>{{end}}
+          </td>
+          {{end}}
+          <td>
+            <div class="flex justify-end gap-1.5">
+              <a class="btn btn-outline btn-sm" href="/admin/apps/{{$.App.ID}}/{{$.Kind}}/{{.ID}}/edit">Edit</a>
+              <form method="POST" action="/admin/apps/{{$.App.ID}}/{{$.Kind}}/{{.ID}}/delete">
+                {{csrfField $.CSRFToken}}
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {{else}}
+        <tr><td colspan="2" class="td-muted"><em>No {{.Kind}} defined yet.</em></td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty">
+    {{template "ic-users"}}
+    <p class="empty-title">No {{.Kind}} defined yet</p>
+    <p class="empty-sub">Add one using the form above.</p>
+  </div>
+  {{end}}
+  {{end}}
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

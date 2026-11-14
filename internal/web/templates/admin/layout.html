@@ -1,0 +1,95 @@
+{{/* Admin shell, part 1: JS-free drawer toggle + top bar. Opens
+     div.admin-shell and the sidebar/content flex row. Paired with
+     "admin-nav" (sidebar) and "admin-footer" (closes the shell). */}}
+{{define "admin-header"}}
+<input type="checkbox" id="admin-nav-toggle" class="sr-only" title="Toggle navigation">
+<div class="admin-shell flex min-h-dvh flex-col">
+  <header class="topbar-admin">
+    <div class="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
+      <div class="flex items-center gap-1.5">
+        <label for="admin-nav-toggle" class="sidebar-burger">
+          {{template "ic-menu"}}
+        </label>
+        <a href="/" class="wordmark" aria-label="My Apps">{{template "logo"}}<span>passage</span></a>
+      </div>
+      <nav class="flex items-center gap-1" aria-label="Account">
+        {{if .UserName}}<a href="/profile" class="toplink" title="Your profile">{{template "ic-users"}}<span class="hidden sm:inline">{{.UserName}}</span></a>{{end}}
+        <a href="/logout" class="toplink">{{template "ic-logout"}}<span class="hidden sm:inline">Sign out</span></a>
+      </nav>
+  </header>
+  <div class="flex w-full flex-1">
+{{end}}
+
+{{/* Admin shell, part 2: drawer overlay + sidebar. Opens the content
+     column div that admin-footer closes. */}}
+{{define "admin-nav"}}
+<label for="admin-nav-toggle" class="sidebar-overlay" aria-hidden="true"></label>
+<aside class="sidebar" aria-label="Admin navigation">
+  <div class="sidebar-head">
+    <span class="wordmark text-base">{{template "logo"}}<span>passage</span></span>
+    <span class="ml-auto rounded-md bg-raised px-2 py-0.5 text-[11px] font-semibold tracking-wide text-muted uppercase">Admin</span>
+  </div>
+  <nav class="sidebar-nav" aria-label="Admin sections">
+    <p class="sidebar-section">Overview</p>
+    <a href="/admin" class="sidebar-link{{if eq .ActiveNav "dashboard"}} is-active{{end}}"{{if eq .ActiveNav "dashboard"}} aria-current="page"{{end}}>{{template "ic-dashboard"}}Dashboard</a>
+    <p class="sidebar-section">Manage</p>
+    <a href="/admin/users" class="sidebar-link{{if eq .ActiveNav "users"}} is-active{{end}}"{{if eq .ActiveNav "users"}} aria-current="page"{{end}}>{{template "ic-users"}}Users</a>
+    <a href="/admin/apps" class="sidebar-link{{if eq .ActiveNav "apps"}} is-active{{end}}"{{if eq .ActiveNav "apps"}} aria-current="page"{{end}}>{{template "ic-apps"}}Apps</a>
+    <a href="/admin/sessions" class="sidebar-link{{if eq .ActiveNav "sessions"}} is-active{{end}}"{{if eq .ActiveNav "sessions"}} aria-current="page"{{end}}>{{template "ic-clock"}}Sessions</a>
+    <p class="sidebar-section">System</p>
+    <a href="/admin/settings" class="sidebar-link{{if eq .ActiveNav "settings"}} is-active{{end}}"{{if eq .ActiveNav "settings"}} aria-current="page"{{end}}>{{template "ic-settings"}}Settings</a>
+    <a href="/admin/logs" class="sidebar-link{{if eq .ActiveNav "logs"}} is-active{{end}}"{{if eq .ActiveNav "logs"}} aria-current="page"{{end}}>{{template "ic-audit"}}Logs</a>
+    <a href="/admin/providers" class="sidebar-link{{if eq .ActiveNav "providers"}} is-active{{end}}"{{if eq .ActiveNav "providers"}} aria-current="page"{{end}}>{{template "ic-users"}}Identity providers</a>
+    <a href="/admin/api-tokens" class="sidebar-link{{if eq .ActiveNav "api-tokens"}} is-active{{end}}"{{if eq .ActiveNav "api-tokens"}} aria-current="page"{{end}}>{{template "ic-key"}}API tokens</a>
+    <a href="/admin/signing-keys" class="sidebar-link{{if eq .ActiveNav "signing-keys"}} is-active{{end}}"{{if eq .ActiveNav "signing-keys"}} aria-current="page"{{end}}>{{template "ic-shield"}}Signing keys</a>
+  </nav>
+</aside>
+<div class="flex min-w-0 flex-1 flex-col">
+{{end}}
+
+{{define "admin-flash"}}{{template "flash" .}}{{end}}
+
+{{/* Shared pager: {{template "admin-pagination" .Pager}}. Shows size links,
+     Prev/Next, and the count; renders nothing for an empty list. */}}
+{{define "admin-pagination"}}
+{{if gt .Total 0}}
+<nav class="mt-4 flex flex-wrap items-center justify-between gap-3" aria-label="Pagination">
+  <div class="flex items-center gap-1.5 text-xs text-muted">
+    <span>Show</span>
+    {{range .Sizes}}
+    {{if .Active}}
+    <span class="rounded bg-raised px-2 py-1 font-medium text-ink" aria-current="true">{{.Size}}</span>
+    {{else}}
+    <a href="{{.URL}}" class="rounded px-2 py-1 hover:bg-raised hover:text-ink">{{.Size}}</a>
+    {{end}}
+    {{end}}
+  </div>
+  <p class="text-xs text-muted">Page {{.Page}} of {{.TotalPages}} &middot; {{.Total}} total</p>
+  <div class="flex items-center gap-2">
+    {{if .PrevURL}}<a href="{{.PrevURL}}" class="btn btn-outline btn-sm">Previous</a>{{end}}
+    {{if .NextURL}}<a href="{{.NextURL}}" class="btn btn-outline btn-sm">Next</a>{{end}}
+  </div>
+</nav>
+{{end}}
+{{end}}
+
+{{/* Admin shell, part 3: closes the content column and flex row opened by
+     "admin-header"/"admin-nav", renders the footer, closes the shell. */}}
+{{define "admin-footer"}}
+</div>
+</div>
+<footer class="app-footer">
+  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1">
+    <span>
+      <a href="https://github.com/crueber/passage" target="_blank" rel="noopener noreferrer">passage</a>
+      &mdash; self-hosted auth proxy
+    </span>
+    <span>
+      <a href="https://github.com/crueber/passage/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+      <span class="mx-1" aria-hidden="true">&middot;</span>
+      &copy; 2026 <a href="https://github.com/crueber" target="_blank" rel="noopener noreferrer">Christopher Rueber</a>
+    </span>
+  </div>
+</footer>
+</div>
+{{end}}

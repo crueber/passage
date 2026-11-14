@@ -1,0 +1,206 @@
+{{define "user-dashboard"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Apps — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="flex min-h-dvh flex-col" data-app-view="{{.AppView}}">
+{{template "topnav-apps" .}}
+
+<main class="content w-full">
+  {{$hasApps := .AllEntries}}
+  {{template "flash" .}}
+
+  {{if and .User (not .User.EmailVerified)}}
+  <div role="alert" class="note note-warn mb-5">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <span>Verify your email &mdash; we sent a link to <strong>{{.User.Email}}</strong>.</span>
+      <form method="post" action="/verify-email/resend" class="shrink-0">
+        {{csrfField .CSRFToken}}
+        <button type="submit" class="btn btn-sm btn-outline">Resend verification email</button>
+      </form>
+    </div>
+  </div>
+  {{end}}
+
+  {{if and (not $hasApps) (not (and .User .User.IsAdmin))}}
+  <div class="empty mt-10" role="status">
+    {{template "ic-inbox"}}
+    <p class="empty-title">You don&rsquo;t have access to any apps yet</p>
+    <p class="empty-sub">Contact your administrator to get access.</p>
+  </div>
+  {{else}}
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">My Apps</h1>
+      <p class="page-sub">Applications you can access through Passage.</p>
+    </div>
+    {{/* With JS the links switch instantly and write the browser cookie; with
+         no JS the GET falls through to GetDashboard, which sets the same cookie
+         and redirects. */}}
+    <nav class="view-switch" aria-label="App view">
+      <a href="/?view=comfortable" class="view-option{{if eq .AppView "comfortable"}} is-active{{end}}"
+         data-view-option="comfortable"{{if eq .AppView "comfortable"}} aria-current="page"{{end}}>Comfortable</a>
+      <a href="/?view=iconized" class="view-option{{if eq .AppView "iconized"}} is-active{{end}}"
+         data-view-option="iconized"{{if eq .AppView "iconized"}} aria-current="page"{{end}}>Iconized</a>
+    </nav>
+  </div>
+
+  <section class="app-view-comfortable" aria-label="Comfortable app list">
+    {{if .SingleApp}}
+    <h2 class="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">Your app</h2>
+    <div class="app-row-grid">{{range .AllEntries}}{{template "dashboard-row" .}}{{end}}</div>
+    <p class="mt-6 max-w-xl text-sm text-faint">More apps will appear here automatically when an administrator grants you access.</p>
+    {{else}}
+    {{if .FavoriteEntries}}
+    <h2 class="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">Favourites</h2>
+    <div class="app-row-grid">{{range .FavoriteEntries}}{{template "dashboard-row" .}}{{end}}</div>
+    {{end}}
+    <h2 class="mt-8 mb-2 text-xs font-semibold tracking-wide text-faint uppercase">All apps</h2>
+    <div class="app-row-grid">{{range .OtherEntries}}{{template "dashboard-row" .}}{{end}}</div>
+    {{end}}
+  </section>
+
+  <section class="app-view-iconized" aria-label="Iconized app launcher">
+    {{if .SingleApp}}
+    <h2 class="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">Your app</h2>
+    {{range .AllEntries}}{{template "dashboard-solo" .}}{{end}}
+    <p class="mt-6 max-w-xl text-sm text-faint">More apps will appear here automatically when an administrator grants you access.</p>
+    {{else}}
+    {{if .FavoriteEntries}}
+    <h2 class="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">Favourites</h2>
+    <div class="app-fav-shelf">{{range .FavoriteEntries}}{{template "dashboard-fav-item" .}}{{end}}</div>
+    {{end}}
+    <h2 class="mt-8 mb-2 text-xs font-semibold tracking-wide text-faint uppercase">All apps</h2>
+    <div class="app-tile-grid">{{range .AllEntries}}{{template "dashboard-tile" .}}{{end}}</div>
+    {{end}}
+  </section>
+
+  <button type="button" class="command-fab" id="command-open" aria-label="Search apps">
+    {{template "ic-search"}}
+  </button>
+
+  <div class="command-layer" id="command-layer" hidden>
+    <div class="command-backdrop" data-command-close></div>
+    <div class="command-dialog" role="dialog" aria-modal="true" aria-labelledby="command-title">
+      <div class="command-input-row">
+        {{template "ic-search"}}
+        <input class="command-input" id="command-input" type="text" placeholder="Open an app…"
+               autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true"
+               aria-controls="command-results" aria-autocomplete="list" aria-labelledby="command-title">
+        <span class="kbd">esc</span>
+      </div>
+      <h2 class="sr-only" id="command-title">Search apps</h2>
+      <div class="command-list" id="command-results" role="listbox" aria-label="Apps">
+        {{range .CommandEntries}}
+        <a class="command-item" href="{{.Href}}" id="command-item-{{.ID}}" role="option"
+           {{if .External}}target="_blank" rel="noopener noreferrer"{{end}}
+           data-search="{{.Search}}" aria-selected="false">
+          <span class="command-icon{{if .Admin}} is-admin{{end}}">{{if .Admin}}{{template "ic-settings"}}{{else}}{{.Initial}}{{end}}</span>
+          <span class="command-text"><span class="command-name">{{.Name}}</span><span class="command-host td-mono">{{.Host}}</span></span>
+          {{if .Favorite}}<span class="command-pin" aria-label="Favourite">★</span>{{end}}
+        </a>
+        {{end}}
+      </div>
+      <p class="command-empty" id="command-empty" hidden>No apps match.</p>
+      <div class="command-foot">
+        <span><span class="kbd">↑</span> <span class="kbd">↓</span> navigate</span>
+        <span><span class="kbd">↵</span> open</span>
+        <span><span class="kbd">esc</span> close</span>
+      </div>
+    </div>
+  </div>
+  {{end}}
+</main>
+
+{{template "app-footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "dashboard-row"}}
+<div class="app-row-item">
+  {{if .Href}}<a class="app-row-main" href="{{.Href}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>{{else}}<div class="app-row-main">{{end}}
+    <span class="app-row-icon{{if .Admin}} is-admin{{end}}">{{if .Admin}}{{template "ic-settings"}}{{else}}{{.Initial}}{{end}}</span>
+    <span class="app-row-text">
+      <span class="app-row-name">{{.Name}}</span>
+      {{if .Description}}<span class="app-row-desc">{{.Description}}</span>{{end}}
+      <span class="app-row-host td-mono">{{.Host}}</span>
+    </span>
+    {{if .Href}}<span class="app-row-open">Open {{template "ic-arrow-up-right"}}</span>{{end}}
+  {{if .Href}}</a>{{else}}</div>{{end}}
+  {{if not .Admin}}
+  <form method="POST" action="/apps/{{.ID}}/favorite" class="app-row-star">
+    {{csrfField .CSRFToken}}
+    <button type="submit" class="favorite-toggle{{if .Favorite}} is-favorite{{end}}"
+            title="{{if .Favorite}}Unpin from the top{{else}}Pin to the top{{end}}"
+            aria-label="{{if .Favorite}}Unpin {{.Name}}{{else}}Pin {{.Name}} to the top{{end}}">
+      {{template "ic-star"}}
+    </button>
+  </form>
+  {{end}}
+</div>
+{{end}}
+
+{{define "dashboard-fav-item"}}
+<div class="app-fav-item">
+  <a class="app-fav-link" href="{{.Href}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>
+    <span class="app-fav-icon">{{.Initial}}</span>
+    <span class="app-fav-name">{{.Name}}</span>
+    <span class="app-fav-host td-mono">{{.Host}}</span>
+  </a>
+  <form method="POST" action="/apps/{{.ID}}/favorite" class="app-fav-star">
+    {{csrfField .CSRFToken}}
+    <button type="submit" class="shelf-favorite is-favorite"
+            title="Unpin from the top" aria-label="Unpin {{.Name}}">{{template "ic-star"}}</button>
+  </form>
+</div>
+{{end}}
+
+{{define "dashboard-tile"}}
+<div class="app-tile-wrap">
+  {{if .Href}}<a class="app-tile" href="{{.Href}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}} title="{{if .Description}}{{.Description}} · {{end}}{{.Host}}">{{else}}<div class="app-tile" title="{{.Host}}">{{end}}
+    <span class="app-tile-icon{{if .Admin}} is-admin{{end}}">{{if .Admin}}{{template "ic-settings"}}{{else}}{{.Initial}}{{end}}</span>
+    <span class="app-tile-name">{{.Name}}</span>
+  {{if .Href}}</a>{{else}}</div>{{end}}
+  {{if not .Admin}}
+  <form method="POST" action="/apps/{{.ID}}/favorite" class="tile-favorite-wrap">
+    {{csrfField .CSRFToken}}
+    <button type="submit" class="tile-favorite{{if .Favorite}} is-favorite{{end}}"
+            title="{{if .Favorite}}Unpin from the top{{else}}Pin to the top{{end}}"
+            aria-label="{{if .Favorite}}Unpin {{.Name}}{{else}}Pin {{.Name}} to the top{{end}}">
+      {{template "ic-star"}}
+    </button>
+  </form>
+  {{end}}
+</div>
+{{end}}
+
+{{define "dashboard-solo"}}
+<div class="app-solo-wrap">
+  {{if .Href}}<a class="app-solo" href="{{.Href}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>{{else}}<div class="app-solo">{{end}}
+    <span class="app-solo-icon">{{.Initial}}</span>
+    <span class="app-solo-text">
+      <span class="app-solo-name">{{.Name}}</span>
+      {{if .Description}}<span class="app-solo-desc">{{.Description}}</span>{{end}}
+      <span class="app-solo-host td-mono">{{.Host}}</span>
+    </span>
+    {{if .Href}}<span class="app-solo-open btn btn-primary">Open {{template "ic-arrow-up-right"}}</span>{{end}}
+  {{if .Href}}</a>{{else}}</div>{{end}}
+  {{if not .Admin}}
+  <form method="POST" action="/apps/{{.ID}}/favorite" class="app-row-star">
+    {{csrfField .CSRFToken}}
+    <button type="submit" class="shelf-favorite{{if .Favorite}} is-favorite{{end}}"
+            title="{{if .Favorite}}Unpin from the top{{else}}Pin to the top{{end}}"
+            aria-label="{{if .Favorite}}Unpin {{.Name}}{{else}}Pin {{.Name}} to the top{{end}}">
+      {{template "ic-star"}}
+    </button>
+  </form>
+  {{end}}
+</div>
+{{end}}

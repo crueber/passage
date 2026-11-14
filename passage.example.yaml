@@ -1,0 +1,42 @@
+# passage.example.yaml — copy to passage.yaml and edit for your environment
+#
+# This file is bootstrap-only: where the server listens, the public URL, the
+# database location, key material and logging. Everything else — sign-in
+# methods, registration, sessions, branding, email, rate limits, the security
+# webhook, metrics, themes and upstream identity providers — is configured in
+# the admin UI (Settings) and stored in the database.
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  # Required — used for email links, WebAuthn, and OIDC discovery.
+  # Must match the public URL that clients use to reach Passage.
+  base_url: "https://auth.home.example.com"
+
+database:
+  path: "./passage.db"
+
+session:
+  # Cookie settings describe how the deployment is reached; everything else
+  # about sessions lives in Settings → General.
+  cookie_name: "passage_session"
+  cookie_secure: true   # set false only for local HTTP development
+
+security:
+  # AES-256-GCM key for TOTP secrets at rest, as 64 hex characters or the
+  # base64 encoding of 32 bytes (`openssl rand -hex 32`). Optional: when empty,
+  # a key file named <database.path>.key is created next to the database on
+  # first use with mode 0600. The key must stay stable across restarts —
+  # without it, enrolled TOTP secrets cannot be read and each affected user
+  # needs an admin MFA reset. The key file is as sensitive as the database.
+  encryption_key: ""
+
+csrf:
+  # Optional server-side CSRF signing secret (64+ hex characters). Empty means
+  # an ephemeral key is generated at startup: anonymous CSRF tokens still work,
+  # but are not valid across restarts.
+  key: ""
+
+log:
+  level: "info"    # "debug" | "info" | "warn" | "error"
+  format: "json"   # "json" | "text"

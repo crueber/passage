@@ -1,0 +1,131 @@
+{{define "admin-settings"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Active.Title}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Settings</h1>
+      <p class="page-sub">Instance-wide configuration.</p>
+    </div>
+  </div>
+
+  <nav class="tabs" aria-label="Settings sections">
+    {{range .Tabs}}
+    <a href="/admin/settings?tab={{.ID}}"
+       class="tab{{if .Active}} is-active{{end}}"
+       {{if .Active}}aria-current="page"{{end}}>{{.Title}}</a>
+    {{end}}
+  </nav>
+
+  <div class="max-w-2xl">
+    {{/* One tab is one form: saving this section cannot rewrite another. The
+         hidden tab field brings the browser back here after the redirect. */}}
+    <form method="POST" action="/admin/settings" class="card p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+      <input type="hidden" name="tab" value="{{.Active.ID}}">
+
+      <h2 class="font-semibold text-ink">{{.Active.Title}}</h2>
+      {{if .Active.Sub}}<p class="mt-1 text-sm text-muted">{{.Active.Sub}}</p>{{end}}
+
+      <div class="mt-5 space-y-5">
+        {{range .Active.Fields}}
+          {{if eq .Kind "bool"}}
+          <div>
+            <label class="checkbox" for="{{.Key}}">
+              <input type="checkbox" id="{{.Key}}" name="{{.Key}}"
+                     {{if eq .Value "true"}}checked{{end}}>
+              {{.Label}}
+            </label>
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+          </div>
+
+          {{else if eq .Kind "number_pair"}}
+          <div>
+            <p class="label">{{.Label}}</p>
+            <div class="mt-1.5 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label class="help" for="{{.Key}}">Requests per window</label>
+                <input class="input" type="number" id="{{.Key}}" name="{{.Key}}"
+                       min="{{.Min}}" max="{{.Max}}" value="{{.Value}}">
+              </div>
+              <div>
+                <label class="help" for="{{.Key2}}">{{.Label2}}</label>
+                <input class="input" type="number" id="{{.Key2}}" name="{{.Key2}}"
+                       min="1" max="{{.Max}}" value="{{.Value2}}">
+              </div>
+            </div>
+          </div>
+
+          {{else if eq .Kind "number"}}
+          <div>
+            <label class="label" for="{{.Key}}">{{.Label}}</label>
+            <input class="input sm:max-w-xs" type="number" id="{{.Key}}" name="{{.Key}}"
+                   min="{{.Min}}" max="{{.Max}}" value="{{.Value}}">
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+          </div>
+
+          {{else if eq .Kind "select"}}
+          <div>
+            <label class="label" for="{{.Key}}">{{.Label}}</label>
+            <select class="input sm:max-w-md" id="{{.Key}}" name="{{.Key}}">
+              {{$value := .Value}}
+              {{range .Options}}
+              <option value="{{.Value}}"{{if eq .Value $value}} selected{{end}}>{{.Label}}</option>
+              {{end}}
+            </select>
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+          </div>
+
+          {{else if eq .Kind "radio"}}
+          <div>
+            <p class="label">{{.Label}}</p>
+            <div class="mt-1.5 flex flex-col gap-2" role="radiogroup" aria-label="{{.Label}}">
+              {{$f := .}}
+              {{range $opt := .Options}}
+              <label class="checkbox" for="{{$f.Key}}-{{$opt.Value}}">
+                <input type="radio" id="{{$f.Key}}-{{$opt.Value}}" name="{{$f.Key}}"
+                       value="{{$opt.Value}}"{{if eq $opt.Value $f.Value}} checked{{end}}>
+                {{$opt.Label}}
+              </label>
+              {{end}}
+            </div>
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+          </div>
+
+          {{else}}
+          <div>
+            <label class="label" for="{{.Key}}">{{.Label}}</label>
+            <input class="input sm:max-w-md" type="{{if eq .Kind "password"}}password{{else}}text{{end}}"
+                   id="{{.Key}}" name="{{.Key}}" autocomplete="off"
+                   {{if .MaxLen}}maxlength="{{.MaxLen}}"{{end}}
+                   {{if .Placeholder}}placeholder="{{.Placeholder}}"{{end}}
+                   value="{{.Value}}">
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+          </div>
+          {{end}}
+        {{end}}
+      </div>
+
+      <div class="mt-6 flex items-center justify-end border-t border-line pt-4">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </div>
+    </form>
+  </div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

@@ -1,0 +1,132 @@
+{{define "admin-app-access"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Access — {{.App.Name}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{.App.Name}}</h1>
+      <p class="page-sub td-mono">{{.App.HostPattern}}</p>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/admin/apps">{{template "ic-chevron-left"}}Back to apps</a>
+  </div>
+  {{template "admin-app-tabs" .}}
+
+  <h2 class="mb-3 font-semibold text-ink">Users with access</h2>
+  <div class="table-wrap mb-8">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">Email</th>
+          <th scope="col" class="text-right"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="users-with-access">
+        {{template "admin-app-access-with-rows" .}}
+      </tbody>
+    </table>
+  </div>
+  <div id="with-access-pager">{{template "admin-pagination" .WithPager}}</div>
+
+  <h2 class="mt-8 mb-3 font-semibold text-ink">Users without access</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">Email</th>
+          <th scope="col" class="text-right"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="users-without-access">
+        {{template "admin-app-access-without-rows" .}}
+      </tbody>
+    </table>
+  </div>
+  <div id="without-access-pager">{{template "admin-pagination" .WithoutPager}}</div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "admin-app-access-with-rows"}}
+{{range $.UsersWithAccess}}
+              <tr>
+                <td class="font-medium">{{.User.Username}}</td>
+                <td class="td-muted">{{.User.Email}}</td>
+                <td>
+                  <div class="flex justify-end gap-1.5">
+                    <a class="btn btn-outline btn-sm" href="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/assignments">Assignments</a>
+                  <form method="POST"
+                        action="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
+                        hx-post="/admin/apps/{{$.App.ID}}/access/{{.User.ID}}/revoke"
+                        hx-target="closest tr"
+                        hx-swap="delete">
+                    {{csrfField $.CSRFToken}}
+                    <input type="hidden" name="per_page" value="{{$.WithPager.Size}}">
+                    <input type="hidden" name="with_page" value="{{$.WithPager.Page}}">
+                    <input type="hidden" name="without_page" value="{{$.WithoutPager.Page}}">
+                    <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+                  </form>
+                  </div>
+                </td>
+              </tr>
+{{else}}
+              <tr>
+                <td colspan="3">
+                  <div class="empty border-none bg-transparent py-6">
+                    {{template "ic-users"}}
+                    <p class="empty-title">No users have access.</p>
+                    <p class="empty-sub">Grant access using the list below.</p>
+                  </div>
+                </td>
+              </tr>
+{{end}}
+{{end}}
+
+{{define "admin-app-access-without-rows"}}
+{{range $.UsersWithoutAccess}}
+              <tr>
+                <td class="font-medium">{{.Username}}</td>
+                <td class="td-muted">{{.Email}}</td>
+                <td>
+                  <form method="POST" class="text-right"
+                        action="/admin/apps/{{$.App.ID}}/access">
+                    {{csrfField $.CSRFToken}}
+                    <input type="hidden" name="user_id" value="{{.ID}}">
+                    <input type="hidden" name="per_page" value="{{$.WithPager.Size}}">
+                    <input type="hidden" name="with_page" value="{{$.WithPager.Page}}">
+                    <input type="hidden" name="without_page" value="{{$.WithoutPager.Page}}">
+                    <button type="submit" class="btn btn-primary btn-sm">Grant</button>
+                  </form>
+{{else}}
+              <tr>
+                <td colspan="3">
+                  <div class="empty border-none bg-transparent py-6">
+                    <p class="empty-title">All users already have access</p>
+                  </div>
+                </td>
+              </tr>
+{{end}}
+{{end}}
+
+{{define "admin-app-access-revoke-oob"}}
+<tbody id="users-with-access" hx-swap-oob="true">{{template "admin-app-access-with-rows" .}}</tbody>
+<tbody id="users-without-access" hx-swap-oob="true">{{template "admin-app-access-without-rows" .}}</tbody>
+<div id="with-access-pager" hx-swap-oob="true">{{template "admin-pagination" .WithPager}}</div>
+<div id="without-access-pager" hx-swap-oob="true">{{template "admin-pagination" .WithoutPager}}</div>
+{{end}}

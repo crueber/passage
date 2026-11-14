@@ -1,0 +1,99 @@
+{{define "admin-app-policies"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Policies — {{.EditApp.Name}} — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{{.EditApp.Name}}</h1>
+      <p class="page-sub td-mono">{{.EditApp.Slug}}</p>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/admin/apps">{{template "ic-chevron-left"}}Back to apps</a>
+  </div>
+  {{template "admin-app-tabs" .}}
+
+  <div class="max-w-2xl">
+    <div class="note note-info mb-5" role="note">
+      <p class="font-medium">This page is optional.</p>
+      <p class="mt-1">
+        Every field may be left empty, and an empty page means no restriction at
+        all. Users still need access to the app; a policy only narrows who may
+        use it. When several rules are set, all of them must pass. Admins are not
+        exempt. Policies apply to forward-auth and OAuth sign-in, not to the
+        dashboard.
+      </p>
+    </div>
+
+    <form method="POST" action="/admin/apps/{{.EditApp.ID}}/policies" class="card space-y-4 p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="label" for="required_group">Required group</label>
+          <input class="input font-mono text-sm" type="text" id="required_group" name="required_group"
+                 autocomplete="off" placeholder="platform"
+                 value="{{.EditApp.RequiredGroup}}">
+          <p class="help">One group name from this app's groups. The user must hold it directly or through a role.</p>
+        </div>
+        <div>
+          <label class="label" for="required_role">Required role</label>
+          <input class="input font-mono text-sm" type="text" id="required_role" name="required_role"
+                 autocomplete="off" placeholder="ops"
+                 value="{{.EditApp.RequiredRole}}">
+          <p class="help">One role name from this app's roles. The user must hold it.</p>
+        </div>
+      </div>
+
+      <div>
+        <label class="label" for="allowed_cidrs">Allowed CIDRs</label>
+        <input class="input font-mono text-sm" type="text" id="allowed_cidrs" name="allowed_cidrs"
+               autocomplete="off" placeholder="192.168.0.0/16, 2001:db8::/32"
+               value="{{.EditApp.AllowedCIDRs}}">
+        <p class="help">Comma or space separated IPv4/IPv6 prefixes. Requests from any other address are denied.</p>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="label" for="allowed_hours">Allowed hours</label>
+          <input class="input font-mono text-sm" type="text" id="allowed_hours" name="allowed_hours"
+                 autocomplete="off" placeholder="09:00-17:00"
+                 value="{{.EditApp.AllowedHours}}">
+          <p class="help">A single HH:MM-HH:MM window in server local time. Both ends are inclusive; a window like 22:00-06:00 wraps past midnight.</p>
+        </div>
+        <div>
+          <label class="label" for="allowed_days">Allowed days</label>
+          <input class="input font-mono text-sm" type="text" id="allowed_days" name="allowed_days"
+                 autocomplete="off" placeholder="1-5"
+                 value="{{.EditApp.AllowedDays}}">
+          <p class="help">ISO weekdays, 1 = Monday and 7 = Sunday. Use a list or ranges, e.g. <span class="td-mono">1-5</span> or <span class="td-mono">6,7</span>.</p>
+        </div>
+      </div>
+
+      <label class="checkbox" for="admin_only">
+        <input type="checkbox" id="admin_only" name="admin_only" {{if .EditApp.AdminOnly}}checked{{end}}>
+        Admin users only
+      </label>
+
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="btn btn-primary">Save policies</button>
+        <a class="btn btn-outline" href="/admin/apps/{{.EditApp.ID}}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

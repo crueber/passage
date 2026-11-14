@@ -1,0 +1,734 @@
+/* passage UI — Tailwind CSS v4 source.
+ *
+ * Build with: tools/build-css.sh (wraps the tailwindcss standalone CLI).
+ * Output: internal/web/static/passage.css (compiled + minified, committed).
+ *
+ * Structure:
+ *   1. @theme   — design tokens (palette, type, radii, shadows).
+ *   2. base     — dark-mode token overrides, focus-visible rings, body defaults.
+ *   3. components — the passage component layer (@apply on semantic tokens).
+ *   4. plain CSS for the JS-free admin sidebar drawer + tiny helpers.
+ */
+
+/* Scan scope is pinned: without source(none), Tailwind auto-detects every
+   non-ignored file in the repo — including markdown — and prose words become
+   CSS candidates (an AGENTS.md edit once generated an .invisible utility and
+   broke the CI drift check). Class candidates live only in templates.
+   Register any new class-bearing path here. */
+@import "tailwindcss" source(none);
+@source "../templates";
+@source "../static/app.js";
+@source "../static/passkey.js";
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 1. Design tokens
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* Type — system stack only. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Brand — neutral cool slate (steel blue-gray, hue ~215, low saturation). */
+  --color-brand-50: #f4f6f9;
+  --color-brand-100: #e8ecf1;
+  --color-brand-200: #d2dae4;
+  --color-brand-300: #b0bdcd;
+  --color-brand-400: #8598b0;
+  --color-brand-500: #63799a;
+  --color-brand-600: #4c6080;
+  --color-brand-700: #3e4e69;
+  --color-brand-800: #364257;
+  --color-brand-900: #313a4a;
+  --color-brand-950: #1e242e;
+
+  /* Semantic surface + text tokens (light values; dark overrides below). */
+  --color-canvas: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-raised: #eef1f5;
+  --color-line: #dce1e8;
+  --color-ink: #171c24;
+  --color-muted: #4f5b6b;
+  --color-faint: #6f7c8d;
+
+  /* Primary actions. */
+  --color-primary: #334e68;
+  --color-primary-hover: #2b4157;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #e9eff5;
+  --color-primary-soft-hover: #dbe5ee;
+  --color-on-primary-soft: #2b4055;
+
+  /* Status. */
+  --color-success: #1f7a4d;
+  --color-success-soft: #e2f2e9;
+  --color-on-success-soft: #16603c;
+  --color-danger: #b23a2f;
+  --color-danger-hover: #9a3128;
+  --color-danger-soft: #fbe9e7;
+  --color-on-danger-soft: #8c2b23;
+  --color-warn: #96601a;
+  --color-warn-soft: #fdf1dd;
+  --color-on-warn-soft: #7a4c12;
+  /* Accent used sparingly (logo dot, focus highlights). */
+  --color-glow: #6f93bd;
+
+  /* Elevation. */
+  --shadow-card: 0 1px 2px 0 rgb(23 28 36 / 0.05),
+    0 4px 14px -4px rgb(23 28 36 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(23 28 36 / 0.12),
+    0 16px 40px -12px rgb(23 28 36 / 0.25);
+
+  /* Radii — one consistent family. */
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 2. Base — dark token overrides, focus rings, body defaults
+ * ──────────────────────────────────────────────────────────────────────── */
+@layer base {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-canvas: #0d1117;
+      --color-surface: #141a22;
+      --color-raised: #1b232e;
+      --color-line: #2a3442;
+      --color-ink: #e6ebf2;
+      --color-muted: #a7b3c2;
+      --color-faint: #7d8b9c;
+
+      --color-primary: #7fa3cc;
+      --color-primary-hover: #93b2d6;
+      --color-on-primary: #0b1118;
+      --color-primary-soft: #1d2a3a;
+      --color-primary-soft-hover: #24344a;
+      --color-on-primary-soft: #b8cde4;
+
+      --color-success: #4fae7a;
+      --color-success-soft: #16301f;
+      --color-on-success-soft: #9ed8b6;
+      --color-danger: #e0705f;
+      --color-danger-hover: #e88373;
+      --color-danger-soft: #3a1d1a;
+      --color-on-danger-soft: #f0b1a8;
+      --color-warn: #d9a04a;
+      --color-warn-soft: #35270f;
+      --color-on-warn-soft: #ecc789;
+
+      --color-glow: #8fb2d8;
+    }
+  }
+
+  /* Visible, consistent keyboard focus everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 3. Components
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@layer components {
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap
+      rounded-lg px-4 py-2 text-sm font-medium leading-none
+      transition-colors duration-150 select-none;
+  }
+  .btn:disabled {
+    @apply pointer-events-none opacity-50;
+  }
+  .btn-primary {
+    @apply bg-primary text-on-primary;
+  }
+  .btn-primary:hover {
+    @apply bg-primary-hover;
+  }
+  .btn-soft {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .btn-soft:hover {
+    @apply bg-primary-soft-hover;
+  }
+  .btn-ghost {
+    @apply bg-transparent text-muted hover:bg-raised hover:text-ink;
+  }
+  .btn-danger {
+    @apply bg-danger-soft text-on-danger-soft;
+  }
+  .btn-danger:hover {
+    /* text-on-primary is the "on a saturated accent" token: white in light
+       mode, near-black in dark mode. Every dark palette's danger colour is a
+       light red, where hard-coded white text would fall to ~2.8:1. */
+    @apply bg-danger text-on-primary;
+  }
+  @media (prefers-color-scheme: dark) {
+    .btn-danger:hover {
+      /* A solid light-red fill would shout (and need near-black text); a tint
+         wash with the soft danger text keeps the destructive affordance
+         readable in dark mode. */
+      @apply bg-danger/20 text-on-danger-soft;
+    }
+  }
+  .btn-warn {
+    @apply bg-warn-soft text-on-warn-soft;
+  }
+  .btn-outline {
+    @apply border border-line bg-surface text-ink hover:bg-raised;
+  }
+  .btn-sm {
+    /* Fixed height so icons and border variants all render identically. */
+    @apply h-7 rounded-md px-2.5 text-xs;
+  }
+
+  /* ── Cards & boxes ───────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+  .card-hover {
+    @apply transition-all duration-150 hover:-translate-y-0.5 hover:shadow-pop;
+  }
+
+  /* ── Forms ───────────────────────────────────────────────────────────── */
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+  .input {
+    @apply block w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
+      text-ink shadow-xs transition-colors placeholder:text-faint
+      focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30;
+  }
+  .help {
+    @apply mt-1.5 block text-xs text-muted;
+  }
+
+  /* Checkboxes: align with label text, brand accent. */
+  .checkbox {
+    @apply inline-flex cursor-pointer items-center gap-2 text-sm text-ink;
+  }
+  .checkbox input {
+    @apply size-4 cursor-pointer accent-primary;
+  }
+
+  /* Checkbox grids: multi-option lists aligned in columns (1-col mobile,
+     2-col from sm). Labels may wrap to a name + description pair. */
+  .check-list {
+    @apply grid gap-x-4 gap-y-1.5 sm:grid-cols-2;
+  }
+
+  /* ── Tables ──────────────────────────────────────────────────────────── */
+  .table-wrap {
+    @apply overflow-x-auto rounded-xl border border-line bg-surface shadow-card;
+  }
+  .table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .table thead th {
+    @apply border-b border-line bg-raised px-4 py-2.5 text-xs font-semibold
+      tracking-wide text-muted uppercase;
+  }
+  .table tbody td {
+    @apply border-b border-line px-4 py-3 align-middle text-ink;
+  }
+  .table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .table tbody tr {
+    @apply transition-colors hover:bg-brand-50/60;
+  }
+  @media (prefers-color-scheme: dark) {
+    .table tbody tr {
+      @apply hover:bg-raised/60;
+    }
+  }
+  .td-muted {
+    @apply text-xs text-muted;
+  }
+  .td-mono {
+    @apply font-mono text-xs whitespace-nowrap;
+  }
+
+  /* ── Badges / tags ───────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-green {
+    @apply bg-success-soft text-on-success-soft;
+  }
+  .badge-gray {
+    @apply bg-raised text-muted;
+  }
+  .badge-red {
+    @apply bg-danger-soft text-on-danger-soft;
+  }
+  .badge-amber {
+    @apply bg-warn-soft text-on-warn-soft;
+  }
+
+  /* ── Notifications (flash + inline alerts) ───────────────────────────── */
+  .note {
+    @apply rounded-lg border px-4 py-3 text-sm;
+  }
+  .note-error {
+    @apply border-danger/30 bg-danger-soft text-on-danger-soft;
+  }
+  .note-success {
+    @apply border-success/30 bg-success-soft text-on-success-soft;
+  }
+  .note-info {
+    @apply border-primary/30 bg-primary-soft text-on-primary-soft;
+  }
+  .note-warn {
+    @apply border-warn/30 bg-warn-soft text-on-warn-soft;
+  }
+
+  /* ── Page header pattern ─────────────────────────────────────────────── */
+  .page-head {
+    @apply mb-6 flex flex-wrap items-end justify-between gap-3;
+  }
+  .page-title {
+    @apply text-xl font-semibold tracking-tight text-ink sm:text-2xl;
+  }
+  .page-sub {
+    @apply mt-1 text-sm text-muted;
+  }
+
+  /* ── Stat tiles ──────────────────────────────────────────────────────── */
+  .stat {
+    @apply rounded-xl border border-line bg-surface p-5 shadow-card;
+  }
+  .stat-value {
+    @apply text-3xl font-semibold tracking-tight text-primary;
+  }
+  .stat-label {
+    @apply mt-1 text-xs font-medium tracking-wide text-muted uppercase;
+  }
+
+  /* ── Empty states ────────────────────────────────────────────────────── */
+  .empty {
+    @apply flex flex-col items-center gap-2 rounded-xl border border-dashed
+      border-line bg-surface/50 px-6 py-10 text-center;
+  }
+  .empty-title {
+    @apply text-sm font-medium text-ink;
+  }
+  .empty-sub {
+    @apply text-sm text-muted;
+  }
+
+  /* ── Wordmark ────────────────────────────────────────────────────────── */
+  .wordmark {
+    @apply inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-ink;
+  }
+  .wordmark-dot {
+    @apply inline-block size-2 rounded-full bg-primary;
+  }
+
+  /* ── App top bar (user pages) ────────────────────────────────────────── */
+  .topbar {
+    @apply sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur;
+  }
+  .topbar-inner {
+    @apply mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6;
+  }
+  .toplink {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1.5 text-sm text-muted transition-colors hover:bg-raised hover:text-ink sm:px-2.5;
+  }
+  .toplink-active {
+    @apply bg-primary-soft font-medium text-on-primary-soft;
+  }
+  /* The display name is the link to the profile page. It is a chip rather than
+     a text button so it reads as identity, not another nav action, and mr-4
+     keeps it clearly separated from the first button. */
+  .topuser {
+    @apply mr-4 hidden max-w-44 truncate rounded-md bg-raised px-2.5 py-1.5 align-middle text-sm font-medium text-ink transition-colors hover:bg-line md:inline-block;
+  }
+  .topuser-active {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .usernav-links {
+    @apply hidden items-center gap-1 md:flex;
+  }
+  .usernav-burger {
+    @apply inline-flex items-center justify-center rounded-lg p-2 text-muted transition-colors hover:bg-raised hover:text-ink md:hidden;
+  }
+  /* Mobile flyout: a JS-free checkbox toggle, the same pattern as the admin
+     drawer. The overlay starts below the bar so the burger stays tappable. */
+  .usernav-overlay {
+    @apply pointer-events-none fixed inset-x-0 top-14 bottom-0 z-40 bg-brand-950/40 opacity-0 transition-opacity duration-150;
+  }
+  .usernav-panel {
+    @apply invisible absolute inset-x-0 top-full z-50 origin-top scale-95 border-b border-line bg-surface p-2 opacity-0 shadow-pop transition-all duration-150;
+  }
+  .usernav-item {
+    @apply flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
+  .usernav-item .ic {
+    @apply size-4.5 shrink-0 text-faint;
+  }
+  .usernav-item:hover .ic {
+    @apply text-muted;
+  }
+  .usernav-item.is-active {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .usernav-item.is-active .ic {
+    @apply text-primary;
+  }
+  .usernav-divider {
+    @apply my-2 border-t border-line;
+  }
+
+  @media (width < 48rem) {
+    #usernav-toggle:checked ~ .topbar .usernav-panel {
+      @apply visible scale-100 opacity-100;
+    }
+    #usernav-toggle:checked ~ .topbar .usernav-overlay {
+      @apply pointer-events-auto opacity-100;
+    }
+    #usernav-toggle:focus-visible ~ .topbar .usernav-burger {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+  }
+
+  /* ── Admin shell ─────────────────────────────────────────────────────── */
+  .topbar-admin {
+    @apply sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur;
+  }
+  .sidebar {
+    @apply fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-line
+      bg-surface transition-transform duration-200 ease-out
+      lg:sticky lg:top-14 lg:z-0 lg:h-[calc(100dvh-3.5rem)]
+      lg:w-60 lg:border-t-0;
+  }
+  .sidebar-overlay {
+    @apply fixed inset-0 z-40 bg-brand-950/40 opacity-0 pointer-events-none
+      transition-opacity duration-200 lg:hidden;
+  }
+  .sidebar-head {
+    @apply flex h-14 shrink-0 items-center gap-2 border-b border-line px-4;
+  }
+  .sidebar-nav {
+    @apply flex-1 overflow-y-auto px-2 pb-4;
+  }
+  .sidebar-section {
+    @apply mb-1 px-2 pt-3 pb-1 text-[11px] font-semibold tracking-widest text-faint uppercase;
+  }
+  .sidebar-link {
+    @apply mb-0.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm
+      font-medium text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
+  .sidebar-link .ic {
+    @apply size-4.5 shrink-0 text-faint;
+  }
+  .sidebar-link:hover .ic {
+    @apply text-muted;
+  }
+  .sidebar-link.is-active {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+  .sidebar-link.is-active .ic {
+    @apply text-primary;
+  }
+  .sidebar-link.is-active {
+    @apply relative;
+  }
+  .sidebar-link.is-active::before {
+    content: "";
+    @apply absolute top-1/2 left-0 h-4 w-1 -translate-y-1/2 rounded-r-full bg-primary;
+  }
+  .sidebar-burger {
+    @apply inline-flex items-center justify-center rounded-lg p-2 text-muted hover:bg-raised hover:text-ink lg:hidden;
+  }
+
+  /* ── Content shell ───────────────────────────────────────────────────── */
+  .content {
+    @apply mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8;
+  }
+  .app-footer {
+    @apply border-t border-line px-4 py-3.5 text-xs text-faint sm:px-6;
+  }
+  .app-footer a {
+    @apply text-muted underline decoration-line underline-offset-2 hover:text-ink;
+  }
+
+  /* ── Tabs ────────────────────────────────────────────────────────────── */
+  .tabs {
+    /* overflow-y-hidden: the active tab's -mb-px pulls it one pixel above the
+       strip, which would otherwise give the strip a vertical scrollbar in
+       browsers that reserve space for it. */
+    @apply mb-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line;
+  }
+  .tab {
+    @apply -mb-px whitespace-nowrap border-b-2 border-transparent px-3.5 py-2.5 text-sm
+      font-medium text-muted transition-colors hover:border-line hover:text-ink;
+  }
+  .tab.is-active {
+    @apply border-primary text-primary;
+  }
+
+  /* ── Auth pages ──────────────────────────────────────────────────────── */
+  .auth-shell {
+    @apply flex min-h-dvh flex-col items-center justify-center px-4 py-10;
+    background:
+      radial-gradient(
+        60rem 32rem at 50% -12rem,
+        color-mix(in oklab, var(--color-primary) 14%, transparent),
+        transparent 65%
+      ),
+      var(--color-canvas);
+  }
+  .auth-card {
+    /* shrink-0: the auth shell is a centred flex column, and without it the
+       card can be compressed below its content height (clipping the last
+       element) when the page is taller than the viewport. */
+    @apply mt-6 w-full max-w-md shrink-0 rounded-2xl border border-line bg-surface p-7 shadow-pop sm:p-8;
+  }
+  .auth-title {
+    @apply text-lg font-semibold tracking-tight text-ink;
+  }
+  .auth-sub {
+    @apply mt-1.5 text-sm text-muted;
+  }
+  .auth-alt {
+    @apply mt-6 border-t border-line pt-5 text-center text-sm;
+  }
+  .auth-alt a {
+    @apply text-on-primary-soft underline decoration-primary/30 underline-offset-2 hover:decoration-primary;
+  }
+
+  /* ── Dashboard: view switch, rows, tiles and command launcher ────────── */
+  .view-switch {
+    @apply inline-flex items-center gap-1 rounded-lg border border-line bg-surface p-1;
+  }
+  .view-option {
+    @apply rounded-md px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
+  .view-option.is-active {
+    @apply bg-primary-soft text-on-primary-soft;
+  }
+
+  /* Both views are rendered server-side; the html data attribute chooses one.
+     JS updates the attribute and cookie for instant switching, while the
+     switch links remain a no-JS fallback. */
+  .app-view-iconized { display: none; }
+  body[data-app-view="iconized"] .app-view-comfortable { display: none; }
+  body[data-app-view="iconized"] .app-view-iconized { display: block; }
+
+  .app-row-grid { @apply grid grid-cols-1 gap-x-8 lg:grid-cols-2; }
+  .app-row-item { @apply relative border-b border-line; }
+  .app-row-main { @apply flex min-h-14 items-center gap-3 py-2.5 pr-10 transition-colors hover:bg-raised/40; }
+  .app-row-icon { @apply grid size-8 shrink-0 place-items-center rounded-lg bg-primary-soft text-xs font-semibold uppercase text-on-primary-soft; }
+  .app-row-icon.is-admin { @apply bg-primary text-on-primary; }
+  .app-row-text { @apply min-w-0; }
+  .app-row-name { @apply block font-semibold text-ink; }
+  .app-row-desc { @apply mt-0.5 block truncate text-xs text-muted; }
+  .app-row-host { @apply mt-0.5 block truncate text-[11px] text-faint; }
+  .app-row-open { @apply ml-auto inline-flex shrink-0 items-center gap-1 text-xs text-muted; }
+  .app-row-star { @apply absolute top-1/2 right-0 -translate-y-1/2; }
+
+  .favorite-toggle,
+  .tile-favorite,
+  .shelf-favorite {
+    @apply grid size-7 place-items-center rounded-md text-faint transition-colors;
+  }
+  .favorite-toggle:hover,
+  .tile-favorite:hover,
+  .shelf-favorite:hover { @apply bg-raised text-ink; }
+  .favorite-toggle:focus-visible,
+  .tile-favorite:focus-visible,
+  .shelf-favorite:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+  .favorite-toggle .ic,
+  .tile-favorite .ic,
+  .shelf-favorite .ic { @apply size-3.5; }
+  .favorite-toggle.is-favorite,
+  .tile-favorite.is-favorite,
+  .shelf-favorite.is-favorite { color: var(--color-warn); }
+  .favorite-toggle.is-favorite .ic,
+  .tile-favorite.is-favorite .ic,
+  .shelf-favorite.is-favorite .ic { @apply size-4; }
+  .tile-favorite { @apply absolute top-1 right-1 z-10; }
+
+  .app-fav-shelf { @apply grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3; }
+  .app-fav-item { @apply relative; }
+  .app-fav-link { @apply flex items-center gap-2.5 rounded-xl border border-line bg-surface py-2.5 pr-10 pl-3 transition-colors hover:bg-raised; }
+  .app-fav-icon { @apply grid size-7 shrink-0 place-items-center rounded-lg bg-primary-soft text-[11px] font-semibold uppercase text-on-primary-soft; }
+  .app-fav-name { @apply min-w-0 flex-1 truncate text-sm font-semibold text-ink; }
+  .app-fav-host { @apply hidden truncate text-[11px] text-faint sm:block; }
+  .app-fav-star { @apply absolute top-1/2 right-1 -translate-y-1/2; }
+
+  .app-tile-grid { @apply grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8; }
+  .app-tile-wrap { @apply relative; }
+  .app-tile { @apply flex min-h-24 flex-col items-center justify-center gap-2 rounded-xl border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-raised; }
+  .app-tile-icon { @apply grid size-10 place-items-center rounded-xl bg-primary-soft text-sm font-semibold uppercase text-on-primary-soft; }
+  .app-tile-icon.is-admin { @apply bg-primary text-on-primary; }
+  .app-tile-name { @apply w-full truncate text-xs font-medium text-ink; }
+
+  .app-solo-wrap { @apply relative max-w-2xl; }
+  .app-solo { @apply flex items-center gap-4 rounded-xl border border-line bg-surface p-5 transition-colors hover:bg-raised; }
+  .app-solo-icon { @apply grid size-12 shrink-0 place-items-center rounded-xl bg-primary-soft text-lg font-semibold uppercase text-on-primary-soft; }
+  .app-solo-text { @apply min-w-0; }
+  .app-solo-name { @apply block text-lg font-semibold text-ink; }
+  .app-solo-desc { @apply mt-0.5 block text-sm text-muted; }
+  .app-solo-host { @apply mt-1.5 block truncate text-[11px] text-faint; }
+  .app-solo-open { @apply ml-auto shrink-0; }
+
+  /* Floating search trigger, mobile only. The launcher itself is available
+     from the keyboard on larger screens. */
+  .command-fab {
+    @apply fixed right-5 bottom-5 z-30 grid size-14 place-items-center rounded-full bg-primary text-on-primary shadow-pop sm:hidden;
+  }
+  .command-fab:hover { @apply bg-primary-hover; }
+  .command-fab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+  .command-layer { @apply fixed inset-0 z-50 flex items-start justify-center px-4 pt-24 pb-4 sm:pt-32; }
+  .command-layer[hidden] { display: none; }
+  .command-backdrop { @apply absolute inset-0 bg-brand-950/60 backdrop-blur-sm; }
+  .command-dialog { @apply relative w-full max-w-xl overflow-hidden rounded-xl border border-line bg-surface shadow-pop; }
+  .command-input-row { @apply flex items-center gap-2.5 border-b border-line px-4 py-3; }
+  .command-input { @apply min-w-0 flex-1 border-0 bg-transparent text-base text-ink outline-none placeholder:text-faint; }
+  .command-list { @apply max-h-80 overflow-y-auto p-2; }
+  .command-item { @apply flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors; }
+  .command-item[hidden] { display: none; }
+  .command-item:hover,
+  .command-item.is-selected { @apply bg-primary-soft text-on-primary-soft; }
+  .command-icon { @apply grid size-8 shrink-0 place-items-center rounded-lg bg-primary-soft text-xs font-semibold uppercase text-on-primary-soft; }
+  .command-icon.is-admin { @apply bg-primary text-on-primary; }
+  .command-item.is-selected .command-icon { @apply bg-surface/30 text-on-primary-soft; }
+  .command-text { @apply min-w-0; }
+  .command-name { @apply block font-semibold; }
+  .command-host { @apply mt-0.5 block truncate text-[11px] text-faint; }
+  .command-item.is-selected .command-host { color: var(--color-on-primary-soft); opacity: 0.8; }
+  .command-pin { @apply ml-auto text-sm; color: var(--color-warn); }
+  .command-empty { @apply px-4 py-6 text-center text-sm text-muted; }
+  .command-empty[hidden] { display: none; }
+  .command-foot { @apply flex flex-wrap items-center gap-3 border-t border-line px-4 py-2 text-[11px] text-faint; }
+  .kbd { @apply rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[10px] text-muted; }
+
+  /* ── Misc ────────────────────────────────────────────────────────────── */
+  .ic {
+    @apply inline-block size-4 shrink-0 align-[-0.125em];
+  }
+  .ic-lg {
+    @apply size-6;
+  }
+  .card-link {
+    @apply font-medium text-on-primary-soft underline decoration-primary/25
+      underline-offset-2 transition-colors hover:decoration-primary;
+  }
+  .link {
+    @apply text-on-primary-soft underline decoration-primary/25 underline-offset-2 hover:decoration-primary;
+  }
+}
+
+@layer components {
+  /* Legacy class hook kept for admin templates that emit `tag is-info is-light`. */
+  .tag.is-info.is-light {
+    @apply inline-flex items-center rounded-md bg-success-soft px-1.5 py-0.5 text-xs
+      font-medium text-on-success-soft;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 4. JS-free admin sidebar drawer (checkbox + sibling selectors).
+ * Mobile (<64rem): the sidebar is off-canvas; the hidden checkbox closes
+ * the circuit. Desktop (≥64rem): the sidebar is sticky and always visible.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@media (width < 64rem) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+  #admin-nav-toggle:checked ~ .admin-shell .sidebar {
+    transform: translateX(0);
+    box-shadow: var(--shadow-pop);
+  }
+  #admin-nav-toggle:checked ~ .admin-shell .sidebar-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  #admin-nav-toggle:focus-visible ~ .admin-shell .sidebar-burger {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 5. Responsive admin tables.
+ * Below 40rem a table row becomes a card and each cell a label/value pair,
+ * so the row actions stay visible instead of hiding behind a horizontal
+ * scroll. Opt in with .table-wrap-cards on the .table-wrap element.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+@media (width < 40rem) {
+  .table-wrap-cards {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+  .table-wrap-cards .table,
+  .table-wrap-cards tbody {
+    display: block;
+  }
+  .table-wrap-cards thead {
+    display: none;
+  }
+  .table-wrap-cards tr {
+    display: block;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    padding: 0.875rem 1rem;
+  }
+  .table-wrap-cards tr:hover {
+    background: var(--color-surface);
+  }
+  .table-wrap-cards td {
+    display: grid;
+    grid-template-columns: 6.5rem 1fr;
+    gap: 0.5rem;
+    align-items: baseline;
+    border: 0;
+    padding: 0.2rem 0;
+  }
+  .table-wrap-cards td::before {
+    content: attr(data-label);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+  .table-wrap-cards td[data-label=""] {
+    grid-template-columns: 1fr;
+  }
+  .table-wrap-cards td[data-label=""]::before {
+    content: none;
+  }
+  .table-wrap-cards td:first-child {
+    padding-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  /* The action row sits under the last field; give it a little breathing room. */
+  .table-wrap-cards td:last-child:not(:first-child) {
+    padding-top: 0.6rem;
+  }
+}

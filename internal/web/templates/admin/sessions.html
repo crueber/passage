@@ -1,0 +1,74 @@
+{{define "admin-sessions"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sessions — Passage Admin</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+{{template "admin-header" .}}
+{{template "admin-nav" .}}
+<main class="content">
+  {{template "admin-flash" .}}
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Active Sessions</h1>
+      <p class="page-sub">Signed-in sessions across all users. Revoking is immediate.</p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">IP Address</th>
+          <th scope="col">Device</th>
+          <th scope="col">Created</th>
+          <th scope="col">Expires</th>
+          <th scope="col" class="text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Sessions}}
+        <tr>
+          <td class="font-medium">{{.Username}}</td>
+          <td class="td-mono">{{.Session.IPAddress}}</td>
+          <td class="text-ink" title="{{.Session.UserAgent}}">{{.Device}}</td>
+          <td class="td-mono">{{.Session.CreatedAt.Format "2006-01-02 15:04"}}</td>
+          <td class="td-mono">{{.Session.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+          <td>
+            <form method="POST" class="text-right"
+                  action="/admin/sessions/{{.Session.PublicID}}/revoke"
+                  hx-post="/admin/sessions/{{.Session.PublicID}}/revoke"
+                  hx-target="closest tr"
+                  hx-swap="outerHTML">
+              {{csrfField $.CSRFToken}}
+              <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+            </form>
+          </td>
+        </tr>
+        {{else}}
+        <tr>
+          <td colspan="6">
+            <div class="empty border-none bg-transparent py-6">
+              {{template "ic-clock"}}
+              <p class="empty-title">No active sessions</p>
+            </div>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{template "admin-pagination" .Pager}}
+</main>
+{{template "admin-footer" .}}
+</body>
+</html>
+{{end}}

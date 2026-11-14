@@ -1,0 +1,53 @@
+{{define "register.html"}}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{theme .}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create account — Passage</title>
+  <link rel="stylesheet" href="/static/passage.css">
+  <link rel="stylesheet" href="/static/themes.css">
+</head>
+<body>
+<main class="auth-shell">
+  <a href="/" class="wordmark text-xl">{{template "logo"}}<span>passage</span></a>
+
+  <div class="w-full max-w-md">{{template "flash" .}}</div>
+
+  <div class="auth-card">
+    <h1 class="auth-title">Create an account</h1>
+    <p class="auth-sub">Set up your credentials to access your apps.</p>
+
+    <form method="POST" action="/register" class="mt-5 space-y-4">
+      {{csrfField .CSRFToken}}
+
+      <div>
+        <label class="label" for="username">Username</label>
+        <input class="input" type="text" id="username" name="username"
+               autocomplete="username" required autofocus value="{{.Username}}">
+      </div>
+
+      <div>
+        <label class="label" for="email">Email address</label>
+        <input class="input" type="email" id="email" name="email"
+               autocomplete="email" required value="{{.Email}}">
+      </div>
+
+      <div>
+        <label class="label" for="password">Password</label>
+        <input class="input" type="password" id="password" name="password"
+               autocomplete="new-password" required minlength="8">
+        <p class="help">At least 8 characters.</p>
+      </div>
+
+      <button type="submit" class="btn btn-primary w-full">Create account</button>
+    </form>
+
+    <p class="auth-alt">
+      Already have an account? <a href="/login">Sign in</a>
+    </p>
+  </div>
+</main>
+</body>
+</html>
+{{end}}
