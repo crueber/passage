@@ -90,7 +90,12 @@ func newHandlerFixtureWithSettings(t *testing.T, settings testSettingsReader) *h
 
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -561,7 +566,12 @@ func TestPostFinishRegistration_Name(t *testing.T) {
 			// Build a handler with this specific challenge store.
 			tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 				"csrfField": func(_ string) template.HTML { return "" },
-				"theme":     func() string { return theme.Default() },
+				"theme": func(data any) string {
+					if v := web.ThemeFromData(data); v != "" {
+						return v
+					}
+					return theme.Default()
+				},
 			})
 			if err != nil {
 				t.Fatalf("parse templates: %v", err)
@@ -639,7 +649,12 @@ func TestGetBeginLogin_PasskeyDisabled(t *testing.T) {
 	}
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -776,6 +791,9 @@ func TestGetPasskeys_Tabs(t *testing.T) {
 	if err := f.userSvc.UpdateDisplayName(ctx, u.ID, "Sam Rivera"); err != nil {
 		t.Fatalf("update display name: %v", err)
 	}
+	if err := f.userSvc.UpdateTheme(ctx, u.ID, "nord"); err != nil {
+		t.Fatalf("update theme: %v", err)
+	}
 	token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -789,6 +807,7 @@ func TestGetPasskeys_Tabs(t *testing.T) {
 			"Sam Rivera",
 			`href="/passkeys?tab=mfa"`,
 			`href="/passkeys?tab=password"`,
+			`data-theme="nord"`,
 			"Register a new passkey",
 			"Your passkeys",
 			`id="usernav-toggle"`,

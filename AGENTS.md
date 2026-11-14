@@ -53,7 +53,7 @@ passage/
     ratelimit/          # in-memory sliding-window limiter + chi Middleware
     web/
       templates/        # html/template files, embedded via embed.FS (user pages at top level, admin pages in admin/)
-      static/           # passage.css + themes.css (both generated), theme.js, htmx.min.js, passkey.js
+      static/           # passage.css + themes.css (both generated), htmx.min.js, passkey.js
       ui/               # input.css (Tailwind v4 source; rebuild with `make css`) + themes/<name>.css (plain CSS)
     testutil/           # NewTestDB(t) — in-memory SQLite with migrations, for tests
   docs/                 # config examples + security.md, forward-auth.md, theming.md, idp.md, app-access-policies.md, admin-api.md, metrics.md, oauth-signing-key-rotation.md, auth0-vs-passage.md
@@ -241,7 +241,7 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
   <main …> … </main>
   {{template "admin-footer" .}}   {{/* closes content column + flex row, renders .app-footer, closes shell */}}
   ```
-  - `admin-header`: JS-free drawer toggle (`#admin-nav-toggle` checkbox, `.sr-only`), top bar with wordmark breadcrumb, "My Apps" and "Sign out".
+  - `admin-header`: JS-free drawer toggle (`#admin-nav-toggle` checkbox, `.sr-only`), top bar with wordmark breadcrumb, the admin's name linking to `/profile` (so they can set their own theme), and "Sign out".
   - `admin-nav`: sidebar with section labels (Overview/Manage/System), inline-SVG icons via `{{template "ic-*"}}` (defined in `templates/icons.html`), `.is-active` + `aria-current="page"` for the current section.
   - `admin-footer`: closes the shell and renders the full-width footer (license, GitHub, copyright).
 - htmx is used for progressive enhancement in the admin UI only. **Core flows must work without JavaScript.**
@@ -257,8 +257,8 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 - Token contract: every theme file must define the full token set in **both** its light `:root[data-theme="x"]` block and its dark `@media (prefers-color-scheme: dark)` block. Colour tokens are 6-digit hex; only `--shadow-*` use `rgb(… / α)`. Full list in `docs/theming.md`.
 - The contrast test (`internal/theme/theme_test.go`) is the gate: WCAG AA pairs per block (4.5:1 text, 3:1 `faint`). Never lower a threshold to make a palette pass — retune the palette.
 - `TestThemeFiles_BrandRamp` pins the two load-bearing ends of the ramp: it must descend `50` → `950` in both blocks, and `brand-950` must be darker than `canvas` because it is the drawer scrim (`bg-brand-950/40`). Do not invert the ramp for dark mode.
-- Full-page templates must carry `<html lang="en" data-theme="{{theme}}">`, `<link rel="stylesheet" href="/static/themes.css">` after `passage.css`, and the non-deferred `<script src="/static/theme.js"></script>` before any deferred scripts. `TestTemplates_ThemeWiring` enforces all three.
-- The admin Appearance picker is per-browser (`localStorage`) and cosmetic: it must never be part of a POST form or the settings store, and pages must render correctly with no JavaScript.
+- Full-page templates must carry `<html lang="en" data-theme="{{theme .}}">` and `<link rel="stylesheet" href="/static/themes.css">` after `passage.css`. `TestTemplates_ThemeWiring` enforces both. Theme resolution is server-side: signed-in page data embeds `web.Themed` filled from the user, and public pages fall back to the server default (no `localStorage`, no theme script).
+- The theme override belongs to the person, not the browser: Profile saves `users.theme` (`Store.SetTheme`), and Settings → General remains the server default. Pages must render correctly with no JavaScript.
 
 ---
 

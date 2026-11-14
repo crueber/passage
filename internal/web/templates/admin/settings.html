@@ -1,13 +1,12 @@
 {{define "admin-settings"}}
 <!DOCTYPE html>
-<html lang="en" data-theme="{{theme}}">
+<html lang="en" data-theme="{{theme .}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{.Active.Title}} — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
-  <script src="/static/theme.js"></script>
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -129,26 +128,6 @@
         <button type="submit" class="btn btn-primary">Save changes</button>
       </div>
     </form>
-
-    {{/* Appearance is per-browser and client-side only, so it is not part of the
-         form and never reaches the settings store. */}}
-    <section class="card mt-6 p-5 sm:p-6">
-      <h2 class="font-semibold text-ink">Appearance</h2>
-      <p class="mt-1 text-sm text-muted">For this browser only.</p>
-      <div class="mt-4">
-        <label class="label" for="theme-select">Theme</label>
-        <select id="theme-select" class="input sm:max-w-xs" data-default="{{theme}}">
-          <option value="">Server default</option>
-          {{range .Themes}}
-          <option value="{{.Name}}">{{.Label}}</option>
-          {{end}}
-        </select>
-        <p class="help">
-          Applies immediately, to this browser only. “Server default” uses the
-          theme chosen under General.
-        </p>
-      </div>
-    </section>
   </div>
 </main>
 {{template "admin-footer" .}}

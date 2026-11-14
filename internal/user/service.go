@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/theme"
 )
 
 // SessionRevoker invalidates all sessions for a user. Implemented by the
@@ -523,6 +524,22 @@ const InvitationTTLDefault = 7 * 24 * time.Hour
 // MaxDisplayNameLength bounds the free-text display name. It is long enough
 // for any real name and short enough that it cannot be used to break a layout.
 const MaxDisplayNameLength = 100
+
+// UpdateTheme sets the account's colour-theme override. Empty means "follow
+// the server default"; any other value must be a registered theme slug, so a
+// stray form value cannot produce an unthemed page.
+func (s *Service) UpdateTheme(ctx context.Context, userID, themeName string) error {
+	themeName = strings.TrimSpace(themeName)
+	if themeName != "" {
+		if _, ok := theme.Lookup(themeName); !ok {
+			return ErrInvalidTheme
+		}
+	}
+	if err := s.store.SetTheme(ctx, userID, themeName); err != nil {
+		return fmt.Errorf("user: update theme: %w", err)
+	}
+	return nil
+}
 
 // UpdateDisplayName sets the account's display name. The value is trimmed and
 // may be empty, which the UI renders as "no display name". Only the name

@@ -101,7 +101,7 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 					Help: "0 keeps the session until its duration runs out, however long the gap.",
 					Min:  0, Max: 8760, Value: value(settings.SessionIdleTimeoutMinutes), Restart: true},
 				{Kind: kindSelect, Key: settings.Theme, Label: "Server default theme",
-					Help:    "The theme every browser starts with. People can still pick their own under Appearance.",
+					Help:    "The default for everyone. Each person can choose their own under Profile.",
 					Value:   value(settings.Theme),
 					Options: themeOptions()},
 			},

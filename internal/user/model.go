@@ -33,6 +33,7 @@ var (
 	ErrInvitationExpired  = errors.New("user: invitation expired")
 	ErrInvitationAccepted = errors.New("user: invitation already accepted")
 	ErrSMTPNotConfigured  = errors.New("user: SMTP is not configured")
+	ErrInvalidTheme       = errors.New("user: unknown theme")
 )
 
 // User represents a Passage user account.
@@ -49,8 +50,11 @@ type User struct {
 	// Email. It is informational only: it never blocks authentication, so a
 	// broken or absent mail server cannot lock anyone out.
 	EmailVerified bool
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Theme is the user's colour-theme override. Empty follows the server
+	// default set in Settings → General.
+	Theme     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // ResetToken represents a password reset token.
@@ -121,6 +125,9 @@ type Store interface {
 	// SetName sets only the display name for one user, so the self-service
 	// profile form cannot overwrite a concurrent admin edit to other fields.
 	SetName(ctx context.Context, id, name string) error
+	// SetTheme sets only the theme override for one user. Empty means "follow
+	// the server default".
+	SetTheme(ctx context.Context, id, themeName string) error
 	// HasAdmin reports whether at least one admin user exists in the database.
 	// Used at startup to determine whether the /setup endpoint should be active.
 	HasAdmin(ctx context.Context) (bool, error)

@@ -13,12 +13,13 @@ import (
 )
 
 // themeFunc stands in for the "theme" template function that cmd/passage wires
-// to cfg.UI.Theme.
-func themeFunc() string { return theme.Default() }
+// to the server default and the page's account override.
+func themeFunc(any) string { return theme.Default() }
 
 // TestTemplates_ThemeWiring guards the two things every full page must carry:
-// the data-theme hook on <html> and the theme assets in <head>. Adding a new
-// page without them fails here rather than shipping an unthemed page.
+// the data-theme hook on <html> and the theme stylesheet in <head>. Adding a new
+// page without them fails here rather than shipping an unthemed page. Themes are
+// rendered server-side, so no client script is required.
 func TestTemplates_ThemeWiring(t *testing.T) {
 	t.Parallel()
 
@@ -44,21 +45,13 @@ func TestTemplates_ThemeWiring(t *testing.T) {
 			name   string
 			needle string
 		}{
-			{"data-theme hook", `<html lang="en" data-theme="{{theme}}">`},
+			{"data-theme hook", `<html lang="en" data-theme="{{theme .}}">`},
 			{"themes stylesheet", `<link rel="stylesheet" href="/static/themes.css">`},
-			{"theme bootstrap script", `<script src="/static/theme.js"></script>`},
 		}
 		for _, c := range checks {
 			if !strings.Contains(body, c.needle) {
 				t.Errorf("%s: missing %s (%q)", path, c.name, c.needle)
 			}
-		}
-
-		// The theme bootstrap must run before the deferred scripts so a stored
-		// preference applies before first paint.
-		themeAt := strings.Index(body, `<script src="/static/theme.js"></script>`)
-		if deferredAt := strings.Index(body, " defer></script>"); deferredAt >= 0 && themeAt > deferredAt {
-			t.Errorf("%s: theme.js must precede deferred scripts", path)
 		}
 		return nil
 	})
@@ -116,6 +109,7 @@ func TestRender_ThemeAttributes(t *testing.T) {
 	}
 	settings := struct {
 		ActiveNav string
+		UserName  string
 		Flash     any
 		CSRFToken string
 		Tabs      []struct {
@@ -123,9 +117,8 @@ func TestRender_ThemeAttributes(t *testing.T) {
 			Active    bool
 		}
 		Active testSection
-		Themes []theme.Theme
 	}{
-		Themes: theme.All,
+		UserName: "Admin User",
 		Tabs: []struct {
 			ID, Title string
 			Active    bool
@@ -166,7 +159,6 @@ func TestRender_ThemeAttributes(t *testing.T) {
 			needles: []string{
 				`data-theme="` + theme.Default() + `"`,
 				`/static/themes.css`,
-				`<script src="/static/theme.js"></script>`,
 			},
 		},
 		{
@@ -175,7 +167,6 @@ func TestRender_ThemeAttributes(t *testing.T) {
 			needles: []string{
 				`data-theme="` + theme.Default() + `"`,
 				`/static/themes.css`,
-				`<script src="/static/theme.js"></script>`,
 				`<span class="break-words">passage for the Rueber lab</span>`,
 				`Self-hosted authentication for your home lab`,
 			},
@@ -186,11 +177,7 @@ func TestRender_ThemeAttributes(t *testing.T) {
 			needles: []string{
 				`data-theme="` + theme.Default() + `"`,
 				`/static/themes.css`,
-				`<script src="/static/theme.js"></script>`,
-				`id="theme-select"`,
-				`data-default="` + theme.Default() + `"`,
-				`<option value="">Server default</option>`,
-				`<option value="nord">Nord</option>`,
+				`<title>General — Passage Admin</title>`,
 			},
 		},
 	}

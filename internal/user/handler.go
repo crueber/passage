@@ -23,6 +23,7 @@ import (
 	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/settings"
+	"github.com/crueber/passage/internal/web"
 )
 
 // Flash represents a flash message rendered above a form.
@@ -362,6 +363,7 @@ type resetConfirmData struct {
 
 // dashboardData is the template data for the "My Apps" page.
 type dashboardData struct {
+	web.Themed
 	User      *User
 	Apps      []*app.App
 	Flash     *Flash
@@ -423,6 +425,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.render(w, r, "user-dashboard", dashboardData{
+		Themed:      web.Themed{Theme: u.Theme},
 		User:        u,
 		Apps:        apps,
 		Flash:       flashFromCode(r.URL.Query().Get("flash")),

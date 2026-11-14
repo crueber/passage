@@ -13,6 +13,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // Handler serves the user-facing "Sessions" page: the signed-in user's own
@@ -54,6 +55,7 @@ type SessionView struct {
 
 // sessionsPageData is the template data for the sessions page.
 type sessionsPageData struct {
+	web.Themed
 	User      *user.User
 	Sessions  []SessionView
 	Flash     *user.Flash
@@ -97,6 +99,7 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "sessions.html", sessionsPageData{
+		Themed:    web.Themed{Theme: u.Theme},
 		User:      u,
 		Sessions:  views,
 		Flash:     flashFromCode(r.URL.Query().Get("flash")),

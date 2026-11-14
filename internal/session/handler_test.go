@@ -54,7 +54,12 @@ func newSessionsFixture(t *testing.T) *sessionsFixture {
 			// Mirrors cmd/passage: the token is base64url, so HTML is safe.
 			return template.HTML(`<input type="hidden" name="` + csrf.FieldName + `" value="` + token + `">`)
 		},
-		"theme": func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -188,6 +193,30 @@ func TestGetSessions_EmptyState(t *testing.T) {
 	}
 	if strings.Contains(body, "Sign out everywhere") {
 		t.Error("empty page should not offer sign-out-everywhere")
+	}
+}
+
+// TestGetSessions_ThemeOverride proves the account theme is rendered on the
+// sessions page.
+func TestGetSessions_ThemeOverride(t *testing.T) {
+	t.Parallel()
+	f := newSessionsFixture(t)
+	ctx := context.Background()
+
+	if err := f.users.UpdateTheme(ctx, f.user.ID, "nord"); err != nil {
+		t.Fatalf("UpdateTheme: %v", err)
+	}
+	u, err := f.users.GetByID(ctx, f.user.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	req := authenticatedRequest(http.MethodGet, "/sessions", nil, u, nil)
+	rec := httptest.NewRecorder()
+	f.handler.GetSessions(rec, req)
+
+	if !strings.Contains(rec.Body.String(), `data-theme="nord"`) {
+		t.Error("sessions page does not render the account theme")
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // userLookup is the minimal interface needed to look up users for WebAuthn ceremonies.
@@ -179,6 +180,7 @@ func (h *Handler) AuthRoutes(r chi.Router) {
 // ─── passkeys page ───────────────────────────────────────────────────────────
 
 type passkeysData struct {
+	web.Themed
 	User        *user.User
 	Credentials []*Credential
 	Flash       *user.Flash
@@ -277,6 +279,7 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "passkeys.html", passkeysData{
+		Themed:            web.Themed{Theme: u.Theme},
 		User:              u,
 		Credentials:       creds,
 		Flash:             flash,

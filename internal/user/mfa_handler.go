@@ -15,6 +15,7 @@ import (
 	"github.com/crueber/passage/internal/csrf"
 	"github.com/crueber/passage/internal/mfa"
 	"github.com/crueber/passage/internal/ratelimit"
+	"github.com/crueber/passage/internal/web"
 	"github.com/skip2/go-qrcode"
 )
 
@@ -351,6 +352,7 @@ func (h *Handler) renderMFALogin(w http.ResponseWriter, r *http.Request, usernam
 
 // mfaSetupData is the template data for the enrollment page.
 type mfaSetupData struct {
+	web.Themed
 	User      *User
 	Flash     *Flash
 	CSRFToken string
@@ -400,6 +402,7 @@ func (h *Handler) GetMFAQR(w http.ResponseWriter, r *http.Request) {
 
 // mfaCodesData is the one-time recovery-code page.
 type mfaCodesData struct {
+	web.Themed
 	User        *User
 	Flash       *Flash
 	CSRFToken   string
@@ -527,6 +530,7 @@ func (h *Handler) PostMFASetup(w http.ResponseWriter, r *http.Request) {
 		Detail:   "totp",
 	})
 	h.render(w, r, "mfa_recovery_codes.html", mfaCodesData{
+		Themed:    web.Themed{Theme: u.Theme},
 		User:      u,
 		CSRFToken: csrf.TokenFromContext(r.Context()),
 		Codes:     codes,
@@ -536,6 +540,7 @@ func (h *Handler) PostMFASetup(w http.ResponseWriter, r *http.Request) {
 // renderMFASetup renders the enrollment page for a pending secret.
 func (h *Handler) renderMFASetup(w http.ResponseWriter, r *http.Request, u *User, enr mfa.Enrollment, required bool, flash *Flash) {
 	h.render(w, r, "mfa_setup.html", mfaSetupData{
+		Themed:    web.Themed{Theme: u.Theme},
 		User:      u,
 		Flash:     flash,
 		CSRFToken: csrf.TokenFromContext(r.Context()),
@@ -632,6 +637,7 @@ func (h *Handler) PostMFARecoveryCodes(w http.ResponseWriter, r *http.Request) {
 		Username: u.Username,
 	})
 	h.render(w, r, "mfa_recovery_codes.html", mfaCodesData{
+		Themed:      web.Themed{Theme: u.Theme},
 		User:        u,
 		CSRFToken:   csrf.TokenFromContext(r.Context()),
 		Codes:       codes,

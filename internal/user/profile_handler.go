@@ -7,11 +7,15 @@ import (
 	"strings"
 
 	"github.com/crueber/passage/internal/csrf"
+	"github.com/crueber/passage/internal/theme"
+	"github.com/crueber/passage/internal/web"
 )
 
 // profileData is the render data for the self-service profile page.
 type profileData struct {
+	web.Themed
 	User      *User
+	Themes    []theme.Theme
 	Flash     *Flash
 	CSRFToken string
 }
@@ -36,7 +40,9 @@ func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "profile.html", profileData{
+		Themed:    web.Themed{Theme: u.Theme},
 		User:      u,
+		Themes:    theme.All,
 		Flash:     flash,
 		CSRFToken: csrf.TokenFromContext(r.Context()),
 	})
@@ -61,6 +67,28 @@ func (h *Handler) PostUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.TrimSpace(r.FormValue("display_name"))
+	themeName := strings.TrimSpace(r.FormValue("theme"))
+	if len(name) > MaxDisplayNameLength {
+		http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
+		return
+	}
+	if themeName != "" {
+		if _, ok := theme.Lookup(themeName); !ok {
+			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
+			return
+		}
+	}
+
+	if err := h.users.UpdateTheme(r.Context(), u.ID, themeName); err != nil {
+		if errors.Is(err, ErrInvalidTheme) {
+			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
+			return
+		}
+		h.logger.Error("profile: update theme", "user_id", u.ID, "error", err)
+		http.Redirect(w, r, "/profile?flash=error", http.StatusFound)
+		return
+	}
+
 	if err := h.users.UpdateDisplayName(r.Context(), u.ID, name); err != nil {
 		if errors.Is(err, ErrNameTooLong) {
 			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)

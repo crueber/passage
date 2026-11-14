@@ -152,7 +152,12 @@ func newFullHandlerFixtureAll(t *testing.T, allowRegistration bool, maxFailures,
 
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -264,7 +269,12 @@ func TestHandler_PostLogin_Success(t *testing.T) {
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -319,7 +329,12 @@ func TestHandler_PostLogin_OpenRedirect(t *testing.T) {
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -1331,7 +1346,12 @@ func TestHandler_PostLogin_PasswordDisabled(t *testing.T) {
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -1400,6 +1420,37 @@ func TestHandler_GetDashboard_EmptyState(t *testing.T) {
 	}
 	if !strings.Contains(body, "Contact your administrator to get access.") {
 		t.Error("GetDashboard: body missing empty state")
+	}
+}
+
+// TestHandler_GetDashboard_ThemeOverride proves the account theme is rendered
+// server-side on the signed-in dashboard.
+func TestHandler_GetDashboard_ThemeOverride(t *testing.T) {
+	t.Parallel()
+	f := newFullHandlerFixture(t, true)
+	ctx := context.Background()
+	u, err := f.userSvc.Register(ctx, "dashnord", "dashnord@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := f.userSvc.UpdateTheme(ctx, u.ID, "nord"); err != nil {
+		t.Fatalf("UpdateTheme: %v", err)
+	}
+	u, err = f.userStore.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(session.WithUser(req.Context(), u))
+	rec := httptest.NewRecorder()
+	f.handler.GetDashboard(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetDashboard: got status %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `data-theme="nord"`) {
+		t.Error("dashboard does not render the account theme")
 	}
 }
 
@@ -1657,7 +1708,12 @@ func TestHandler_GetDashboard_ListerError(t *testing.T) {
 	sessionSvc := session.NewService(sessionStore, userStore, nil, nil, cfg, slog.Default())
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)

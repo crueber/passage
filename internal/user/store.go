@@ -48,13 +48,13 @@ func (s *SQLiteStore) Create(ctx context.Context, u *User) error {
 	u.UpdatedAt = now
 
 	const query = `
-		INSERT INTO users (id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO users (id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
 		u.ID, u.Username, u.Email, u.Name, u.PasswordHash,
 		boolToInt(u.IsAdmin), boolToInt(u.IsActive), u.Roles,
-		boolToInt(u.EmailVerified),
+		boolToInt(u.EmailVerified), u.Theme,
 		u.CreatedAt, u.UpdatedAt,
 	)
 	if err != nil {
@@ -66,7 +66,7 @@ func (s *SQLiteStore) Create(ctx context.Context, u *User) error {
 // GetByID looks up a user by their UUID.
 func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, created_at, updated_at
 		FROM users WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, query, id)
 	u, err := scanUser(row)
@@ -79,7 +79,7 @@ func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*User, error) {
 // GetByUsername looks up a user by their username.
 func (s *SQLiteStore) GetByUsername(ctx context.Context, username string) (*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, created_at, updated_at
 		FROM users WHERE username = ?`
 	row := s.db.QueryRowContext(ctx, query, username)
 	u, err := scanUser(row)
@@ -92,7 +92,7 @@ func (s *SQLiteStore) GetByUsername(ctx context.Context, username string) (*User
 // GetByEmail looks up a user by their email address.
 func (s *SQLiteStore) GetByEmail(ctx context.Context, email string) (*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, created_at, updated_at
 		FROM users WHERE email = ?`
 	row := s.db.QueryRowContext(ctx, query, email)
 	u, err := scanUser(row)
@@ -105,7 +105,7 @@ func (s *SQLiteStore) GetByEmail(ctx context.Context, email string) (*User, erro
 // List returns all users ordered by username.
 func (s *SQLiteStore) List(ctx context.Context) ([]*User, error) {
 	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, created_at, updated_at
+		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, created_at, updated_at
 		FROM users ORDER BY username`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -146,12 +146,12 @@ func (s *SQLiteStore) Update(ctx context.Context, u *User) error {
 	const query = `
 		UPDATE users
 		SET username = ?, email = ?, name = ?, password_hash = ?,
-		    is_admin = ?, is_active = ?, roles = ?, email_verified = ?, updated_at = ?
+		    is_admin = ?, is_active = ?, roles = ?, email_verified = ?, theme = ?, updated_at = ?
 		WHERE id = ?`
 
 	res, err := s.db.ExecContext(ctx, query,
 		u.Username, u.Email, u.Name, u.PasswordHash,
-		boolToInt(u.IsAdmin), boolToInt(u.IsActive), u.Roles, boolToInt(u.EmailVerified), u.UpdatedAt,
+		boolToInt(u.IsAdmin), boolToInt(u.IsActive), u.Roles, boolToInt(u.EmailVerified), u.Theme, u.UpdatedAt,
 		u.ID,
 	)
 	if err != nil {
@@ -197,6 +197,24 @@ func (s *SQLiteStore) SetName(ctx context.Context, id, name string) error {
 	}
 	if n == 0 {
 		return fmt.Errorf("user store set name: %w", ErrNotFound)
+	}
+	return nil
+}
+
+// SetTheme sets only the colour-theme override for the given user. An empty
+// value means "follow the server default".
+func (s *SQLiteStore) SetTheme(ctx context.Context, id, themeName string) error {
+	const query = `UPDATE users SET theme = ?, updated_at = ? WHERE id = ?`
+	res, err := s.db.ExecContext(ctx, query, themeName, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("user store set theme: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("user store set theme rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("user store set theme: %w", ErrNotFound)
 	}
 	return nil
 }
@@ -641,7 +659,7 @@ func scanUser(s scanner) (*User, error) {
 	var passwordHash sql.NullString
 	err := s.Scan(
 		&u.ID, &u.Username, &u.Email, &u.Name, &passwordHash,
-		&isAdmin, &isActive, &u.Roles, &emailVerified, &u.CreatedAt, &u.UpdatedAt,
+		&isAdmin, &isActive, &u.Roles, &emailVerified, &u.Theme, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

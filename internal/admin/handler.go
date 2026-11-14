@@ -26,8 +26,8 @@ import (
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/settings"
-	"github.com/crueber/passage/internal/theme"
 	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // Flash represents a flash message rendered above page content.
@@ -292,16 +292,41 @@ func (h *Handler) Routes(r chi.Router) {
 
 // basePage is embedded into every admin page data struct.
 type basePage struct {
+	web.Themed
 	ActiveNav string
+	UserName  string
 	Flash     *Flash
 	CSRFToken string
+}
+
+// pageTheme returns the signed-in admin's theme override, or "" for the server
+// default. The session middleware has already put the user in the context.
+func pageTheme(r *http.Request) string {
+	if u, ok := session.UserFromContext(r.Context()); ok && u != nil {
+		return u.Theme
+	}
+	return ""
+}
+
+// pageUserName returns the name shown in the admin top bar, preferring the
+// display name over the username.
+func pageUserName(r *http.Request) string {
+	if u, ok := session.UserFromContext(r.Context()); ok && u != nil {
+		if u.Name != "" {
+			return u.Name
+		}
+		return u.Username
+	}
+	return ""
 }
 
 // base constructs a basePage for the given request, populating the CSRF token
 // from the request context (set by csrf.ProtectAuthenticated middleware).
 func (h *Handler) base(r *http.Request, nav string) basePage {
 	return basePage{
+		Themed:    web.Themed{Theme: pageTheme(r)},
 		ActiveNav: nav,
+		UserName:  pageUserName(r),
 		CSRFToken: csrf.TokenFromContext(r.Context()),
 	}
 }
@@ -309,7 +334,9 @@ func (h *Handler) base(r *http.Request, nav string) basePage {
 // baseFlash constructs a basePage with an attached Flash message.
 func (h *Handler) baseFlash(r *http.Request, nav string, flash *Flash) basePage {
 	return basePage{
+		Themed:    web.Themed{Theme: pageTheme(r)},
 		ActiveNav: nav,
+		UserName:  pageUserName(r),
 		Flash:     flash,
 		CSRFToken: csrf.TokenFromContext(r.Context()),
 	}
@@ -2005,9 +2032,6 @@ type settingsPageData struct {
 	basePage
 	Tabs   []settingsTabLink
 	Active settingsSection
-	// Themes powers the per-browser appearance picker, which sits outside the
-	// form because it is client-side only.
-	Themes []theme.Theme
 }
 
 type settingsTabLink struct {
@@ -2045,7 +2069,6 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 		basePage: h.baseFlash(r, "settings", flash),
 		Tabs:     h.settingsTabsFor(sec.ID),
 		Active:   sec,
-		Themes:   theme.All,
 	})
 }
 
@@ -2070,7 +2093,6 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 			basePage: h.baseFlash(r, "settings", &Flash{Type: "error", Message: strings.Join(problems, " ")}),
 			Tabs:     h.settingsTabsFor(sec.ID),
 			Active:   settingsSectionByID(h.settingsSections(ctx, values), sec.ID),
-			Themes:   theme.All,
 		})
 		return
 	}
@@ -2082,7 +2104,6 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 				basePage: h.baseFlash(r, "settings", &Flash{Type: "error", Message: "Failed to save settings. Please try again."}),
 				Tabs:     h.settingsTabsFor(sec.ID),
 				Active:   settingsSectionByID(h.settingsSections(ctx, values), sec.ID),
-				Themes:   theme.All,
 			})
 			return
 		}

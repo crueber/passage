@@ -1,13 +1,12 @@
 {{define "profile.html"}}
 <!DOCTYPE html>
-<html lang="en" data-theme="{{theme}}">
+<html lang="en" data-theme="{{theme .}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Profile — Passage</title>
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
-  <script src="/static/theme.js"></script>
 </head>
 <body class="flex min-h-dvh flex-col">
 {{template "topnav-profile" .}}
@@ -36,6 +35,16 @@
                  maxlength="100" autocomplete="name" value="{{.User.Name}}"
                  placeholder="e.g. Sam Rivera">
           <p class="help">Leave it empty if you prefer no display name.</p>
+        </div>
+        <div class="mt-5 max-w-md">
+          <label class="label" for="theme">Theme</label>
+          <select class="input" id="theme" name="theme">
+            <option value=""{{if not .Themed.Theme}} selected{{end}}>Server default</option>
+            {{range .Themes}}
+            <option value="{{.Name}}"{{if eq $.Themed.Theme .Name}} selected{{end}}>{{.Label}}</option>
+            {{end}}
+          </select>
+          <p class="help">An administrator sets the server default. This preference follows your account.</p>
         </div>
         <button type="submit" class="btn btn-primary mt-6">Save changes</button>
       </form>

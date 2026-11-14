@@ -13,6 +13,7 @@
         <a href="/" class="wordmark" aria-label="My Apps">{{template "logo"}}<span>passage</span></a>
       </div>
       <nav class="flex items-center gap-1" aria-label="Account">
+        {{if .UserName}}<a href="/profile" class="toplink" title="Your profile">{{template "ic-users"}}<span class="hidden sm:inline">{{.UserName}}</span></a>{{end}}
         <a href="/logout" class="toplink">{{template "ic-logout"}}<span class="hidden sm:inline">Sign out</span></a>
       </nav>
   </header>

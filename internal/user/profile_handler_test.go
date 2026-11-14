@@ -67,6 +67,82 @@ func TestHandler_GetProfile(t *testing.T) {
 	}
 }
 
+// TestHandler_PostUpdateProfile_Theme covers the account-level theme override:
+// it is validated, stored, and rendered server-side on the next page load.
+func TestHandler_PostUpdateProfile_Theme(t *testing.T) {
+	t.Parallel()
+
+	t.Run("saves and renders a theme", func(t *testing.T) {
+		t.Parallel()
+		f := newFullHandlerFixture(t, true)
+		ctx := context.Background()
+
+		u, err := f.userSvc.Register(ctx, "themed", "themed@example.com", "password123")
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+
+		rec := httptest.NewRecorder()
+		f.handler.PostUpdateProfile(rec, profileRequest(t, url.Values{
+			"display_name": {"Themed User"},
+			"theme":        {"nord"},
+		}, u))
+
+		if rec.Code != http.StatusFound {
+			t.Fatalf("status = %d, want 302", rec.Code)
+		}
+		fresh, err := f.userStore.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if fresh.Theme != "nord" {
+			t.Errorf("theme = %q, want nord", fresh.Theme)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/profile", nil)
+		req = req.WithContext(session.WithUser(req.Context(), fresh))
+		rec = httptest.NewRecorder()
+		f.handler.GetProfile(rec, req)
+		body := rec.Body.String()
+		for _, want := range []string{`data-theme="nord"`, `<option value="nord" selected>`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("profile page missing %q", want)
+			}
+		}
+	})
+
+	t.Run("unknown theme is refused", func(t *testing.T) {
+		t.Parallel()
+		f := newFullHandlerFixture(t, true)
+		ctx := context.Background()
+
+		u, err := f.userSvc.Register(ctx, "badtheme", "badtheme@example.com", "password123")
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		if err := f.userSvc.UpdateTheme(ctx, u.ID, "nord"); err != nil {
+			t.Fatalf("UpdateTheme: %v", err)
+		}
+
+		rec := httptest.NewRecorder()
+		f.handler.PostUpdateProfile(rec, profileRequest(t, url.Values{
+			"display_name": {"Bad Theme"},
+			"theme":        {"not-a-theme"},
+		}, u))
+
+		if loc := rec.Header().Get("Location"); loc != "/profile?flash=invalid" {
+			t.Errorf("Location = %q, want the invalid flash", loc)
+		}
+		fresh, err := f.userStore.GetByID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if fresh.Theme != "nord" {
+			t.Errorf("theme = %q, want the previous value", fresh.Theme)
+		}
+	})
+}
+
 // TestHandler_PostUpdateProfile covers the self-service display-name edit that
 // the profile page exposes.
 func TestHandler_PostUpdateProfile(t *testing.T) {

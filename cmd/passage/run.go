@@ -278,14 +278,20 @@ func run() error {
 	// template.HTML is safe here: the value is a base64url-encoded HMAC token
 	// with no HTML-special characters, produced entirely by our csrf package.
 	//
-	// theme renders the configured default theme slug into every page's
-	// <html data-theme="...">. html/template escapes it as an attribute value;
-	// a per-browser override is applied client-side by static/theme.js.
+	// theme renders the page's theme slug into <html data-theme="...">. A
+	// signed-in page carries the user's override in its render data; public
+	// pages fall back to the server default. html/template escapes the slug as
+	// an attribute value.
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(token string) template.HTML {
 			return template.HTML(`<input type="hidden" name="` + csrfpkg.FieldName + `" value="` + token + `">`)
 		},
-		"theme": func() string {
+		"theme": func(data any) string {
+			// A signed-in page carries the user's override (or an empty value
+			// meaning "server default"); public pages carry nothing.
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
 			// Live: the server default can be changed in Settings → General
 			// without a restart. The render path has no request context, and
 			// the read is a single indexed row.

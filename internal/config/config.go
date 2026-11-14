@@ -63,7 +63,7 @@ type SecurityConfig struct {
 // UIConfig holds web UI presentation settings.
 type UIConfig struct {
 	// Theme is a startup snapshot of the "Server default" theme chosen in
-	// Settings → Appearance. Must be one of theme.Names().
+	// Settings → General. Must be one of theme.Names().
 	Theme string `yaml:"-"`
 }
 

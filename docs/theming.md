@@ -128,29 +128,29 @@ For every theme, in both light and dark:
 A failure names the pair, both hex values, and the measured ratio, so tuning is
 a value swap rather than guesswork. This test is the gate for new themes.
 
-## The per-browser picker
+## Server default and per-account override
 
-Admin → Settings → Appearance offers a theme picker. It is **cosmetic and
-client-only**:
+Admin → Settings → General sets the server default (`ui.theme`, stored in the
+settings table). There is no per-browser picker.
 
-- The chosen slug is stored in `localStorage["passage.theme"]` by
-  `internal/web/static/theme.js`. It is never POSTed and never stored in the
-  database.
-- `theme.js` loads synchronously (not `defer`red) so a stored preference is
-  applied to `<html>` before first paint.
-- The option `value=""` means "Server default": it clears the stored key and
-  restores the server-rendered `data-theme`.
-- All `localStorage` access is wrapped in `try/catch`, so private mode or
-  blocked storage silently falls back to the server default.
-- With JavaScript disabled the picker does nothing and the server default
-  remains authoritative. The picker is progressive enhancement, not a setting.
+- Each user may choose a theme on their **Profile** page. The slug is stored in
+  `users.theme`; an empty value follows the server default.
+- Theme resolution is server-side. Every full-page template renders
+  `<html … data-theme="{{theme .}}">`. Signed-in page data embeds
+  `web.Themed` (populated from the loaded user); public pages do not, so the
+  `theme` function returns the server default.
+- No `localStorage` and no client script are involved: the rendered attribute is
+  authoritative, so pages are themed with JavaScript disabled.
+- `user.Service.UpdateTheme` rejects an unregistered slug (`ErrInvalidTheme`)
+  and the profile handler refuses it before writing, so a stray form value
+  cannot produce an unthemed page.
 
 ## Files at a glance
 
 ```
 internal/web/ui/themes/*.css     source of truth, one file per theme
 internal/web/static/themes.css   generated bundle (commit it)
-internal/web/static/theme.js     client-side picker + pre-paint override
+internal/web/templates.go        web.Themed + ThemeFromData (server-side resolution)
 internal/theme/theme.go          registry (names, labels, descriptions)
 internal/theme/theme_test.go     slug/registry/token/contrast guards
 tools/build-themes.sh            build + --check

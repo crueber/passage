@@ -72,7 +72,12 @@ func newLoginFixture(t *testing.T) *loginFixture {
 
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },
-		"theme":     func() string { return theme.Default() },
+		"theme": func(data any) string {
+			if v := web.ThemeFromData(data); v != "" {
+				return v
+			}
+			return theme.Default()
+		},
 	})
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
