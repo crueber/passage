@@ -1,0 +1,148 @@
+# 001 — My Apps redesign
+
+**Status:** draft for discussion · **Scope:** design only — no application code changed
+
+The current My Apps page is a three-column card grid. Each card carries an icon,
+name, description, host and an “Open” action. It works, but with 19 apps it takes
+seven rows and roughly 1,400 px of vertical space, every card has the same weight,
+and a user with one app gets a single lonely card in an otherwise empty page.
+
+This plan explores three directions. Nothing here is committed; the goal is to
+pick a direction and riff on it.
+
+## Goals
+
+- Reduce vertical space for a typical 10–20 app account without hiding apps.
+- Create hierarchy: favourites should feel different from the rest.
+- Make scanning faster than reading 19 identical cards.
+- Give a single-app account a deliberate state, not a stranded card.
+- Keep the existing affordances: pin/unpin, host/launch URL, and a quick “Open”.
+- Stay accessible and usable on mobile.
+
+## Current data available
+
+- `user_app_access` grants plus `favorite` (per-user pin).
+- App name, description, slug, host pattern and default URL.
+- No “last opened” or category data exists today. Ideas that use recents or
+  categories will need a small schema addition (for example
+  `user_app_access.last_opened_at`, or an app category/group field). That cost
+  is called out per idea rather than assumed.
+
+## Idea 1 — Grouped list
+
+![Grouped list with many apps](assets/001-my-apps/01-grouped-list-many.png)
+
+![Grouped list with one app](assets/001-my-apps/01-grouped-list-one.png)
+
+**Shape:** favourites are a small group at the top; everything else is a dense
+two-column list of 60 px rows. The row is the click target; the star and “Open”
+are explicit affordances. A Comfortable/Compact switch drops descriptions in
+compact mode.
+
+- Rows: icon, name, one-line description, host, star, Open.
+- Groups: **Favourites** first, then **All apps** alphabetically.
+- Comfortable shows descriptions; Compact shows name + host only.
+- An app can appear in both groups (pin is a shortcut, not a removal).
+
+**Single-app state:** one full-width row plus a short note that more apps appear
+when access is granted. It reads as a list with one item rather than a card
+floating in a grid. The page is still sparse; a future version could add a small
+“Access is managed by your administrator” aside, but that risks adding chrome
+where none is needed.
+
+**Pros:** strongest hierarchy; very space-efficient; easy to scan names and
+hosts; natural keyboard/tab order.
+**Cons:** less visual/icon-led than cards; descriptions can still make rows
+busy; pinning duplicates an app unless the pinned group replaces its row.
+
+**Open questions:** one column or two? Should favourites be removed from “All
+apps” while pinned? Is Compact the default for accounts above N apps?
+
+## Idea 2 — Launcher
+
+![Launcher with many apps](assets/001-my-apps/02-launcher-many.png)
+
+![Launcher with one app](assets/001-my-apps/02-launcher-one.png)
+
+**Shape:** a pinned shelf of three larger cards, then a dense icon launcher.
+Tiles are roughly 112 px wide, eight per row on desktop, with the name under the
+icon. Descriptions and hosts live in a `title` tooltip; the star appears on hover
+and stays visible for pinned apps. A filter field sits in the page header.
+
+- Pinned: three compact cards with name/description and star.
+- All apps: icon tiles, name under the icon, filter above.
+- Icons become the primary recognition cue; text is secondary.
+- Single app: the layout becomes one focused card with icon, description, host
+  and an Open button. Filter and the All Apps section disappear.
+
+**Pros:** by far the most space-efficient; feels like a launcher rather than a
+directory; scanning is fast once icons are learned; the single-app card is
+strong.
+**Cons:** descriptions/hosts are hidden; icon-only recognition fails when
+several apps share a letter; filter is less useful when the list is short;
+pinned duplicates appear in All apps unless filtered out.
+
+**Open questions:** how large should tiles be? Should every tile keep a visible
+star, or only favourited ones? Should the pinned shelf collapse into the first
+row of All apps instead of being a separate group?
+
+## Idea 3 — Spotlight
+
+![Spotlight with many apps](assets/001-my-apps/03-spotlight-many.png)
+
+![Spotlight with one app](assets/001-my-apps/03-spotlight-one.png)
+
+**Shape:** search is the primary control. A large “Open an app…” field with a
+`⌘K` hint sits above a compact pinned row and an A–Z directory in three columns.
+Typing filters immediately; Enter opens the highlighted result. With one app,
+the search field is pre-filled and the single result is focused; the directory
+and pinned groups disappear.
+
+- Search-first header with keyboard shortcut.
+- Pinned row of compact links.
+- All apps as a dense alphabetical directory, three columns.
+- Single app: one focused result, no directory.
+
+**Pros:** fastest for people who know the app name; very dense; scales well
+beyond 50 apps; keyboard-friendly.
+**Cons:** hides the breadth of available apps until you search; less visual than
+either card or tile layouts; requires client-side filtering (simple) and ideally
+keyboard navigation; discovery of new apps is weaker.
+
+**Open questions:** should the directory be visible by default, or only after
+focusing search? Do we want recents above the directory (requires
+`last_opened_at`)? Is `⌘K` appropriate on Windows/Linux (show `Ctrl K`)?
+
+## Comparison
+
+| | Grouped list | Launcher | Spotlight |
+|---|---|---|---|
+| Density with 19 apps | high | highest | highest |
+| Hierarchy | strongest (groups) | strong (pinned shelf) | medium |
+| Recognition | text + icon | icon + name | text |
+| Single-app state | plain row + note | focused card | focused result |
+| Mobile | easy (one column) | good (3–4 tiles/row) | good (stacked) |
+| New data needed | none | none | recents need `last_opened_at` |
+| Implementation effort | low/medium | low/medium | medium (search + keyboard) |
+
+## Recommendation
+
+Start with **Idea 1** as the structural direction (groups and dense rows), and
+borrow the **Idea 2** tile launcher as the Compact/visual mode or as the
+small-screen presentation. That gives density and hierarchy without losing the
+icon-led feel of the current page. Spotlight is the strongest long-term option
+for very large app counts, but it is a bigger behavioural change and benefits
+from last-opened data.
+
+The one-app states are deliberately included in every idea; the Launcher’s
+focused card currently handles that case best.
+
+## Next steps
+
+1. Pick one direction (or a defined hybrid).
+2. Decide whether to add `last_opened_at` / categories; both unlock richer
+   grouping and “Recent” rows.
+3. Decide what happens to the current Condensed switch: keep it as a
+   Comfortable/Compact toggle, or remove it if the new default is dense enough.
+4. Turn the chosen wireframe into a real template and add regression tests for
+   the many-app, favourite, and single-app states.

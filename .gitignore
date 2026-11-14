@@ -39,7 +39,7 @@ tmp/
 .worktrees/
 
 # Implementation plans (local only)
-plans/
+/plans/
 
 # Tailwind standalone CLI (fetched locally, not committed) — tools/build-css.sh is tracked
 tools/tailwindcss*
