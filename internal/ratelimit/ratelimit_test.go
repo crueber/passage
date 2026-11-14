@@ -62,6 +62,28 @@ func TestAllow(t *testing.T) {
 
 // ─── Cleanup unit tests ───────────────────────────────────────────────────────
 
+// TestSetConfig proves an operator's limit change applies live and clears the
+// windows recorded under the previous policy.
+func TestSetConfig(t *testing.T) {
+	t.Parallel()
+
+	l := New(1, time.Minute)
+	if !l.Allow("key") {
+		t.Fatal("first request should be allowed")
+	}
+	if l.Allow("key") {
+		t.Fatal("second request should be limited")
+	}
+
+	l.SetConfig(2, 2*time.Minute)
+	if !l.Allow("key") {
+		t.Error("after raising the limit, a request should be allowed")
+	}
+	if l.RetryAfter() != 2*time.Minute {
+		t.Errorf("RetryAfter = %s, want 2m", l.RetryAfter())
+	}
+}
+
 func TestCleanup(t *testing.T) {
 	t.Run("removes stale entries after window expires", func(t *testing.T) {
 		l := New(5, 50*time.Millisecond)

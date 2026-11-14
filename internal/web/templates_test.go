@@ -100,7 +100,6 @@ func TestRender_ThemeAttributes(t *testing.T) {
 		Kind, Key, Key2, Label, Label2, Help, Value, Value2 string
 		Min, Max, MaxLen                                    int
 		Placeholder                                         string
-		Restart                                             bool
 		Options                                             []testOption
 	}
 	type testSection struct {

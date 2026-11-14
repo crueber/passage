@@ -63,107 +63,12 @@
         </div>
       </div>
 
-      <div>
-        <label class="label" for="session_duration_hours">Session duration (hours)</label>
-        <input class="input sm:max-w-xs" type="number" id="session_duration_hours"
-               name="session_duration_hours" min="0" max="8760" autocomplete="off"
-               value="{{if and .EditApp (gt .EditApp.SessionDurationHours 0)}}{{.EditApp.SessionDurationHours}}{{end}}">
-        <p class="help">
-          Overrides the global lifetime for sessions created by this app's OAuth
-          sign-in. Blank or 0 uses the global default.
-        </p>
-      </div>
-
-      <fieldset class="space-y-4 border-t border-line pt-4">
-        <legend class="label">Access policy</legend>
-        <p class="help">
-          Every field is optional and empty means no restriction. Users still
-          need access to the app; this policy narrows who may use it. Rules
-          combine: when several are set, all of them must pass. Admins are not
-          exempt from the rules below. Policies apply to forward-auth and OAuth
-          sign-in, not to the dashboard.
-        </p>
-
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label class="label" for="required_group">Required group</label>
-            <input class="input font-mono text-sm" type="text" id="required_group" name="required_group"
-                   autocomplete="off" placeholder="platform"
-                   value="{{if .EditApp}}{{.EditApp.RequiredGroup}}{{end}}">
-            <p class="help">One group name from this app's groups. The user must hold it directly or through a role.</p>
-          </div>
-          <div>
-            <label class="label" for="required_role">Required role</label>
-            <input class="input font-mono text-sm" type="text" id="required_role" name="required_role"
-                   autocomplete="off" placeholder="ops"
-                   value="{{if .EditApp}}{{.EditApp.RequiredRole}}{{end}}">
-            <p class="help">One role name from this app's roles. The user must hold it.</p>
-          </div>
-        </div>
-
-        <div>
-          <label class="label" for="allowed_cidrs">Allowed CIDRs</label>
-          <input class="input font-mono text-sm" type="text" id="allowed_cidrs" name="allowed_cidrs"
-                 autocomplete="off" placeholder="192.168.0.0/16, 2001:db8::/32"
-                 value="{{if .EditApp}}{{.EditApp.AllowedCIDRs}}{{end}}">
-          <p class="help">Comma or space separated IPv4/IPv6 prefixes. Requests from any other address are denied.</p>
-        </div>
-
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label class="label" for="allowed_hours">Allowed hours</label>
-            <input class="input font-mono text-sm" type="text" id="allowed_hours" name="allowed_hours"
-                   autocomplete="off" placeholder="09:00-17:00"
-                   value="{{if .EditApp}}{{.EditApp.AllowedHours}}{{end}}">
-            <p class="help">A single HH:MM-HH:MM window in server local time. Both ends are inclusive; a window like 22:00-06:00 wraps past midnight.</p>
-          </div>
-          <div>
-            <label class="label" for="allowed_days">Allowed days</label>
-            <input class="input font-mono text-sm" type="text" id="allowed_days" name="allowed_days"
-                   autocomplete="off" placeholder="1-5"
-                   value="{{if .EditApp}}{{.EditApp.AllowedDays}}{{end}}">
-            <p class="help">ISO weekdays, 1 = Monday and 7 = Sunday. Use a list or ranges, e.g. <span class="td-mono">1-5</span> or <span class="td-mono">6,7</span>.</p>
-          </div>
-        </div>
-
-        <label class="checkbox" for="admin_only">
-          <input type="checkbox" id="admin_only" name="admin_only"
-                 {{if and .EditApp .EditApp.AdminOnly}}checked{{end}}>
-          Admin users only
-        </label>
-      </fieldset>
-
       {{if not .IsNew}}
       <div>
         <label class="label" for="redirect_uris">Redirect URIs <span class="font-normal text-faint">(one per line)</span></label>
         <textarea class="input font-mono text-xs" id="redirect_uris" name="redirect_uris" rows="4">{{range $i, $v := .EditApp.RedirectURIs}}{{if $i}}
 {{end}}{{$v}}{{end}}</textarea>
         <p class="help">List every allowed OAuth callback URL. Exact match required.</p>
-      </div>
-
-      <div>
-        <label class="label" for="scopes">Allowed scopes <span class="font-normal text-faint">(one per line)</span></label>
-        <textarea class="input font-mono text-xs" id="scopes" name="scopes" rows="3">{{range $i, $v := .EditApp.AllowedScopes}}{{if $i}}
-{{end}}{{$v}}{{end}}</textarea>
-        <p class="help">
-          Blank means any scope a client asks for is granted. When set, an
-          authorization request may only ask for scopes from this list; anything
-          else is refused with invalid_scope. Include <span class="td-mono">openid</span>
-          to allow an id_token. Letters, digits, dot, underscore, colon and
-          hyphen are allowed.
-        </p>
-      </div>
-
-      <div>
-        <label class="label" for="resources">Allowed resources (audiences) <span class="font-normal text-faint">(one per line)</span></label>
-        <textarea class="input font-mono text-xs" id="resources" name="resources" rows="3">{{range $i, $v := .EditApp.AllowedResources}}{{if $i}}
-{{end}}{{$v}}{{end}}</textarea>
-        <p class="help">
-          RFC 8707 resource indicators this client may request. Each entry is an
-          absolute URI (for example <span class="td-mono">https://api.example.com</span>)
-          and the access token audience becomes the granted one. Blank means
-          resource indicators are not accepted.
-        </p>
       </div>
       {{end}}
 

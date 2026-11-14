@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -198,6 +199,7 @@ func (s *AccountStore) clearExpired(ctx context.Context, username string, now ti
 // is injected so tests advance time instead of sleeping.
 type AccountService struct {
 	store *AccountStore
+	mu    sync.RWMutex
 	cfg   AccountConfig
 	now   func() time.Time
 }
@@ -210,10 +212,28 @@ func NewAccountService(store *AccountStore, cfg AccountConfig, now func() time.T
 	return &AccountService{store: store, cfg: cfg, now: now}
 }
 
+// SetConfig changes the lockout policy at runtime. Existing throttle rows stay
+// in the database; the next login evaluates them under the new thresholds.
+func (s *AccountService) SetConfig(cfg AccountConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cfg == cfg {
+		return
+	}
+	s.cfg = cfg
+}
+
+func (s *AccountService) config() AccountConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg
+}
+
 // Enabled reports whether throttling is configured. Either a zero failure
 // threshold or a zero lockout duration disables the feature.
 func (s *AccountService) Enabled() bool {
-	return s.cfg.MaxFailures > 0 && s.cfg.Lockout > 0
+	cfg := s.config()
+	return cfg.MaxFailures > 0 && cfg.Lockout > 0
 }
 
 // Status returns the effective state for username at the current clock time.
@@ -278,12 +298,13 @@ func (s *AccountService) RecordFailure(ctx context.Context, username string) (Ac
 		return AccountStatus{}, err
 	}
 
-	if failures >= s.cfg.MaxFailures {
-		until := now.Add(s.cfg.Lockout)
+	cfg := s.config()
+	if failures >= cfg.MaxFailures {
+		until := now.Add(cfg.Lockout)
 		if err := s.store.Lock(ctx, username, until); err != nil {
 			return AccountStatus{}, err
 		}
-		return AccountStatus{Locked: true, Remaining: s.cfg.Lockout}, nil
+		return AccountStatus{Locked: true, Remaining: cfg.Lockout}, nil
 	}
 
 	return AccountStatus{Failures: failures}, nil

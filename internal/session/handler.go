@@ -84,7 +84,7 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	views := make([]SessionView, 0, len(sessions))
 	for _, s := range sessions {
-		if h.svc.SessionExpired(s, now) {
+		if h.svc.SessionExpired(r.Context(), s, now) {
 			continue
 		}
 		views = append(views, SessionView{

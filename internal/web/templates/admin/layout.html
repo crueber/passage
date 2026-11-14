@@ -49,6 +49,30 @@
 
 {{define "admin-flash"}}{{template "flash" .}}{{end}}
 
+{{/* Shared pager: {{template "admin-pagination" .Pager}}. Shows size links,
+     Prev/Next, and the count; renders nothing for an empty list. */}}
+{{define "admin-pagination"}}
+{{if gt .Total 0}}
+<nav class="mt-4 flex flex-wrap items-center justify-between gap-3" aria-label="Pagination">
+  <div class="flex items-center gap-1.5 text-xs text-muted">
+    <span>Show</span>
+    {{range .Sizes}}
+    {{if .Active}}
+    <span class="rounded bg-raised px-2 py-1 font-medium text-ink" aria-current="true">{{.Size}}</span>
+    {{else}}
+    <a href="{{.URL}}" class="rounded px-2 py-1 hover:bg-raised hover:text-ink">{{.Size}}</a>
+    {{end}}
+    {{end}}
+  </div>
+  <p class="text-xs text-muted">Page {{.Page}} of {{.TotalPages}} &middot; {{.Total}} total</p>
+  <div class="flex items-center gap-2">
+    {{if .PrevURL}}<a href="{{.PrevURL}}" class="btn btn-outline btn-sm">Previous</a>{{end}}
+    {{if .NextURL}}<a href="{{.NextURL}}" class="btn btn-outline btn-sm">Next</a>{{end}}
+  </div>
+</nav>
+{{end}}
+{{end}}
+
 {{/* Admin shell, part 3: closes the content column and flex row opened by
      "admin-header"/"admin-nav", renders the footer, closes the shell. */}}
 {{define "admin-footer"}}

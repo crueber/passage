@@ -267,3 +267,35 @@ func TestSettings_SecretsAndLimits(t *testing.T) {
 		}
 	}
 }
+
+// TestSettings_ReloadsLiveComponents pins the callback that re-applies
+// constructor-bound settings (rate limits, lockout) after a successful save.
+func TestSettings_ReloadsLiveComponents(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	adminUser := createAdminUser(t, f, "admin", "admin@example.com")
+	token := createSession(t, f, adminUser.ID)
+	router := buildAdminRouter(f)
+
+	var calls int
+	f.handler.SetSettingsReloader(func(context.Context) { calls++ })
+
+	good := url.Values{"tab": {"general"}, "allow_registration": {"on"},
+		"session_duration_hours": {"24"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"slate"}}
+	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+		strings.NewReader(good.Encode()), "application/x-www-form-urlencoded")
+	if rec.Result().StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want 302", rec.Result().StatusCode)
+	}
+	if calls != 1 {
+		t.Errorf("reload calls after a successful save = %d, want 1", calls)
+	}
+
+	bad := url.Values{"tab": {"general"}, "allow_registration": {"on"},
+		"session_duration_hours": {"0"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"slate"}}
+	rec = adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
+		strings.NewReader(bad.Encode()), "application/x-www-form-urlencoded")
+	if calls != 1 {
+		t.Errorf("reload calls after a rejected save = %d, want 1", calls)
+	}
+}

@@ -10,17 +10,30 @@ import (
 	"github.com/crueber/passage/internal/app"
 )
 
-// policyForm returns a minimal valid create/update form with the policy fields
-// applied on top.
-func policyForm(slug, name string, policy map[string]string) url.Values {
+// policyForm returns a policy-only form (the Policies tab has no core fields).
+func policyForm(policy map[string]string) url.Values {
 	form := url.Values{}
-	form.Set("slug", slug)
-	form.Set("name", name)
-	form.Set("is_active", "on")
 	for k, v := range policy {
 		form.Set(k, v)
 	}
 	return form
+}
+
+// createCoreApp creates an app through the Details form so policy tests start
+// from the same state an operator would.
+func createCoreApp(t *testing.T, f *fixture, router http.Handler, token, slug, name string) *app.App {
+	t.Helper()
+	form := url.Values{"slug": {slug}, "name": {name}, "is_active": {"on"}}
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	if got := rec.Result().StatusCode; got != http.StatusFound {
+		t.Fatalf("create core app: status %d, want 302; body: %s", got, rec.Body.String())
+	}
+	created, err := f.appStore.GetBySlug(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("get created app: %v", err)
+	}
+	return created
 }
 
 // TestAdminApps_Create_Policy saves a full policy and verifies it round-trips
@@ -78,15 +91,17 @@ func TestAdminApps_Create_Policy(t *testing.T) {
 			token := createSession(t, f, adminUser.ID)
 			router := buildAdminRouter(f)
 			ctx := context.Background()
-
-			form := policyForm(tc.slug, "Policy App", tc.policy)
-			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
-				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
-			if got := rec.Result().StatusCode; got != http.StatusFound {
-				t.Fatalf("create: status %d, want 302; body: %s", got, rec.Body.String())
+			created := createCoreApp(t, f, router, token, tc.slug, "Policy App")
+			if len(tc.policy) > 0 {
+				form := policyForm(tc.policy)
+				rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/policies", token, f.cfg.Session.CookieName,
+					strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+				if got := rec.Result().StatusCode; got != http.StatusFound {
+					t.Fatalf("save policy: status %d, want 302; body: %s", got, rec.Body.String())
+				}
 			}
 
-			stored, err := f.appStore.GetBySlug(ctx, tc.slug)
+			stored, err := f.appStore.GetByID(ctx, created.ID)
 			if err != nil {
 				t.Fatalf("get created app: %v", err)
 			}
@@ -159,10 +174,9 @@ func TestAdminApps_Create_PolicyValidation(t *testing.T) {
 			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
 			token := createSession(t, f, adminUser.ID)
 			router := buildAdminRouter(f)
-			ctx := context.Background()
-
-			form := policyForm("policy-invalid", "Policy Invalid", tc.policy)
-			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+			created := createCoreApp(t, f, router, token, "policy-invalid", "Policy Invalid")
+			form := policyForm(tc.policy)
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/policies", token, f.cfg.Session.CookieName,
 				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 			if got := rec.Result().StatusCode; got != http.StatusOK {
 				t.Fatalf("status = %d, want 200 (re-render); body: %s", got, rec.Body.String())
@@ -181,9 +195,6 @@ func TestAdminApps_Create_PolicyValidation(t *testing.T) {
 				if !strings.Contains(body, value) {
 					t.Errorf("re-rendered form lost the submitted %s value %q", field, value)
 				}
-			}
-			if _, err := f.appStore.GetBySlug(ctx, "policy-invalid"); err == nil {
-				t.Error("invalid policy created an app, want no app")
 			}
 		})
 	}
@@ -213,14 +224,14 @@ func TestAdminApps_Update_Policy(t *testing.T) {
 	}
 
 	// Save a valid policy.
-	form := policyForm("policy-update", "Policy Update", map[string]string{
+	form := policyForm(map[string]string{
 		"required_group": "platform",
 		"allowed_cidrs":  "10.0.0.0/8",
 		"admin_only":     "on",
 		"allowed_hours":  "08:30-18:00",
 		"allowed_days":   "1-5",
 	})
-	rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/policies", token, f.cfg.Session.CookieName,
 		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if got := rec.Result().StatusCode; got != http.StatusFound {
 		t.Fatalf("update: status %d, want 302; body: %s", got, rec.Body.String())
@@ -236,11 +247,11 @@ func TestAdminApps_Update_Policy(t *testing.T) {
 	}
 
 	// An invalid update is rejected and the stored policy is untouched.
-	badForm := policyForm("policy-update", "Policy Update", map[string]string{
+	badForm := policyForm(map[string]string{
 		"required_group": "platform",
 		"allowed_days":   "someday",
 	})
-	rec = adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+	rec = adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/policies", token, f.cfg.Session.CookieName,
 		strings.NewReader(badForm.Encode()), "application/x-www-form-urlencoded")
 	if got := rec.Result().StatusCode; got != http.StatusOK {
 		t.Fatalf("invalid update: status %d, want 200 (re-render)", got)
@@ -288,7 +299,7 @@ func TestAdminApps_EditForm_RendersPolicy(t *testing.T) {
 		t.Fatalf("get app: %v", err)
 	}
 
-	rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName, nil, "")
+	rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+created.ID+"/policies", token, f.cfg.Session.CookieName, nil, "")
 	if got := rec.Result().StatusCode; got != http.StatusOK {
 		t.Fatalf("edit form: status %d, want 200", got)
 	}
@@ -307,7 +318,7 @@ func TestAdminApps_EditForm_RendersPolicy(t *testing.T) {
 			t.Errorf("edit form does not render the stored value %q", value)
 		}
 	}
-	if !strings.Contains(body, "Access policy") {
-		t.Error("edit form is missing the access policy section")
+	if !strings.Contains(body, "This page is optional") {
+		t.Error("edit form is missing the optional-policy explanation")
 	}
 }

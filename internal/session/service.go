@@ -181,17 +181,27 @@ func (s *Service) NewSession(ctx context.Context, userID string, appID *string, 
 	return sess, nil
 }
 
+// idleTimeout reads the current idle window from live settings, falling back to
+// the startup config snapshot when no settings store is wired (tests).
+func (s *Service) idleTimeout(ctx context.Context) time.Duration {
+	minutes := s.cfg.Session.IdleTimeoutMinutes
+	if s.settings != nil {
+		minutes = settings.Int(ctx, s.settings, settings.SessionIdleTimeoutMinutes, minutes, 0, 8760)
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
 // SessionExpired reports whether the session is past its absolute expiry or has
 // been idle longer than the configured idle window. A zero idle window disables
 // the idle half of the check, leaving only the absolute expiry.
 //
 // Exported so user-facing handlers can filter the sessions they list with
 // exactly the rule validation applies.
-func (s *Service) SessionExpired(sess *Session, now time.Time) bool {
+func (s *Service) SessionExpired(ctx context.Context, sess *Session, now time.Time) bool {
 	if sess.ExpiresAt.Before(now) {
 		return true
 	}
-	idle := s.cfg.Session.IdleTimeout()
+	idle := s.idleTimeout(ctx)
 	if idle <= 0 {
 		return false
 	}
@@ -223,7 +233,7 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 
 	// Idle timeout: an unused session is invalid before its absolute expiry.
 	// Delete this one row — the hourly sweeper clears the rest.
-	if idle := s.cfg.Session.IdleTimeout(); idle > 0 && now.Sub(sess.lastUsedOrCreated()) > idle {
+	if idle := s.idleTimeout(ctx); idle > 0 && now.Sub(sess.lastUsedOrCreated()) > idle {
 		if err := s.store.Delete(ctx, sess.ID); err != nil && !errors.Is(err, ErrSessionNotFound) {
 			s.logger.Warn("session: delete idle session", "error", err)
 		}

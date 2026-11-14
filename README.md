@@ -167,7 +167,7 @@ The server starts on `0.0.0.0:8080` by default. Visit `http://localhost:8080/hea
 Passage is configured in two places:
 
 - **`passage.yaml`** — bootstrap only: where the server listens, the public base URL, the database path, session-cookie shape, key material and logging. Every key can also be set through a `PASSAGE_*` environment variable, which wins over the file.
-- **The admin UI (Settings)** — everything that describes how the instance behaves: sign-in methods, registration, session lifetime and idle timeout, sign-in branding, theme, SMTP/email, account lockout, rate limits, the security webhook, Prometheus metrics and upstream identity providers. These values live in the database and are applied immediately, except the few marked "takes effect after a restart" (rate limits, lockout thresholds, the webhook, SMTP, the metrics endpoint and the password-hashing cost), which are read once at startup.
+- **The admin UI (Settings)** — everything that describes how the instance behaves: sign-in methods, registration, session lifetime and idle timeout, sign-in branding, theme, SMTP/email, account lockout, rate limits, the security webhook, Prometheus metrics and upstream identity providers. These values live in the database and apply immediately; no configuration change requires a restart.
 
 ```yaml
 # passage.yaml — copy from passage.example.yaml and edit

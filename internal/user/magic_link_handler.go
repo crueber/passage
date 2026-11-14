@@ -10,6 +10,7 @@ import (
 
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/csrf"
+	"github.com/crueber/passage/internal/settings"
 )
 
 type magicLinkRequestData struct {
@@ -70,7 +71,7 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.cfg.SMTP.Host == "" {
+	if settings.String(ctx, h.settings, settings.SMTPHost, h.cfg.SMTP.Host) == "" {
 		renderErr("Magic links require SMTP to be configured.")
 		return
 	}

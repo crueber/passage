@@ -428,3 +428,63 @@ func TestWebhookNotifier_CloseStopsWorker(t *testing.T) {
 	}
 	close(release)
 }
+
+// TestWebhookNotifier_DynamicConfig proves the notifier resolves its endpoint
+// per delivery, so changing the webhook URL in the admin UI takes effect
+// without a restart.
+func TestWebhookNotifier_DynamicConfig(t *testing.T) {
+	t.Parallel()
+
+	first := make(chan string, 1)
+	second := make(chan string, 1)
+	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		first <- r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv1.Close()
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		second <- r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv2.Close()
+
+	var mu sync.Mutex
+	endpoint := srv1.URL + "/first"
+	logger, _ := newTestLogger()
+	notifier, err := NewWebhookNotifier("", "", 0, logger, func(context.Context) WebhookConfig {
+		mu.Lock()
+		defer mu.Unlock()
+		return WebhookConfig{Endpoint: endpoint, Timeout: time.Second}
+	})
+	if err != nil {
+		t.Fatalf("NewWebhookNotifier: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	notifier.Start(ctx)
+	defer notifier.Close()
+
+	notifier.Notify(Event{Event: EventLoginSuccess, Outcome: OutcomeSuccess})
+	select {
+	case path := <-first:
+		if path != "/first" {
+			t.Errorf("first delivery path = %q", path)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first endpoint was never called")
+	}
+
+	mu.Lock()
+	endpoint = srv2.URL + "/second"
+	mu.Unlock()
+
+	notifier.Notify(Event{Event: EventLoginFailure, Outcome: OutcomeFailure})
+	select {
+	case path := <-second:
+		if path != "/second" {
+			t.Errorf("second delivery path = %q", path)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("updated endpoint was never called")
+	}
+}

@@ -219,25 +219,24 @@ func run() error {
 	srvMetrics := newServerMetrics(logger, version, processStart, userStore, appStore, sessionStore)
 	sessionSvc.SetSessionCounter(srvMetrics)
 
-	// Optional security webhook: a second sink on the recorder. An empty URL
-	// disables it entirely. The worker runs on the run context; Close stops it
-	// deterministically without depending on the parent context being
-	// cancelled (early returns, for example).
-	var authNotifier authlog.Notifier
-	if cfg.Security.WebhookURL != "" {
-		notifier, err := authlog.NewWebhookNotifier(
-			cfg.Security.WebhookURL,
-			cfg.Security.WebhookSecret,
-			time.Duration(cfg.Security.WebhookTimeoutSeconds)*time.Second,
-			logger,
-		)
-		if err != nil {
-			return fmt.Errorf("configure security webhook: %w", err)
+	// Security webhook: a second sink on the recorder. The notifier is always
+	// started and resolves its configuration per delivery, so setting, changing
+	// or clearing the webhook in the admin UI applies immediately. An empty URL
+	// makes delivery a no-op; the queue and worker are cheap.
+	webhookConfig := func(ctx context.Context) authlog.WebhookConfig {
+		return authlog.WebhookConfig{
+			Endpoint: settings.String(ctx, settingsStore, settings.WebhookURL, cfg.Security.WebhookURL),
+			Secret:   settings.String(ctx, settingsStore, settings.WebhookSecret, cfg.Security.WebhookSecret),
+			Timeout:  time.Duration(settings.Int(ctx, settingsStore, settings.WebhookTimeoutSeconds, cfg.Security.WebhookTimeoutSeconds, 1, 60)) * time.Second,
 		}
-		notifier.Start(ctx)
-		defer notifier.Close()
-		authNotifier = notifier
 	}
+	notifier, err := authlog.NewWebhookNotifier("", "", 0, logger, webhookConfig)
+	if err != nil {
+		return fmt.Errorf("configure security webhook: %w", err)
+	}
+	notifier.Start(ctx)
+	defer notifier.Close()
+	var authNotifier authlog.Notifier = notifier
 
 	// The metrics counter wraps the webhook sink: every event is counted, then
 	// forwarded. Both steps are non-blocking, so a scrape or a dead webhook can
@@ -245,6 +244,7 @@ func run() error {
 	authRecorder := authlog.NewRecorder(authStore, authEventCounter{counter: srvMetrics.authEvents, next: authNotifier}, logger)
 
 	userSvc := user.NewService(userStore, userStore, sessionSvc, cfg)
+	userSvc.SetSettings(settingsStore)
 
 	// Two-factor authentication: TOTP secrets, recovery codes, and pending
 	// login challenges. Built here so the user handler, the security page, and
@@ -268,7 +268,7 @@ func run() error {
 	}()
 
 	// Build email sender.
-	mailer, err := email.NewSMTPSender(cfg, logger)
+	mailer, err := email.NewSMTPSender(cfg, logger, settingsStore)
 	if err != nil {
 		return fmt.Errorf("create email sender: %w", err)
 	}
@@ -462,6 +462,28 @@ func run() error {
 		Lockout:     time.Duration(cfg.Auth.LockoutMinutes) * time.Minute,
 	}, time.Now)
 
+	// Rate limits and lockout thresholds are held by long-lived limiter
+	// objects. Re-apply them after a settings save instead of asking for a
+	// restart; changing a limit clears that limiter's in-memory windows, which
+	// is the only sensible interpretation of a new window definition.
+	reloadLimiters := func(ctx context.Context) {
+		set := func(l *ratelimit.Limiter, requestsKey, windowKey string, fallbackRequests, fallbackWindow int) {
+			requests := settings.Int(ctx, settingsStore, requestsKey, fallbackRequests, 0, 100000)
+			window := settings.Int(ctx, settingsStore, windowKey, fallbackWindow, 1, 100000)
+			l.SetConfig(requests, time.Duration(window)*time.Minute)
+		}
+		set(loginLimiter, settings.RateLimitLoginRequests, settings.RateLimitLoginWindowMinutes, rl.LoginRequests, rl.LoginWindowMinutes)
+		set(resetLimiter, settings.RateLimitResetRequests, settings.RateLimitResetWindowMinutes, rl.ResetRequests, rl.ResetWindowMinutes)
+		set(oauthTokenLimiter, settings.RateLimitOAuthTokenRequests, settings.RateLimitOAuthTokenWindowMins, rl.OAuthTokenRequests, rl.OAuthTokenWindowMinutes)
+		set(setupLimiter, settings.RateLimitSetupRequests, settings.RateLimitSetupWindowMinutes, rl.SetupRequests, rl.SetupWindowMinutes)
+		set(registerLimiter, settings.RateLimitRegisterRequests, settings.RateLimitRegisterWindowMinutes, rl.RegisterRequests, rl.RegisterWindowMinutes)
+		set(magicLinkLimiter, settings.RateLimitMagicLinkRequests, settings.RateLimitMagicLinkWindowMinutes, rl.MagicLinkRequests, rl.MagicLinkWindowMinutes)
+		accountThrottle.SetConfig(ratelimit.AccountConfig{
+			MaxFailures: settings.Int(ctx, settingsStore, settings.MaxLoginFailures, cfg.Auth.MaxLoginFailures, 0, 1000),
+			Lockout:     time.Duration(settings.Int(ctx, settingsStore, settings.LockoutMinutes, cfg.Auth.LockoutMinutes, 0, 100000)) * time.Minute,
+		})
+	}
+
 	// Start rate limiter cleanup goroutines (every 5 minutes each).
 	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter, registerLimiter, magicLinkLimiter, apiLimiter} {
 		go func() {
@@ -492,6 +514,7 @@ func run() error {
 
 	adminHandler := admin.NewHandler(userStore, userSvc, sessionSvc, appSvc, settingsStore, credStore, mfaSvc, mailer, tmpl, cfg, logger, auditSvc, authStore, authRecorder, accountThrottle, apiTokenSvc, oauthSvc)
 	adminHandler.SetProviderManager(idpStore)
+	adminHandler.SetSettingsReloader(reloadLimiters)
 
 	// Build user handler.
 	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)

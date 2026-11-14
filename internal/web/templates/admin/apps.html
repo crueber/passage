@@ -41,7 +41,9 @@
         <tr>
           <td data-label=""><a class="font-medium link" href="/admin/apps/{{.ID}}">{{.Name}}</a></td>
           <td class="td-mono text-muted" data-label="Slug">{{.Slug}}</td>
-          <td data-label="Host"><code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.HostPattern}}</code></td>
+          <td data-label="Host">
+            {{if .HostPattern}}<code class="rounded bg-raised px-1.5 py-0.5 font-mono text-xs">{{.HostPattern}}</code>{{else}}<span class="text-faint">&mdash;</span>{{end}}
+          </td>
           <td data-label="URL">
             {{if .DefaultURL}}
             <a class="link td-mono" href="{{.DefaultURL}}" target="_blank" rel="noopener noreferrer">{{.DefaultURL}}</a>
@@ -72,6 +74,8 @@
     <a href="/admin/apps/new" class="btn btn-primary btn-sm mt-2">New App</a>
   </div>
   {{end}}
+
+  {{template "admin-pagination" .Pager}}
 </main>
 {{template "admin-footer" .}}
 </body>

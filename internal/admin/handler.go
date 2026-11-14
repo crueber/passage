@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -157,10 +158,13 @@ type Handler struct {
 	apiTokens    apiTokenManager
 	providers    providerManager
 	signingKeys  signingKeyManager
-	mailer       email.Sender
-	tmpl         *template.Template
-	cfg          *config.Config
-	logger       *slog.Logger
+	// settingsReload applies constructor-bound settings (rate limits, lockout)
+	// after a save. Optional; nil in tests.
+	settingsReload func(ctx context.Context)
+	mailer         email.Sender
+	tmpl           *template.Template
+	cfg            *config.Config
+	logger         *slog.Logger
 }
 
 // NewHandler creates a new admin Handler with all dependencies wired.
@@ -204,6 +208,10 @@ func NewHandler(
 	}
 }
 
+// SetSettingsReloader wires the callback that re-applies live settings which
+// are held by running components (the rate limiters and the lockout service).
+func (h *Handler) SetSettingsReloader(fn func(ctx context.Context)) { h.settingsReload = fn }
+
 // Routes registers all admin routes on the given chi.Router.
 // The router should already be mounted at /admin and protected by RequireAdmin.
 func (h *Handler) Routes(r chi.Router) {
@@ -234,6 +242,9 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Get("/apps/{id}", h.GetEditApp)
 	r.Post("/apps/{id}", h.PostUpdateApp)
 	r.Get("/apps/{id}/oauth", h.GetAppOAuth)
+	r.Post("/apps/{id}/oauth-settings", h.PostAppOAuthSettings)
+	r.Get("/apps/{id}/policies", h.GetAppPolicies)
+	r.Post("/apps/{id}/policies", h.PostAppPolicies)
 	r.Post("/apps/{id}/delete", h.PostDeleteApp)
 	r.Post("/apps/{id}/access/{userId}/revoke", h.PostRevokeAccess)
 	r.Get("/apps/{id}/access/{userId}/assignments", h.GetAppUserAssignments)
@@ -329,6 +340,13 @@ func (h *Handler) base(r *http.Request, nav string) basePage {
 		UserName:  pageUserName(r),
 		CSRFToken: csrf.TokenFromContext(r.Context()),
 	}
+}
+
+// smtpConfigured reports whether the live SMTP settings can send mail.
+func (h *Handler) smtpConfigured(ctx context.Context) bool {
+	host := settings.String(ctx, h.settings, settings.SMTPHost, h.cfg.SMTP.Host)
+	from := settings.String(ctx, h.settings, settings.SMTPFrom, h.cfg.SMTP.From)
+	return host != "" && from != ""
 }
 
 // baseFlash constructs a basePage with an attached Flash message.
@@ -465,6 +483,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 type usersData struct {
 	basePage
 	Users  []*user.User
+	Pager  pagination
 	locked map[string]bool // lower-cased username -> currently locked
 	// mfaEnabled is user ID -> has a completed TOTP enrollment. Keyed by ID
 	// because usernames are user-editable and IDs are not.
@@ -525,9 +544,11 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		flash = flashFromQuery(code)
 	}
 
+	pager := parsePagination("/admin/users", r.URL.Query(), "page", "per_page", len(users))
 	h.render(w, r, "admin-users", usersData{
 		basePage:   h.baseFlash(r, "users", flash),
-		Users:      users,
+		Users:      pageItems(users, pager),
+		Pager:      pager,
 		locked:     locked,
 		mfaEnabled: mfaEnabled,
 	})
@@ -577,7 +598,7 @@ func (h *Handler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), h.cfg.Auth.BcryptCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), settings.Int(r.Context(), h.settings, settings.BcryptCost, h.cfg.Auth.BcryptCost, 10, 31))
 	if err != nil {
 		h.logger.Error("admin: hash password", "error", err)
 		h.render(w, r, "admin-user-form", userFormData{
@@ -651,7 +672,7 @@ func (h *Handler) GetInviteUser(w http.ResponseWriter, r *http.Request) {
 		basePage:       h.baseFlash(r, "users", flash),
 		Invitations:    invitations,
 		ExpiryDays:     invitationExpiryDaysDefault,
-		SMTPConfigured: h.cfg.SMTP.Host != "" && h.cfg.SMTP.From != "",
+		SMTPConfigured: h.smtpConfigured(r.Context()),
 	})
 }
 
@@ -669,7 +690,7 @@ func (h *Handler) PostInviteUser(w http.ResponseWriter, r *http.Request) {
 			Email:          emailAddr,
 			Name:           name,
 			ExpiryDays:     days,
-			SMTPConfigured: h.cfg.SMTP.Host != "" && h.cfg.SMTP.From != "",
+			SMTPConfigured: h.smtpConfigured(r.Context()),
 		})
 	}
 
@@ -689,7 +710,7 @@ func (h *Handler) PostInviteUser(w http.ResponseWriter, r *http.Request) {
 		renderErr("Enter a valid email address.", emailAddr, name, days)
 		return
 	}
-	if h.cfg.SMTP.Host == "" || h.cfg.SMTP.From == "" {
+	if !h.smtpConfigured(r.Context()) {
 		renderErr("Invitations are sent by email, so SMTP must be configured first (Settings → Email).", emailAddr, name, days)
 		return
 	}
@@ -1257,7 +1278,8 @@ func (h *Handler) userAppAssignmentOptions(ctx context.Context, userID, appID st
 
 type appsData struct {
 	basePage
-	Apps []*app.App
+	Apps  []*app.App
+	Pager pagination
 }
 
 // GetApps renders the app list page.
@@ -1274,16 +1296,19 @@ func (h *Handler) GetApps(w http.ResponseWriter, r *http.Request) {
 		flash = flashFromQuery(code)
 	}
 
+	pager := parsePagination("/admin/apps", r.URL.Query(), "page", "per_page", len(apps))
 	h.render(w, r, "admin-apps", appsData{
 		basePage: h.baseFlash(r, "apps", flash),
-		Apps:     apps,
+		Apps:     pageItems(apps, pager),
+		Pager:    pager,
 	})
 }
 
-// appTabs carries tab-navigation state for app sub-pages (details, OAuth, access).
+// appTabs carries tab-navigation state for app sub-pages (details, OAuth,
+// access, groups, roles, policies).
 type appTabs struct {
 	App       *app.App
-	ActiveTab string // "details", "oauth", or "access"
+	ActiveTab string // "details", "oauth", "access", "groups", "roles" or "policies"
 }
 
 type appFormData struct {
@@ -1376,32 +1401,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		DefaultURL:  strings.TrimSpace(r.FormValue("default_url")),
 		IsActive:    r.FormValue("is_active") == "on",
 	}
-	applyAppPolicy(r, a)
-	if err := applyOAuthRegistry(r, a); err != nil {
-		h.render(w, r, "admin-app-form", appFormData{
-			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: oauthRegistryFlashMessage(err)}),
-			EditApp:  a,
-			IsNew:    true,
-		})
-		return
-	}
-
-	// Parse optional per-app session duration override.
-	var appSessionDuration int
-	if raw := strings.TrimSpace(r.FormValue("session_duration_hours")); raw != "" && raw != "0" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 {
-			h.render(w, r, "admin-app-form", appFormData{
-				basePage: h.baseFlash(r, "apps", &Flash{Type: "error",
-					Message: "Session duration must be a non-negative integer (0 = use global default)."}),
-				EditApp: a,
-				IsNew:   true,
-			})
-			return
-		}
-		appSessionDuration = n
-	}
-	a.SessionDurationHours = appSessionDuration
 
 	if a.Slug == "" || a.Name == "" {
 		h.render(w, r, "admin-app-form", appFormData{
@@ -1425,15 +1424,6 @@ func (h *Handler) PostCreateApp(w http.ResponseWriter, r *http.Request) {
 		// path.Match only returns an error for syntactically malformed patterns.
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
-			EditApp:  a,
-			IsNew:    true,
-		})
-		return
-	}
-
-	if err := policy.Validate(a.Policy()); err != nil {
-		h.render(w, r, "admin-app-form", appFormData{
-			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: policyFlashMessage(err)}),
 			EditApp:  a,
 			IsNew:    true,
 		})
@@ -1484,7 +1474,7 @@ func (h *Handler) GetEditApp(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetAppOAuth renders the app OAuth Client tab.
+// GetAppOAuth renders the app OAuth tab.
 func (h *Handler) GetAppOAuth(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	a, err := h.apps.GetByID(r.Context(), id)
@@ -1498,13 +1488,157 @@ func (h *Handler) GetAppOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var flash *Flash
+	if code := r.URL.Query().Get("flash"); code != "" {
+		flash = flashFromQuery(code)
+	}
+
 	h.render(w, r, "admin-app-oauth", appFormData{
-		basePage: h.base(r, "apps"),
+		basePage: h.baseFlash(r, "apps", flash),
 		appTabs:  appTabs{App: a, ActiveTab: "oauth"},
 		EditApp:  a,
 		IsNew:    false,
 		BaseURL:  h.baseURL(),
 	})
+}
+
+// GetAppPolicies renders the optional access-policy tab.
+func (h *Handler) GetAppPolicies(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	a, err := h.apps.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			http.Redirect(w, r, "/admin/apps", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get app for policies tab", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	var flash *Flash
+	if code := r.URL.Query().Get("flash"); code != "" {
+		flash = flashFromQuery(code)
+	}
+
+	h.render(w, r, "admin-app-policies", appFormData{
+		basePage: h.baseFlash(r, "apps", flash),
+		appTabs:  appTabs{App: a, ActiveTab: "policies"},
+		EditApp:  a,
+		IsNew:    false,
+	})
+}
+
+// PostAppPolicies saves only the optional access-policy fields, so saving the
+// Details tab can never rewrite a policy (and vice versa).
+func (h *Handler) PostAppPolicies(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/policies", id), http.StatusFound)
+		return
+	}
+
+	a, err := h.apps.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			http.Redirect(w, r, "/admin/apps", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get app for policy update", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	applyAppPolicy(r, a)
+	if err := policy.Validate(a.Policy()); err != nil {
+		h.render(w, r, "admin-app-policies", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: policyFlashMessage(err)}),
+			appTabs:  appTabs{App: a, ActiveTab: "policies"},
+			EditApp:  a,
+			IsNew:    false,
+		})
+		return
+	}
+
+	if err := h.apps.Update(r.Context(), a); err != nil {
+		h.logger.Error("admin: update app policies", "id", id, "error", err)
+		h.render(w, r, "admin-app-policies", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Failed to save policies."}),
+			appTabs:  appTabs{App: a, ActiveTab: "policies"},
+			EditApp:  a,
+			IsNew:    false,
+		})
+		return
+	}
+
+	h.logAudit(r, AuditActionAppUpdate, "app", a.ID, a.Name)
+	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/policies?flash=updated", id), http.StatusFound)
+}
+
+// parseAppSessionDuration reads the optional per-app OAuth session lifetime.
+func parseAppSessionDuration(r *http.Request) (int, error) {
+	raw := strings.TrimSpace(r.FormValue("session_duration_hours"))
+	if raw == "" || raw == "0" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 || n > 8760 {
+		return 0, errors.New("Session duration must be a whole number between 0 and 8760 (0 = use the global default).")
+	}
+	return n, nil
+}
+
+// PostAppOAuthSettings saves the OAuth-only settings (session lifetime and the
+// scope/audience registries) without touching the core Details fields.
+func (h *Handler) PostAppOAuthSettings(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/oauth", id), http.StatusFound)
+		return
+	}
+
+	a, err := h.apps.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, app.ErrNotFound) {
+			http.Redirect(w, r, "/admin/apps", http.StatusFound)
+			return
+		}
+		h.logger.Error("admin: get app for oauth settings", "id", id, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	renderErr := func(msg string) {
+		h.render(w, r, "admin-app-oauth", appFormData{
+			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
+			appTabs:  appTabs{App: a, ActiveTab: "oauth"},
+			EditApp:  a,
+			IsNew:    false,
+			BaseURL:  h.baseURL(),
+		})
+	}
+
+	if err := applyOAuthRegistry(r, a); err != nil {
+		renderErr(oauthRegistryFlashMessage(err))
+		return
+	}
+	duration, err := parseAppSessionDuration(r)
+	if err != nil {
+		renderErr(err.Error())
+		return
+	}
+	a.SessionDurationHours = duration
+
+	if err := h.apps.Update(r.Context(), a); err != nil {
+		h.logger.Error("admin: update app oauth settings", "id", id, "error", err)
+		renderErr("Failed to save OAuth settings.")
+		return
+	}
+
+	h.logAudit(r, AuditActionAppUpdate, "app", a.ID, a.Name)
+	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/oauth?flash=updated", id), http.StatusFound)
 }
 
 // PostUpdateApp saves changes to an existing app.
@@ -1533,34 +1667,6 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 	a.HostPattern = strings.TrimSpace(r.FormValue("host_pattern"))
 	a.DefaultURL = strings.TrimSpace(r.FormValue("default_url"))
 	a.IsActive = r.FormValue("is_active") == "on"
-	applyAppPolicy(r, a)
-	if err := applyOAuthRegistry(r, a); err != nil {
-		h.render(w, r, "admin-app-form", appFormData{
-			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: oauthRegistryFlashMessage(err)}),
-			appTabs:  appTabs{App: a, ActiveTab: "details"},
-			EditApp:  a,
-			IsNew:    false,
-		})
-		return
-	}
-
-	// Parse optional per-app session duration override.
-	var appSessionDuration int
-	if raw := strings.TrimSpace(r.FormValue("session_duration_hours")); raw != "" && raw != "0" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 {
-			h.render(w, r, "admin-app-form", appFormData{
-				basePage: h.baseFlash(r, "apps", &Flash{Type: "error",
-					Message: "Session duration must be a non-negative integer (0 = use global default)."}),
-				appTabs: appTabs{App: a, ActiveTab: "details"},
-				EditApp: a,
-				IsNew:   false,
-			})
-			return
-		}
-		appSessionDuration = n
-	}
-	a.SessionDurationHours = appSessionDuration
 
 	// Parse redirect_uris from textarea (one per line, trim whitespace, drop blanks).
 	rawURIs := r.FormValue("redirect_uris")
@@ -1597,16 +1703,6 @@ func (h *Handler) PostUpdateApp(w http.ResponseWriter, r *http.Request) {
 		// path.Match only returns an error for syntactically malformed patterns.
 		h.render(w, r, "admin-app-form", appFormData{
 			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: "Host pattern is malformed: " + err.Error()}),
-			appTabs:  appTabs{App: a, ActiveTab: "details"},
-			EditApp:  a,
-			IsNew:    false,
-		})
-		return
-	}
-
-	if err := policy.Validate(a.Policy()); err != nil {
-		h.render(w, r, "admin-app-form", appFormData{
-			basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: policyFlashMessage(err)}),
 			appTabs:  appTabs{App: a, ActiveTab: "details"},
 			EditApp:  a,
 			IsNew:    false,
@@ -1763,6 +1859,8 @@ type appAccessData struct {
 	appTabs
 	UsersWithAccess    []userWithAccess
 	UsersWithoutAccess []*user.User
+	WithPager          pagination
+	WithoutPager       pagination
 }
 
 // appWithAccess bundles an app with whether the given user has access,
@@ -1785,7 +1883,7 @@ type userAppsData struct {
 // loadAppAccessData loads the app plus its with/without-access user lists and
 // builds the appAccessData for the access page. Shared by the page render and
 // the htmx out-of-band refresh after revoke.
-func (h *Handler) loadAppAccessData(r *http.Request, appID string, flash *Flash) (*appAccessData, error) {
+func (h *Handler) loadAppAccessData(r *http.Request, appID string, flash *Flash, q url.Values) (*appAccessData, error) {
 	ctx := r.Context()
 
 	a, err := h.apps.GetByID(ctx, appID)
@@ -1829,11 +1927,17 @@ func (h *Handler) loadAppAccessData(r *http.Request, appID string, flash *Flash)
 		}
 	}
 
+	basePath := fmt.Sprintf("/admin/apps/%s/access", appID)
+	withPager := parsePagination(basePath, q, "with_page", "per_page", len(withAccess))
+	withoutPager := parsePagination(basePath, q, "without_page", "per_page", len(withoutAccess))
+
 	return &appAccessData{
 		basePage:           h.baseFlash(r, "apps", flash),
 		appTabs:            appTabs{App: a, ActiveTab: "access"},
-		UsersWithAccess:    withAccess,
-		UsersWithoutAccess: withoutAccess,
+		UsersWithAccess:    pageItems(withAccess, withPager),
+		UsersWithoutAccess: pageItems(withoutAccess, withoutPager),
+		WithPager:          withPager,
+		WithoutPager:       withoutPager,
 	}, nil
 }
 
@@ -1846,7 +1950,7 @@ func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
 		flash = flashFromQuery(code)
 	}
 
-	data, err := h.loadAppAccessData(r, id, flash)
+	data, err := h.loadAppAccessData(r, id, flash, r.URL.Query())
 	if err != nil {
 		if errors.Is(err, app.ErrNotFound) {
 			http.Redirect(w, r, "/admin/apps", http.StatusFound)
@@ -1860,6 +1964,26 @@ func (h *Handler) GetAppAccess(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "admin-app-access", data)
 }
 
+// paginationQuery carries the access list's page state through a grant or
+// revoke POST, so the operator stays on the page they acted from.
+func paginationQuery(r *http.Request) url.Values {
+	q := url.Values{}
+	for _, key := range []string{"per_page", "with_page", "without_page"} {
+		if v := strings.TrimSpace(r.FormValue(key)); v != "" {
+			q.Set(key, v)
+		}
+	}
+	return q
+}
+
+func appAccessURL(appID string, q url.Values) string {
+	base := fmt.Sprintf("/admin/apps/%s/access", appID)
+	if len(q) == 0 {
+		return base
+	}
+	return base + "?" + q.Encode()
+}
+
 // PostGrantAccess grants a user access to an app.
 func (h *Handler) PostGrantAccess(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
@@ -1870,7 +1994,7 @@ func (h *Handler) PostGrantAccess(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.FormValue("user_id")
 	if userID == "" {
-		http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access", appID), http.StatusFound)
+		http.Redirect(w, r, appAccessURL(appID, paginationQuery(r)), http.StatusFound)
 		return
 	}
 
@@ -1887,17 +2011,20 @@ func (h *Handler) PostGrantAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logAudit(r, AuditActionAppGrantAccess, "app", appID, appName)
 	// No success flash: the user's move between the tables is the feedback.
-	http.Redirect(w, r, fmt.Sprintf("/admin/apps/%s/access", appID), http.StatusFound)
+	http.Redirect(w, r, appAccessURL(appID, paginationQuery(r)), http.StatusFound)
 }
 
 // PostRevokeAccess revokes a user's access to an app.
 func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
 	userID := chi.URLParam(r, "userId")
+	_ = r.ParseForm()
+
+	q := paginationQuery(r)
+	redirectURL := appAccessURL(appID, q)
 
 	if err := h.apps.RevokeAccess(r.Context(), userID, appID); err != nil {
 		h.logger.Error("admin: revoke access", "user_id", userID, "app_id", appID, "error", err)
-		redirectURL := fmt.Sprintf("/admin/apps/%s/access?flash=error", appID)
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("HX-Redirect", redirectURL)
 			return
@@ -1912,7 +2039,6 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 		appName = a.Name
 	}
 	h.logAudit(r, AuditActionAppRevokeAccess, "app", appID, appName)
-	redirectURL := fmt.Sprintf("/admin/apps/%s/access", appID)
 	// No-JS fallback: full redirect re-renders both sections.
 	if r.Header.Get("HX-Request") != "true" {
 		http.Redirect(w, r, redirectURL, http.StatusFound)
@@ -1922,7 +2048,7 @@ func (h *Handler) PostRevokeAccess(w http.ResponseWriter, r *http.Request) {
 	// htmx: out-of-band refresh of both tables so the revoked user moves
 	// from "Users with access" to "Users without access" without a full
 	// page reload. The revoke form swaps its own row away via hx-swap="delete".
-	data, err := h.loadAppAccessData(r, appID, nil)
+	data, err := h.loadAppAccessData(r, appID, nil, q)
 	if err != nil {
 		h.logger.Error("admin: revoke access oob reload", "app_id", appID, "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -2110,6 +2236,9 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logAudit(r, AuditActionSettingsUpdate, "settings", "", sec.ID)
+	if h.settingsReload != nil {
+		h.settingsReload(ctx)
+	}
 	http.Redirect(w, r, "/admin/settings?tab="+sec.ID+"&flash=updated", http.StatusFound)
 }
 

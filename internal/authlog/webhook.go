@@ -50,6 +50,18 @@ type webhookPayload struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// WebhookConfig is resolved per delivery so a URL, secret or timeout changed in
+// the admin UI applies without restarting the process.
+type WebhookConfig struct {
+	Endpoint string
+	Secret   string
+	Timeout  time.Duration
+}
+
+// WebhookConfigFunc supplies the current webhook configuration. It is called
+// on the delivery worker, never on the request path.
+type WebhookConfigFunc func(ctx context.Context) WebhookConfig
+
 // WebhookNotifier delivers recorded authentication events to an HTTP endpoint
 // as JSON, optionally HMAC-SHA256 signed. It is the optional second sink on the
 // Recorder: the SQLite store is authoritative and always written first.
@@ -60,11 +72,12 @@ type webhookPayload struct {
 // audit trail — the auth event log remains the source of truth. A dead or
 // hanging endpoint can therefore never slow down or fail an authentication.
 type WebhookNotifier struct {
-	url     string
-	secret  string
-	timeout time.Duration
-	client  *http.Client
-	logger  *slog.Logger
+	url      string
+	secret   string
+	timeout  time.Duration
+	provider WebhookConfigFunc // optional; takes precedence when set
+	client   *http.Client
+	logger   *slog.Logger
 
 	events chan Event
 
@@ -79,28 +92,28 @@ type WebhookNotifier struct {
 // with HMAC-SHA256 under it. timeout bounds one delivery attempt.
 //
 // The returned notifier does nothing until Start is called.
-func NewWebhookNotifier(endpoint, secret string, timeout time.Duration, logger *slog.Logger) (*WebhookNotifier, error) {
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("authlog webhook: parse endpoint: %w", err)
+func NewWebhookNotifier(endpoint, secret string, timeout time.Duration, logger *slog.Logger, providers ...WebhookConfigFunc) (*WebhookNotifier, error) {
+	var provider WebhookConfigFunc
+	if len(providers) > 0 {
+		provider = providers[0]
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("authlog webhook: endpoint scheme must be http or https, got %q", u.Scheme)
-	}
-	if u.Host == "" {
-		return nil, fmt.Errorf("authlog webhook: endpoint %q has no host", endpoint)
-	}
-	if timeout <= 0 {
-		return nil, fmt.Errorf("authlog webhook: timeout must be positive, got %s", timeout)
+	if provider == nil {
+		if err := validateWebhookEndpoint(endpoint); err != nil {
+			return nil, err
+		}
+		if timeout <= 0 {
+			return nil, fmt.Errorf("authlog webhook: timeout must be positive, got %s", timeout)
+		}
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	return &WebhookNotifier{
-		url:     endpoint,
-		secret:  secret,
-		timeout: timeout,
+		url:      endpoint,
+		secret:   secret,
+		timeout:  timeout,
+		provider: provider,
 		client: &http.Client{
 			// A webhook endpoint must answer where the operator pointed it.
 			// Following a redirect would send events — and the signature —
@@ -113,6 +126,20 @@ func NewWebhookNotifier(endpoint, secret string, timeout time.Duration, logger *
 		events: make(chan Event, webhookQueueSize),
 		done:   make(chan struct{}),
 	}, nil
+}
+
+func validateWebhookEndpoint(endpoint string) error {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("authlog webhook: parse endpoint: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("authlog webhook: endpoint scheme must be http or https, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("authlog webhook: endpoint %q has no host", endpoint)
+	}
+	return nil
 }
 
 // Start launches the single delivery worker on ctx and returns immediately.
@@ -180,6 +207,22 @@ func (w *WebhookNotifier) run(ctx context.Context) {
 // deliver makes one POST attempt. Failures are logged, never returned: the
 // worker has nowhere to retry to.
 func (w *WebhookNotifier) deliver(ctx context.Context, e Event) {
+	endpoint, secret, timeout := w.url, w.secret, w.timeout
+	if w.provider != nil {
+		cfg := w.provider(ctx)
+		endpoint, secret, timeout = cfg.Endpoint, cfg.Secret, cfg.Timeout
+	}
+	if endpoint == "" {
+		return
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	if err := validateWebhookEndpoint(endpoint); err != nil {
+		w.logger.Warn("authlog webhook: invalid endpoint", "event", e.Event, "error", err)
+		return
+	}
+
 	body, err := json.Marshal(webhookPayload{
 		Event:     e.Event,
 		Outcome:   e.Outcome,
@@ -195,18 +238,18 @@ func (w *WebhookNotifier) deliver(ctx context.Context, e Event) {
 		return
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, w.timeout)
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, w.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		w.logger.Warn("authlog webhook: build request", "event", e.Event, "error", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", webhookUserAgent)
-	if w.secret != "" {
-		req.Header.Set(webhookSignatureHeader, signBody(w.secret, body))
+	if secret != "" {
+		req.Header.Set(webhookSignatureHeader, signBody(secret, body))
 	}
 
 	resp, err := w.client.Do(req)

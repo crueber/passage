@@ -2230,9 +2230,9 @@ func TestAdminApps_Create_DefaultURL(t *testing.T) {
 	}
 }
 
-// ─── PostCreateApp session_duration_hours validation ──────────────────────────
+// ─── PostAppOAuthSettings session_duration_hours validation ──────────────────
 
-func TestPostCreateApp_SessionDuration(t *testing.T) {
+func TestPostAppOAuthSettings_SessionDuration(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name                     string
@@ -2264,6 +2264,11 @@ func TestPostCreateApp_SessionDuration(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:       "over the maximum is rejected",
+			inputValue: "9000",
+			wantStatus: http.StatusOK,
+		},
+		{
 			name:       "non-numeric value is rejected",
 			inputValue: "abc",
 			wantStatus: http.StatusOK,
@@ -2277,14 +2282,17 @@ func TestPostCreateApp_SessionDuration(t *testing.T) {
 			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
 			token := createSession(t, f, adminUser.ID)
 			router := buildAdminRouter(f)
+			ctx := context.Background()
+
+			a := &app.App{Slug: "session-duration-test", Name: "Session Duration Test", IsActive: true}
+			if err := f.appSvc.Create(ctx, a); err != nil {
+				t.Fatalf("seed app: %v", err)
+			}
 
 			form := url.Values{}
-			form.Set("slug", "session-duration-test")
-			form.Set("name", "Session Duration Test")
-			form.Set("is_active", "on")
 			form.Set("session_duration_hours", tc.inputValue)
 
-			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+a.ID+"/oauth-settings", token, f.cfg.Session.CookieName,
 				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 			res := rec.Result()
 
@@ -2294,16 +2302,16 @@ func TestPostCreateApp_SessionDuration(t *testing.T) {
 
 			if tc.wantStatus == http.StatusOK {
 				body := rec.Body.String()
-				if !strings.Contains(body, "Session duration must be a non-negative integer") {
+				if !strings.Contains(body, "Session duration must be a whole number between 0 and 8760") {
 					t.Errorf("session_duration_hours %q: response does not contain expected error message; got: %s", tc.inputValue, body)
 				}
 				return
 			}
 
 			// Redirect case: verify the stored value.
-			created, err := f.appStore.GetBySlug(context.Background(), "session-duration-test")
+			created, err := f.appStore.GetByID(ctx, a.ID)
 			if err != nil {
-				t.Fatalf("get app by slug: %v", err)
+				t.Fatalf("get app by id: %v", err)
 			}
 			if created.SessionDurationHours != tc.wantSessionDurationHours {
 				t.Errorf("session_duration_hours %q: got SessionDurationHours %d, want %d",

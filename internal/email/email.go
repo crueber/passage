@@ -13,6 +13,7 @@ import (
 	mail "github.com/wneessen/go-mail"
 
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/settings"
 )
 
 //go:embed templates/*.html templates/*.txt
@@ -56,6 +57,7 @@ type inviteData struct {
 // SMTPSender sends emails via SMTP using go-mail.
 type SMTPSender struct {
 	cfg               *config.Config
+	settings          settings.Store // optional; live SMTP settings when wired
 	logger            *slog.Logger
 	htmlTmpl          *template.Template
 	textTmpl          *ttext.Template
@@ -68,7 +70,11 @@ type SMTPSender struct {
 }
 
 // NewSMTPSender creates a new SMTPSender. Templates are parsed at construction time.
-func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error) {
+func NewSMTPSender(cfg *config.Config, logger *slog.Logger, stores ...settings.Store) (*SMTPSender, error) {
+	var st settings.Store
+	if len(stores) > 0 {
+		st = stores[0]
+	}
 	htmlTmpl, err := template.ParseFS(templateFS, "templates/password_reset.html")
 	if err != nil {
 		return nil, fmt.Errorf("email: parse html template: %w", err)
@@ -103,6 +109,7 @@ func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error)
 	}
 	return &SMTPSender{
 		cfg:               cfg,
+		settings:          st,
 		logger:            logger,
 		htmlTmpl:          htmlTmpl,
 		textTmpl:          textTmpl,
@@ -115,10 +122,28 @@ func NewSMTPSender(cfg *config.Config, logger *slog.Logger) (*SMTPSender, error)
 	}, nil
 }
 
+// smtpConfig reads the live SMTP settings, falling back to the startup config
+// snapshot. A change in the admin UI therefore applies to the next email
+// without restarting the process.
+func (s *SMTPSender) smtpConfig(ctx context.Context) config.SMTPConfig {
+	c := s.cfg.SMTP
+	if s.settings == nil {
+		return c
+	}
+	c.Host = settings.String(ctx, s.settings, settings.SMTPHost, c.Host)
+	c.Port = settings.Int(ctx, s.settings, settings.SMTPPort, c.Port, 1, 65535)
+	c.Username = settings.String(ctx, s.settings, settings.SMTPUsername, c.Username)
+	c.Password = settings.String(ctx, s.settings, settings.SMTPPassword, c.Password)
+	c.TLS = settings.String(ctx, s.settings, settings.SMTPTLS, c.TLS)
+	c.From = settings.String(ctx, s.settings, settings.SMTPFrom, c.From)
+	return c
+}
+
 // SendPasswordReset sends a password reset email to the given recipient.
 // If SMTP host is not configured, an error is returned.
 func (s *SMTPSender) SendPasswordReset(ctx context.Context, toEmail, toName, resetURL string) error {
-	if s.cfg.SMTP.Host == "" {
+	smtp := s.smtpConfig(ctx)
+	if smtp.Host == "" {
 		s.logger.Warn("SMTP not configured: cannot send password reset email", "to", toEmail)
 		return fmt.Errorf("email: SMTP host is not configured")
 	}
@@ -135,12 +160,12 @@ func (s *SMTPSender) SendPasswordReset(ctx context.Context, toEmail, toName, res
 
 	// Build the go-mail client options.
 	opts := []mail.Option{
-		mail.WithPort(s.cfg.SMTP.Port),
+		mail.WithPort(smtp.Port),
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithUsername(s.cfg.SMTP.Username),
-		mail.WithPassword(s.cfg.SMTP.Password),
+		mail.WithUsername(smtp.Username),
+		mail.WithPassword(smtp.Password),
 	}
-	switch s.cfg.SMTP.TLS {
+	switch smtp.TLS {
 	case "tls":
 		opts = append(opts, mail.WithSSL())
 	case "none":
@@ -149,13 +174,13 @@ func (s *SMTPSender) SendPasswordReset(ctx context.Context, toEmail, toName, res
 		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
 	}
 
-	client, err := mail.NewClient(s.cfg.SMTP.Host, opts...)
+	client, err := mail.NewClient(smtp.Host, opts...)
 	if err != nil {
 		return fmt.Errorf("email: create smtp client: %w", err)
 	}
 
 	msg := mail.NewMsg()
-	if err := msg.From(s.cfg.SMTP.From); err != nil {
+	if err := msg.From(smtp.From); err != nil {
 		return fmt.Errorf("email: set from: %w", err)
 	}
 	if err := msg.AddToFormat(toName, toEmail); err != nil {
@@ -174,7 +199,8 @@ func (s *SMTPSender) SendPasswordReset(ctx context.Context, toEmail, toName, res
 // SendMagicLink sends a magic sign-in link email to the given recipient.
 // If SMTP host is not configured, an error is returned.
 func (s *SMTPSender) SendMagicLink(ctx context.Context, toEmail, toName, magicURL string) error {
-	if s.cfg.SMTP.Host == "" {
+	smtp := s.smtpConfig(ctx)
+	if smtp.Host == "" {
 		s.logger.Warn("SMTP not configured: cannot send magic link email", "to", toEmail)
 		return fmt.Errorf("email: SMTP host is not configured")
 	}
@@ -191,12 +217,12 @@ func (s *SMTPSender) SendMagicLink(ctx context.Context, toEmail, toName, magicUR
 
 	// Build the go-mail client options.
 	opts := []mail.Option{
-		mail.WithPort(s.cfg.SMTP.Port),
+		mail.WithPort(smtp.Port),
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithUsername(s.cfg.SMTP.Username),
-		mail.WithPassword(s.cfg.SMTP.Password),
+		mail.WithUsername(smtp.Username),
+		mail.WithPassword(smtp.Password),
 	}
-	switch s.cfg.SMTP.TLS {
+	switch smtp.TLS {
 	case "tls":
 		opts = append(opts, mail.WithSSL())
 	case "none":
@@ -205,13 +231,13 @@ func (s *SMTPSender) SendMagicLink(ctx context.Context, toEmail, toName, magicUR
 		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
 	}
 
-	client, err := mail.NewClient(s.cfg.SMTP.Host, opts...)
+	client, err := mail.NewClient(smtp.Host, opts...)
 	if err != nil {
 		return fmt.Errorf("email: create smtp client: %w", err)
 	}
 
 	msg := mail.NewMsg()
-	if err := msg.From(s.cfg.SMTP.From); err != nil {
+	if err := msg.From(smtp.From); err != nil {
 		return fmt.Errorf("email: set from: %w", err)
 	}
 	if err := msg.AddToFormat(toName, toEmail); err != nil {
@@ -231,7 +257,8 @@ func (s *SMTPSender) SendMagicLink(ctx context.Context, toEmail, toName, magicUR
 // If SMTP is not usable, an error is returned and the caller must keep the
 // account usable (unverified) rather than failing the registration.
 func (s *SMTPSender) SendVerifyEmail(ctx context.Context, toEmail, toName, verifyURL string) error {
-	if s.cfg.SMTP.Host == "" || s.cfg.SMTP.From == "" {
+	smtp := s.smtpConfig(ctx)
+	if smtp.Host == "" || smtp.From == "" {
 		s.logger.Warn("SMTP not configured: cannot send verification email", "to", toEmail)
 		return fmt.Errorf("email: SMTP host or from address is not configured")
 	}
@@ -248,12 +275,12 @@ func (s *SMTPSender) SendVerifyEmail(ctx context.Context, toEmail, toName, verif
 
 	// Build the go-mail client options.
 	opts := []mail.Option{
-		mail.WithPort(s.cfg.SMTP.Port),
+		mail.WithPort(smtp.Port),
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithUsername(s.cfg.SMTP.Username),
-		mail.WithPassword(s.cfg.SMTP.Password),
+		mail.WithUsername(smtp.Username),
+		mail.WithPassword(smtp.Password),
 	}
-	switch s.cfg.SMTP.TLS {
+	switch smtp.TLS {
 	case "tls":
 		opts = append(opts, mail.WithSSL())
 	case "none":
@@ -262,13 +289,13 @@ func (s *SMTPSender) SendVerifyEmail(ctx context.Context, toEmail, toName, verif
 		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
 	}
 
-	client, err := mail.NewClient(s.cfg.SMTP.Host, opts...)
+	client, err := mail.NewClient(smtp.Host, opts...)
 	if err != nil {
 		return fmt.Errorf("email: create smtp client: %w", err)
 	}
 
 	msg := mail.NewMsg()
-	if err := msg.From(s.cfg.SMTP.From); err != nil {
+	if err := msg.From(smtp.From); err != nil {
 		return fmt.Errorf("email: set from: %w", err)
 	}
 	if err := msg.AddToFormat(toName, toEmail); err != nil {
@@ -288,7 +315,8 @@ func (s *SMTPSender) SendVerifyEmail(ctx context.Context, toEmail, toName, verif
 // account. If SMTP is not usable an error is returned and the caller should not
 // leave a dangling invitation behind.
 func (s *SMTPSender) SendInvite(ctx context.Context, toEmail, toName, inviter, inviteURL string, expiresIn time.Duration) error {
-	if s.cfg.SMTP.Host == "" || s.cfg.SMTP.From == "" {
+	smtp := s.smtpConfig(ctx)
+	if smtp.Host == "" || smtp.From == "" {
 		s.logger.Warn("SMTP not configured: cannot send invitation email", "to", toEmail)
 		return fmt.Errorf("email: SMTP host or from address is not configured")
 	}
@@ -310,12 +338,12 @@ func (s *SMTPSender) SendInvite(ctx context.Context, toEmail, toName, inviter, i
 
 	// Build the go-mail client options.
 	opts := []mail.Option{
-		mail.WithPort(s.cfg.SMTP.Port),
+		mail.WithPort(smtp.Port),
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithUsername(s.cfg.SMTP.Username),
-		mail.WithPassword(s.cfg.SMTP.Password),
+		mail.WithUsername(smtp.Username),
+		mail.WithPassword(smtp.Password),
 	}
-	switch s.cfg.SMTP.TLS {
+	switch smtp.TLS {
 	case "tls":
 		opts = append(opts, mail.WithSSL())
 	case "none":
@@ -324,13 +352,13 @@ func (s *SMTPSender) SendInvite(ctx context.Context, toEmail, toName, inviter, i
 		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
 	}
 
-	client, err := mail.NewClient(s.cfg.SMTP.Host, opts...)
+	client, err := mail.NewClient(smtp.Host, opts...)
 	if err != nil {
 		return fmt.Errorf("email: create smtp client: %w", err)
 	}
 
 	msg := mail.NewMsg()
-	if err := msg.From(s.cfg.SMTP.From); err != nil {
+	if err := msg.From(smtp.From); err != nil {
 		return fmt.Errorf("email: set from: %w", err)
 	}
 	if err := msg.AddToFormat(toName, toEmail); err != nil {

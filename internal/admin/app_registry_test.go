@@ -10,13 +10,9 @@ import (
 	"github.com/crueber/passage/internal/app"
 )
 
-// registryForm returns a minimal valid app form with the OAuth registry
-// textareas applied on top.
-func registryForm(slug, name, scopes, resources string) url.Values {
+// registryForm returns an OAuth-settings form with both registries applied.
+func registryForm(scopes, resources string) url.Values {
 	return url.Values{
-		"slug":      {slug},
-		"name":      {name},
-		"is_active": {"on"},
 		"scopes":    {scopes},
 		"resources": {resources},
 	}
@@ -62,15 +58,15 @@ func TestAdminApps_OAuthRegistry_RoundTrip(t *testing.T) {
 			token := createSession(t, f, adminUser.ID)
 			router := buildAdminRouter(f)
 			ctx := context.Background()
-
-			form := registryForm("registry-app", "Registry App", tc.scopes, tc.resources)
-			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+			created := createCoreApp(t, f, router, token, "registry-app", "Registry App")
+			form := registryForm(tc.scopes, tc.resources)
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/oauth-settings", token, f.cfg.Session.CookieName,
 				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 			if got := rec.Result().StatusCode; got != http.StatusFound {
-				t.Fatalf("create: status %d, want 302; body: %s", got, rec.Body.String())
+				t.Fatalf("save oauth settings: status %d, want 302; body: %s", got, rec.Body.String())
 			}
 
-			stored, err := f.appStore.GetBySlug(ctx, "registry-app")
+			stored, err := f.appStore.GetByID(ctx, created.ID)
 			if err != nil {
 				t.Fatalf("get created app: %v", err)
 			}
@@ -109,19 +105,15 @@ func TestAdminApps_OAuthRegistry_Validation(t *testing.T) {
 			adminUser := createAdminUser(t, f, "admin", "admin@example.com")
 			token := createSession(t, f, adminUser.ID)
 			router := buildAdminRouter(f)
-			ctx := context.Background()
-
-			form := registryForm("registry-invalid", "Registry Invalid", tc.scopes, tc.resources)
-			rec := adminRequest(t, router, http.MethodPost, "/admin/apps", token, f.cfg.Session.CookieName,
+			created := createCoreApp(t, f, router, token, "registry-invalid", "Registry Invalid")
+			form := registryForm(tc.scopes, tc.resources)
+			rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/oauth-settings", token, f.cfg.Session.CookieName,
 				strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 			if got := rec.Result().StatusCode; got != http.StatusOK {
 				t.Fatalf("status = %d, want 200 (re-render); body: %s", got, rec.Body.String())
 			}
 			if !strings.Contains(rec.Body.String(), tc.wantInMsg) {
 				t.Errorf("body does not contain %q: %s", tc.wantInMsg, rec.Body.String())
-			}
-			if _, err := f.appStore.GetBySlug(ctx, "registry-invalid"); err == nil {
-				t.Error("invalid registry created an app, want no app")
 			}
 		})
 	}
@@ -150,8 +142,8 @@ func TestAdminApps_OAuthRegistry_Update(t *testing.T) {
 		t.Fatalf("get app: %v", err)
 	}
 
-	form := registryForm("registry-update", "Registry Update", "openid\nprofile", "https://api.example.com")
-	rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+	form := registryForm("openid\nprofile", "https://api.example.com")
+	rec := adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/oauth-settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if got := rec.Result().StatusCode; got != http.StatusFound {
 		t.Fatalf("update: status %d, want 302; body: %s", got, rec.Body.String())
@@ -166,8 +158,8 @@ func TestAdminApps_OAuthRegistry_Update(t *testing.T) {
 		t.Errorf("stored registry = scopes %v resources %v", stored.AllowedScopes, stored.AllowedResources)
 	}
 
-	bad := registryForm("registry-update", "Registry Update", "openid", "not a uri")
-	rec = adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName,
+	bad := registryForm("openid", "not a uri")
+	rec = adminRequest(t, router, http.MethodPost, "/admin/apps/"+created.ID+"/oauth-settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(bad.Encode()), "application/x-www-form-urlencoded")
 	if got := rec.Result().StatusCode; got != http.StatusOK {
 		t.Fatalf("invalid update: status %d, want 200 (re-render)", got)
@@ -210,7 +202,7 @@ func TestAdminApps_EditForm_RendersOAuthRegistry(t *testing.T) {
 		t.Fatalf("get app: %v", err)
 	}
 
-	rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+created.ID, token, f.cfg.Session.CookieName, nil, "")
+	rec := adminRequest(t, router, http.MethodGet, "/admin/apps/"+created.ID+"/oauth", token, f.cfg.Session.CookieName, nil, "")
 	if got := rec.Result().StatusCode; got != http.StatusOK {
 		t.Fatalf("edit form: status %d, want 200", got)
 	}

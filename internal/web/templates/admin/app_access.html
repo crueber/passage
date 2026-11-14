@@ -39,8 +39,9 @@
       </tbody>
     </table>
   </div>
+  <div id="with-access-pager">{{template "admin-pagination" .WithPager}}</div>
 
-  <h2 class="mb-3 font-semibold text-ink">Users without access</h2>
+  <h2 class="mt-8 mb-3 font-semibold text-ink">Users without access</h2>
   <div class="table-wrap">
     <table class="table">
       <thead>
@@ -55,6 +56,7 @@
       </tbody>
     </table>
   </div>
+  <div id="without-access-pager">{{template "admin-pagination" .WithoutPager}}</div>
 </main>
 {{template "admin-footer" .}}
 </body>
@@ -75,6 +77,9 @@
                         hx-target="closest tr"
                         hx-swap="delete">
                     {{csrfField $.CSRFToken}}
+                    <input type="hidden" name="per_page" value="{{$.WithPager.Size}}">
+                    <input type="hidden" name="with_page" value="{{$.WithPager.Page}}">
+                    <input type="hidden" name="without_page" value="{{$.WithoutPager.Page}}">
                     <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
                   </form>
                   </div>
@@ -103,6 +108,9 @@
                         action="/admin/apps/{{$.App.ID}}/access">
                     {{csrfField $.CSRFToken}}
                     <input type="hidden" name="user_id" value="{{.ID}}">
+                    <input type="hidden" name="per_page" value="{{$.WithPager.Size}}">
+                    <input type="hidden" name="with_page" value="{{$.WithPager.Page}}">
+                    <input type="hidden" name="without_page" value="{{$.WithoutPager.Page}}">
                     <button type="submit" class="btn btn-primary btn-sm">Grant</button>
                   </form>
 {{else}}
@@ -119,4 +127,6 @@
 {{define "admin-app-access-revoke-oob"}}
 <tbody id="users-with-access" hx-swap-oob="true">{{template "admin-app-access-with-rows" .}}</tbody>
 <tbody id="users-without-access" hx-swap-oob="true">{{template "admin-app-access-without-rows" .}}</tbody>
+<div id="with-access-pager" hx-swap-oob="true">{{template "admin-pagination" .WithPager}}</div>
+<div id="without-access-pager" hx-swap-oob="true">{{template "admin-pagination" .WithoutPager}}</div>
 {{end}}

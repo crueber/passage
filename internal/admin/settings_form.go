@@ -46,9 +46,6 @@ type settingsField struct {
 	// Text/password fields.
 	MaxLen      int
 	Placeholder string
-	// Restart marks a setting a constructor reads at startup, so a change
-	// applies on the next start.
-	Restart bool
 	// Options for select/radio.
 	Options []settingsOption
 }
@@ -99,7 +96,7 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 					Min:  1, Max: 8760, Value: value(settings.SessionDurationHours)},
 				{Kind: kindNumber, Key: settings.SessionIdleTimeoutMinutes, Label: "Sign out after inactivity (minutes)",
 					Help: "0 keeps the session until its duration runs out, however long the gap.",
-					Min:  0, Max: 8760, Value: value(settings.SessionIdleTimeoutMinutes), Restart: true},
+					Min:  0, Max: 8760, Value: value(settings.SessionIdleTimeoutMinutes)},
 				{Kind: kindSelect, Key: settings.Theme, Label: "Server default theme",
 					Help:    "The default for everyone. Each person can choose their own under Profile.",
 					Value:   value(settings.Theme),
@@ -142,13 +139,13 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 					Value: boolString(boolValue(settings.RequireMFA))},
 				{Kind: kindNumber, Key: settings.MaxLoginFailures, Label: "Failed sign-ins before a lockout",
 					Help: "0 disables per-account throttling.",
-					Min:  0, Max: 1000, Value: value(settings.MaxLoginFailures), Restart: true},
+					Min:  0, Max: 1000, Value: value(settings.MaxLoginFailures)},
 				{Kind: kindNumber, Key: settings.LockoutMinutes, Label: "Lockout duration (minutes)",
 					Help: "How long a locked account stays locked.",
-					Min:  0, Max: 100000, Value: value(settings.LockoutMinutes), Restart: true},
+					Min:  0, Max: 100000, Value: value(settings.LockoutMinutes)},
 				{Kind: kindNumber, Key: settings.BcryptCost, Label: "Password hashing cost",
 					Help: "bcrypt rounds. Higher is slower to verify and to brute-force; 12 is a good default.",
-					Min:  10, Max: 14, Value: value(settings.BcryptCost), Restart: true},
+					Min:  10, Max: 14, Value: value(settings.BcryptCost)},
 			},
 		},
 		{
@@ -156,21 +153,21 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 			Sub: "SMTP for password resets, address verification and magic links.",
 			Fields: []settingsField{
 				{Kind: kindText, Key: settings.SMTPHost, Label: "SMTP host",
-					Help: "Leave empty to disable outgoing email.", Value: value(settings.SMTPHost), Placeholder: "smtp.example.com", Restart: true},
+					Help: "Leave empty to disable outgoing email.", Value: value(settings.SMTPHost), Placeholder: "smtp.example.com"},
 				{Kind: kindNumber, Key: settings.SMTPPort, Label: "SMTP port",
-					Min: 1, Max: 65535, Value: value(settings.SMTPPort), Restart: true},
-				{Kind: kindText, Key: settings.SMTPUsername, Label: "SMTP username", Value: value(settings.SMTPUsername), Restart: true},
+					Min: 1, Max: 65535, Value: value(settings.SMTPPort)},
+				{Kind: kindText, Key: settings.SMTPUsername, Label: "SMTP username", Value: value(settings.SMTPUsername)},
 				{Kind: kindPassword, Key: settings.SMTPPassword, Label: "SMTP password",
-					Help: "Stored in the database; leave as-is unless you are changing it.", Value: value(settings.SMTPPassword), Restart: true},
+					Help: "Stored in the database; leave as-is unless you are changing it.", Value: value(settings.SMTPPassword)},
 				{Kind: kindSelect, Key: settings.SMTPTLS, Label: "Connection security",
-					Value: value(settings.SMTPTLS), Restart: true,
+					Value: value(settings.SMTPTLS),
 					Options: []settingsOption{
 						{Value: "starttls", Label: "STARTTLS (port 587)"},
 						{Value: "tls", Label: "Implicit TLS (port 465)"},
 						{Value: "none", Label: "None (plaintext)"},
 					}},
 				{Kind: kindText, Key: settings.SMTPFrom, Label: "From address",
-					Help: "The sender; for example Passage <passage@example.com>.", Value: value(settings.SMTPFrom), Placeholder: "Passage <passage@example.com>", Restart: true},
+					Help: "The sender; for example Passage <passage@example.com>.", Value: value(settings.SMTPFrom), Placeholder: "Passage <passage@example.com>"},
 				{Kind: kindNumber, Key: settings.MagicLinkTTLMinutes, Label: "Magic-link lifetime (minutes)",
 					Min: 1, Max: 1440, Value: value(settings.MagicLinkTTLMinutes)},
 			},
@@ -193,17 +190,17 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 			Fields: []settingsField{
 				{Kind: kindText, Key: settings.WebhookURL, Label: "Security webhook URL",
 					Help:   "Every authentication event is POSTed here as JSON. Empty disables it.",
-					MaxLen: 2048, Value: value(settings.WebhookURL), Placeholder: "https://ntfy.example.com/topic", Restart: true},
+					MaxLen: 2048, Value: value(settings.WebhookURL), Placeholder: "https://ntfy.example.com/topic"},
 				{Kind: kindPassword, Key: settings.WebhookSecret, Label: "Webhook signing secret",
-					Help: "Optional. Signs the body with HMAC-SHA256.", Value: value(settings.WebhookSecret), Restart: true},
+					Help: "Optional. Signs the body with HMAC-SHA256.", Value: value(settings.WebhookSecret)},
 				{Kind: kindNumber, Key: settings.WebhookTimeoutSeconds, Label: "Webhook timeout (seconds)",
-					Min: 1, Max: 60, Value: value(settings.WebhookTimeoutSeconds), Restart: true},
+					Min: 1, Max: 60, Value: value(settings.WebhookTimeoutSeconds)},
 				{Kind: kindBool, Key: settings.MetricsEnabled, Label: "Serve /metrics",
 					Help:  "Prometheus metrics at /metrics. Off makes the endpoint answer 404.",
-					Value: boolString(boolValue(settings.MetricsEnabled)), Restart: true},
+					Value: boolString(boolValue(settings.MetricsEnabled))},
 				{Kind: kindPassword, Key: settings.MetricsToken, Label: "Metrics bearer token",
 					Help:  "Optional. When set, scrapes must send Authorization: Bearer <token>.",
-					Value: value(settings.MetricsToken), Restart: true},
+					Value: value(settings.MetricsToken)},
 			},
 		},
 	}
@@ -216,10 +213,9 @@ func numberPair(reqKey, winKey, label string, value func(string) string) setting
 		Key:  reqKey, Label: label,
 		Label2: "Window (minutes)",
 		Min:    0, Max: 100000,
-		Value:   value(reqKey),
-		Value2:  value(winKey),
-		Key2:    winKey,
-		Restart: true,
+		Value:  value(reqKey),
+		Value2: value(winKey),
+		Key2:   winKey,
 	}
 }
 

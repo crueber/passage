@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/theme"
 )
 
@@ -29,6 +30,9 @@ type Service struct {
 	tokenStore TokenStore
 	sessions   SessionRevoker
 	cfg        *config.Config
+	// settings supplies live feature settings (password-hashing cost, SMTP
+	// availability). May be nil in tests, in which case cfg is the fallback.
+	settings settingsReader
 }
 
 // NewService creates a new Service with the given dependencies. sessions may
@@ -41,6 +45,16 @@ func NewService(store Store, tokenStore TokenStore, sessions SessionRevoker, cfg
 		sessions:   sessions,
 		cfg:        cfg,
 	}
+}
+
+// SetSettings wires the live settings store. It is optional: without it the
+// config snapshot remains authoritative, which is what tests rely on.
+func (s *Service) SetSettings(store settingsReader) { s.settings = store }
+
+// bcryptCost returns the current hashing cost. Reading it per hash makes a
+// cost change in the admin UI apply immediately instead of at the next start.
+func (s *Service) bcryptCost(ctx context.Context) int {
+	return settings.Int(ctx, s.settings, settings.BcryptCost, s.cfg.Auth.BcryptCost, 10, 31)
 }
 
 // Register creates a new user account. It checks that registration is enabled,
@@ -60,7 +74,7 @@ func (s *Service) Register(ctx context.Context, username, email, password string
 		return nil, ErrPasswordTooShort
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.cfg.Auth.BcryptCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.bcryptCost(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("register hash password: %w", err)
 	}
@@ -75,7 +89,7 @@ func (s *Service) Register(ctx context.Context, username, email, password string
 		// Without a usable SMTP server there is no way to prove control of the
 		// address, so the account is created verified rather than nagging the
 		// user with a banner they cannot clear.
-		EmailVerified: !s.smtpConfigured(),
+		EmailVerified: !s.smtpConfigured(ctx),
 	}
 
 	if err := s.store.Create(ctx, u); err != nil {
@@ -98,7 +112,7 @@ func (s *Service) CreateAdmin(ctx context.Context, username, email, password str
 		return nil, ErrPasswordTooShort
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.cfg.Auth.BcryptCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.bcryptCost(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("create admin hash password: %w", err)
 	}
@@ -282,7 +296,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, newPassword string
 		return ErrPasswordTooShort
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.cfg.Auth.BcryptCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.bcryptCost(ctx))
 	if err != nil {
 		return fmt.Errorf("change password hash: %w", err)
 	}
@@ -447,9 +461,16 @@ const EmailVerificationTTL = 24 * time.Hour
 // smtpConfigured reports whether outgoing mail is usable. A host without a
 // From address cannot send (go-mail rejects the From header), so both are
 // required. When false, registrations are auto-verified and no verification
-// link is ever generated.
-func (s *Service) smtpConfigured() bool {
-	return s.cfg != nil && s.cfg.SMTP.Host != "" && s.cfg.SMTP.From != ""
+// link is ever generated. Read from live settings so configuring mail does not
+// need a restart.
+func (s *Service) smtpConfigured(ctx context.Context) bool {
+	host := s.cfg.SMTP.Host
+	from := s.cfg.SMTP.From
+	if s.settings != nil {
+		host = settings.String(ctx, s.settings, settings.SMTPHost, host)
+		from = settings.String(ctx, s.settings, settings.SMTPFrom, from)
+	}
+	return host != "" && from != ""
 }
 
 // CreateEmailVerificationToken issues a fresh verification token for the user,
@@ -564,7 +585,7 @@ func (s *Service) CreateInvitation(ctx context.Context, emailAddr, name, invited
 	if normalized == "" || !strings.Contains(normalized, "@") {
 		return nil, ErrEmailRequired
 	}
-	if !s.smtpConfigured() {
+	if !s.smtpConfigured(ctx) {
 		// The whole feature is email; without a usable sender the link could
 		// never reach anyone.
 		return nil, ErrSMTPNotConfigured
@@ -634,7 +655,7 @@ func (s *Service) AcceptInvitation(ctx context.Context, token, username, display
 		return nil, fmt.Errorf("accept invitation check email: %w", err)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.cfg.Auth.BcryptCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.bcryptCost(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("accept invitation hash password: %w", err)
 	}

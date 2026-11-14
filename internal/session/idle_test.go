@@ -253,7 +253,7 @@ func TestSessionExpired(t *testing.T) {
 				CreatedAt:  now.Add(-time.Hour),
 				LastUsedAt: tc.lastUsedAt,
 			}
-			if got := svc.SessionExpired(sess, now); got != tc.want {
+			if got := svc.SessionExpired(context.Background(), sess, now); got != tc.want {
 				t.Errorf("SessionExpired = %v, want %v", got, tc.want)
 			}
 		})

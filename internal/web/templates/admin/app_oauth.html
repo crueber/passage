@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OAuth Client — {{.EditApp.Name}} — Passage Admin</title>
+  <title>OAuth — {{.EditApp.Name}} — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
   <script src="/static/htmx.min.js" defer></script>
@@ -25,7 +25,7 @@
   </div>
   {{template "admin-app-tabs" .}}
 
-  <h2 class="mb-4 font-semibold text-ink">OAuth Client</h2>
+  <h2 class="mb-4 font-semibold text-ink">OAuth</h2>
 
   {{if .NewClientSecret}}
   <div class="note note-success mb-5" role="alert">
@@ -118,6 +118,53 @@
     </form>
   </div>
   {{end}}
+
+  <section class="mt-8 max-w-3xl" aria-labelledby="oauth-settings-heading">
+    <h2 id="oauth-settings-heading" class="font-semibold text-ink">OAuth settings</h2>
+    <p class="mt-1 text-sm text-muted">
+      These values are optional. Session lifetime applies only to sessions
+      created by this app's OAuth sign-in; blank or 0 uses the global default.
+    </p>
+
+    <form method="POST" action="/admin/apps/{{.EditApp.ID}}/oauth-settings" class="card mt-4 space-y-5 p-5 sm:p-6">
+      {{csrfField .CSRFToken}}
+
+      <div>
+        <label class="label" for="session_duration_hours">Session duration (hours)</label>
+        <input class="input sm:max-w-xs" type="number" id="session_duration_hours"
+               name="session_duration_hours" min="0" max="8760" autocomplete="off"
+               value="{{if gt .EditApp.SessionDurationHours 0}}{{.EditApp.SessionDurationHours}}{{end}}">
+        <p class="help">Overrides the global lifetime for sessions created by this app's OAuth sign-in. Blank or 0 uses the global default.</p>
+      </div>
+
+      <div>
+        <label class="label" for="scopes">Allowed scopes <span class="font-normal text-faint">(one per line)</span></label>
+        <textarea class="input font-mono text-xs" id="scopes" name="scopes" rows="3">{{range $i, $v := .EditApp.AllowedScopes}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
+        <p class="help">
+          Blank means any scope a client asks for is granted. When set, an
+          authorization request may only ask for scopes from this list; anything
+          else is refused with invalid_scope. Include <span class="td-mono">openid</span>
+          to allow an id_token. Letters, digits, dot, underscore, colon and
+          hyphen are allowed.
+        </p>
+      </div>
+
+      <div>
+        <label class="label" for="resources">Allowed resources (audiences) <span class="font-normal text-faint">(one per line)</span></label>
+        <textarea class="input font-mono text-xs" id="resources" name="resources" rows="3">{{range $i, $v := .EditApp.AllowedResources}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
+        <p class="help">
+          RFC 8707 resource indicators this client may request. Each entry is an
+          absolute URI (for example <span class="td-mono">https://api.example.com</span>)
+          and the access token audience becomes the granted one. Blank means
+          resource indicators are not accepted.
+        </p>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save OAuth settings</button>
+    </form>
+  </section>
 </main>
 {{template "admin-footer" .}}
 </body>

@@ -50,7 +50,6 @@
               {{.Label}}
             </label>
             {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
-            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
           </div>
 
           {{else if eq .Kind "number_pair"}}
@@ -68,7 +67,6 @@
                        min="1" max="{{.Max}}" value="{{.Value2}}">
               </div>
             </div>
-            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
           </div>
 
           {{else if eq .Kind "number"}}
@@ -77,7 +75,6 @@
             <input class="input sm:max-w-xs" type="number" id="{{.Key}}" name="{{.Key}}"
                    min="{{.Min}}" max="{{.Max}}" value="{{.Value}}">
             {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
-            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
           </div>
 
           {{else if eq .Kind "select"}}
@@ -90,7 +87,6 @@
               {{end}}
             </select>
             {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
-            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
           </div>
 
           {{else if eq .Kind "radio"}}
@@ -118,7 +114,6 @@
                    {{if .Placeholder}}placeholder="{{.Placeholder}}"{{end}}
                    value="{{.Value}}">
             {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
-            {{if .Restart}}<p class="help text-faint">Takes effect after a restart.</p>{{end}}
           </div>
           {{end}}
         {{end}}

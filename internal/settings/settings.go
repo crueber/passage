@@ -4,10 +4,9 @@
 // The configuration file is bootstrap-only: where to listen, the public base
 // URL, the database path, key material and logging. Every feature behaviour
 // lives here instead, so the admin UI is the control surface. Values that a
-// constructor needs (rate limits, the webhook, the password-hashing cost) are
-// applied to the config snapshot once at startup by ApplyToConfig and are
-// therefore marked "restart"; values marked live are read from this package at
-// use time by their package.
+// constructor needs are applied to the config snapshot once at startup by
+// ApplyToConfig and act as the fallback for values components read live at use
+// time. No setting requires a restart.
 package settings
 
 import (
@@ -204,10 +203,9 @@ func lookup(ctx context.Context, s Store, key string) (string, bool) {
 }
 
 // ApplyToConfig copies the stored settings into the config snapshot that
-// constructors read. It runs once at startup, before any service is built, so
-// a value changed in the UI takes effect on the next start. Live settings
-// (registration, MFA policy, session lifetime, tagline, header, SMTP, metrics,
-// theme) are re-read at use time instead and only need this for the fallback.
+// constructors read. It runs once at startup and supplies the fallback for
+// values components read live at use time; a value changed in the UI applies
+// without another start.
 //
 // A malformed value is logged and the built-in default is kept: a broken row
 // must not stop the server from starting.
