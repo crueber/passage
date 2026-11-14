@@ -1,15 +1,15 @@
 # Theming
 
-Passage ships ten colour themes. The server default is chosen in configuration
-(`ui.theme`, or `PASSAGE_UI_THEME`), and every page renders it directly:
+Passage ships thirteen colour themes. The server default is chosen in Settings →
+General (`ui.theme`), and each person can override it on their Profile page:
 
 ```html
 <html lang="en" data-theme="slate">
 ```
 
 A theme is nothing but a set of CSS custom-property overrides scoped to that
-attribute. There is no server-side theming code, no per-user preference in the
-database, and no extra request.
+attribute. The signed-in page data carries the account override; public pages
+fall back to the server default.
 
 ## How the cascade works
 
@@ -39,7 +39,10 @@ content.
 ## The token contract
 
 Every theme file must define exactly the same token set, in **both** the light
-block and the dark `@media (prefers-color-scheme: dark)` block:
+block and the dark `@media (prefers-color-scheme: dark)` block. A **light-only**
+theme (Paper, GitHub Light, One Light, Ayu Light) repeats its light values in
+the dark block so the palette never inverts; keep the explanatory comment at the
+top of that block.
 
 ```
 brand ramp        --color-brand-50 … --color-brand-950          (11)

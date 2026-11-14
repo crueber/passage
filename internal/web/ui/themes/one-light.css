@@ -1,0 +1,104 @@
+/* One Light — Atom's soft white with slate text and a cool indigo primary. Light in every system scheme. */
+:root[data-theme="one-light"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #dde6ff;
+  --color-brand-200: #bccdff;
+  --color-brand-300: #9ab3ff;
+  --color-brand-400: #6f8ff7;
+  --color-brand-500: #4f73ea;
+  --color-brand-600: #3b5bdb;
+  --color-brand-700: #2f4bb8;
+  --color-brand-800: #263c94;
+  --color-brand-900: #1f2f70;
+  --color-brand-950: #141d47;
+
+  /* surfaces + text */
+  --color-canvas: #fafafa;
+  --color-surface: #ffffff;
+  --color-raised: #f0f0f2;
+  --color-line: #d9dae0;
+  --color-ink: #383a42;
+  --color-muted: #5c606b;
+  --color-faint: #858a94;
+
+  /* primary actions */
+  --color-primary: #3b5bdb;
+  --color-primary-hover: #2f4bb8;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #edf0ff;
+  --color-primary-soft-hover: #dfe5ff;
+  --color-on-primary-soft: #2f4bb8;
+
+  /* status */
+  --color-success: #2f7d32;
+  --color-success-soft: #e8f5e9;
+  --color-on-success-soft: #1f5a23;
+  --color-danger: #c62828;
+  --color-danger-hover: #a01f1f;
+  --color-danger-soft: #fdeaea;
+  --color-on-danger-soft: #8f1d1d;
+  --color-warn: #8a6100;
+  --color-warn-soft: #fdf3d8;
+  --color-on-warn-soft: #6a4a00;
+
+  /* accent */
+  --color-glow: #6f8ff7;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(56 58 66 / 0.05), 0 4px 14px -4px rgb(56 58 66 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(56 58 66 / 0.12), 0 16px 40px -12px rgb(56 58 66 / 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
+  :root[data-theme="one-light"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #eef2ff;
+    --color-brand-100: #dde6ff;
+    --color-brand-200: #bccdff;
+    --color-brand-300: #9ab3ff;
+    --color-brand-400: #6f8ff7;
+    --color-brand-500: #4f73ea;
+    --color-brand-600: #3b5bdb;
+    --color-brand-700: #2f4bb8;
+    --color-brand-800: #263c94;
+    --color-brand-900: #1f2f70;
+    --color-brand-950: #141d47;
+
+    /* surfaces + text */
+    --color-canvas: #fafafa;
+    --color-surface: #ffffff;
+    --color-raised: #f0f0f2;
+    --color-line: #d9dae0;
+    --color-ink: #383a42;
+    --color-muted: #5c606b;
+    --color-faint: #858a94;
+
+    /* primary actions */
+    --color-primary: #3b5bdb;
+    --color-primary-hover: #2f4bb8;
+    --color-on-primary: #ffffff;
+    --color-primary-soft: #edf0ff;
+    --color-primary-soft-hover: #dfe5ff;
+    --color-on-primary-soft: #2f4bb8;
+
+    /* status */
+    --color-success: #2f7d32;
+    --color-success-soft: #e8f5e9;
+    --color-on-success-soft: #1f5a23;
+    --color-danger: #c62828;
+    --color-danger-hover: #a01f1f;
+    --color-danger-soft: #fdeaea;
+    --color-on-danger-soft: #8f1d1d;
+    --color-warn: #8a6100;
+    --color-warn-soft: #fdf3d8;
+    --color-on-warn-soft: #6a4a00;
+
+    /* accent */
+    --color-glow: #6f8ff7;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(56 58 66 / 0.05), 0 4px 14px -4px rgb(56 58 66 / 0.1);
+    --shadow-pop: 0 4px 10px -2px rgb(56 58 66 / 0.12), 0 16px 40px -12px rgb(56 58 66 / 0.25);
+  }
+}

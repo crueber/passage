@@ -1,0 +1,104 @@
+/* Ayu Light — airy warm white with soft gray text and an orange primary. Light in every system scheme. */
+:root[data-theme="ayu-light"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #fff7ef;
+  --color-brand-100: #ffecd9;
+  --color-brand-200: #ffd8b3;
+  --color-brand-300: #ffbe80;
+  --color-brand-400: #f79a4d;
+  --color-brand-500: #e27b29;
+  --color-brand-600: #c4611a;
+  --color-brand-700: #a64b00;
+  --color-brand-800: #853c00;
+  --color-brand-900: #662e00;
+  --color-brand-950: #3d1b00;
+
+  /* surfaces + text */
+  --color-canvas: #fcfcfc;
+  --color-surface: #ffffff;
+  --color-raised: #f3f4f4;
+  --color-line: #e3e5e6;
+  --color-ink: #4f555c;
+  --color-muted: #646b73;
+  --color-faint: #858d96;
+
+  /* primary actions */
+  --color-primary: #a64b00;
+  --color-primary-hover: #853c00;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #fff0e0;
+  --color-primary-soft-hover: #ffe3c7;
+  --color-on-primary-soft: #8f4000;
+
+  /* status */
+  --color-success: #2c7a4b;
+  --color-success-soft: #e7f5ec;
+  --color-on-success-soft: #1f5c37;
+  --color-danger: #c13b3b;
+  --color-danger-hover: #a02e2e;
+  --color-danger-soft: #fdeceb;
+  --color-on-danger-soft: #9a2a2a;
+  --color-warn: #8f6b00;
+  --color-warn-soft: #fdf5d9;
+  --color-on-warn-soft: #6f5200;
+
+  /* accent */
+  --color-glow: #ff9940;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(79 85 92 / 0.05), 0 4px 14px -4px rgb(79 85 92 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(79 85 92 / 0.12), 0 16px 40px -12px rgb(79 85 92 / 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
+  :root[data-theme="ayu-light"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #fff7ef;
+    --color-brand-100: #ffecd9;
+    --color-brand-200: #ffd8b3;
+    --color-brand-300: #ffbe80;
+    --color-brand-400: #f79a4d;
+    --color-brand-500: #e27b29;
+    --color-brand-600: #c4611a;
+    --color-brand-700: #a64b00;
+    --color-brand-800: #853c00;
+    --color-brand-900: #662e00;
+    --color-brand-950: #3d1b00;
+
+    /* surfaces + text */
+    --color-canvas: #fcfcfc;
+    --color-surface: #ffffff;
+    --color-raised: #f3f4f4;
+    --color-line: #e3e5e6;
+    --color-ink: #4f555c;
+    --color-muted: #646b73;
+    --color-faint: #858d96;
+
+    /* primary actions */
+    --color-primary: #a64b00;
+    --color-primary-hover: #853c00;
+    --color-on-primary: #ffffff;
+    --color-primary-soft: #fff0e0;
+    --color-primary-soft-hover: #ffe3c7;
+    --color-on-primary-soft: #8f4000;
+
+    /* status */
+    --color-success: #2c7a4b;
+    --color-success-soft: #e7f5ec;
+    --color-on-success-soft: #1f5c37;
+    --color-danger: #c13b3b;
+    --color-danger-hover: #a02e2e;
+    --color-danger-soft: #fdeceb;
+    --color-on-danger-soft: #9a2a2a;
+    --color-warn: #8f6b00;
+    --color-warn-soft: #fdf5d9;
+    --color-on-warn-soft: #6f5200;
+
+    /* accent */
+    --color-glow: #ff9940;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(79 85 92 / 0.05), 0 4px 14px -4px rgb(79 85 92 / 0.1);
+    --shadow-pop: 0 4px 10px -2px rgb(79 85 92 / 0.12), 0 16px 40px -12px rgb(79 85 92 / 0.25);
+  }
+}

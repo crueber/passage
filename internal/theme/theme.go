@@ -13,10 +13,13 @@ type Theme struct {
 	// Name is the lowercase slug used in data-theme, config, and the CSS
 	// filename (internal/web/ui/themes/<name>.css).
 	Name string
-	// Label is the human-readable name shown in the appearance picker.
+	// Label is the human-readable name shown in the theme selector.
 	Label string
 	// Description is a one-line summary shown next to the label.
 	Description string
+	// LightOnly themes repeat their light palette in the dark block, so they
+	// stay light even when the operating system prefers a dark scheme.
+	LightOnly bool
 }
 
 // All is the registry, in display order. The first entry is the default.
@@ -33,7 +36,10 @@ var All = []Theme{
 	{Name: "rose-pine", Label: "Rosé Pine", Description: "Muted rose and iris over soft dusk surfaces."},
 	{Name: "everforest", Label: "Everforest", Description: "Earthy parchment and deep green-gray, sage primary."},
 	{Name: "kanagawa", Label: "Kanagawa", Description: "Ink-wash sumi surfaces with wave blue and dragon red."},
-	{Name: "paper", Label: "Paper", Description: "Warm editorial off-white with sepia and brick."},
+	{Name: "paper", Label: "Paper", Description: "Warm editorial off-white with sepia and brick. Always light.", LightOnly: true},
+	{Name: "github-light", Label: "GitHub Light", Description: "Primer's cool white canvas, gray lines and blue primary. Always light.", LightOnly: true},
+	{Name: "one-light", Label: "One Light", Description: "Atom One Light: soft white, slate text and indigo primary. Always light.", LightOnly: true},
+	{Name: "ayu-light", Label: "Ayu Light", Description: "Ayu Light: airy warm white with an orange primary. Always light.", LightOnly: true},
 }
 
 // defaultName is the theme used when ui.theme is left at its default.

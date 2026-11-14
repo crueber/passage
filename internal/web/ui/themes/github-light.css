@@ -1,0 +1,104 @@
+/* GitHub Light — Primer's cool white canvas, gray lines and blue primary. Light in every system scheme. */
+:root[data-theme="github-light"] {
+  /* brand ramp 50..950 (primary hue) */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #ddf4ff;
+  --color-brand-200: #b6e3ff;
+  --color-brand-300: #80ccff;
+  --color-brand-400: #54aeff;
+  --color-brand-500: #218bff;
+  --color-brand-600: #0969da;
+  --color-brand-700: #0550ae;
+  --color-brand-800: #033d8b;
+  --color-brand-900: #0a3069;
+  --color-brand-950: #002155;
+
+  /* surfaces + text */
+  --color-canvas: #f6f8fa;
+  --color-surface: #ffffff;
+  --color-raised: #eef1f4;
+  --color-line: #d0d7de;
+  --color-ink: #1f2328;
+  --color-muted: #57606a;
+  --color-faint: #6e7781;
+
+  /* primary actions */
+  --color-primary: #0969da;
+  --color-primary-hover: #0550ae;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #ddf4ff;
+  --color-primary-soft-hover: #b6e3ff;
+  --color-on-primary-soft: #0550ae;
+
+  /* status */
+  --color-success: #1a7f37;
+  --color-success-soft: #dafbe1;
+  --color-on-success-soft: #116329;
+  --color-danger: #cf222e;
+  --color-danger-hover: #a40e26;
+  --color-danger-soft: #ffebe9;
+  --color-on-danger-soft: #a40e26;
+  --color-warn: #9a6700;
+  --color-warn-soft: #fff8c5;
+  --color-on-warn-soft: #7d4e00;
+
+  /* accent */
+  --color-glow: #54aeff;
+
+  /* elevation, tinted with this theme's ink */
+  --shadow-card: 0 1px 2px 0 rgb(31 35 40 / 0.05), 0 4px 14px -4px rgb(31 35 40 / 0.1);
+  --shadow-pop: 0 4px 10px -2px rgb(31 35 40 / 0.12), 0 16px 40px -12px rgb(31 35 40 / 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
+  :root[data-theme="github-light"] {
+    /* brand ramp 50..950 (primary hue) */
+    --color-brand-50: #eff6ff;
+    --color-brand-100: #ddf4ff;
+    --color-brand-200: #b6e3ff;
+    --color-brand-300: #80ccff;
+    --color-brand-400: #54aeff;
+    --color-brand-500: #218bff;
+    --color-brand-600: #0969da;
+    --color-brand-700: #0550ae;
+    --color-brand-800: #033d8b;
+    --color-brand-900: #0a3069;
+    --color-brand-950: #002155;
+
+    /* surfaces + text */
+    --color-canvas: #f6f8fa;
+    --color-surface: #ffffff;
+    --color-raised: #eef1f4;
+    --color-line: #d0d7de;
+    --color-ink: #1f2328;
+    --color-muted: #57606a;
+    --color-faint: #6e7781;
+
+    /* primary actions */
+    --color-primary: #0969da;
+    --color-primary-hover: #0550ae;
+    --color-on-primary: #ffffff;
+    --color-primary-soft: #ddf4ff;
+    --color-primary-soft-hover: #b6e3ff;
+    --color-on-primary-soft: #0550ae;
+
+    /* status */
+    --color-success: #1a7f37;
+    --color-success-soft: #dafbe1;
+    --color-on-success-soft: #116329;
+    --color-danger: #cf222e;
+    --color-danger-hover: #a40e26;
+    --color-danger-soft: #ffebe9;
+    --color-on-danger-soft: #a40e26;
+    --color-warn: #9a6700;
+    --color-warn-soft: #fff8c5;
+    --color-on-warn-soft: #7d4e00;
+
+    /* accent */
+    --color-glow: #54aeff;
+
+    /* elevation, tinted with this theme's ink */
+    --shadow-card: 0 1px 2px 0 rgb(31 35 40 / 0.05), 0 4px 14px -4px rgb(31 35 40 / 0.1);
+    --shadow-pop: 0 4px 10px -2px rgb(31 35 40 / 0.12), 0 16px 40px -12px rgb(31 35 40 / 0.25);
+  }
+}

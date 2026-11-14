@@ -100,7 +100,7 @@ func TestRegistry(t *testing.T) {
 		got  any
 		want any
 	}{
-		{"len(All)", len(theme.All), 10},
+		{"len(All)", len(theme.All), 13},
 		{"first theme", theme.All[0].Name, "slate"},
 		{"Default()", theme.Default(), "slate"},
 		{"len(Names())", len(theme.Names()), len(theme.All)},
@@ -205,6 +205,34 @@ func TestThemeFiles_Contrast(t *testing.T) {
 						t.Errorf("%s block: %s (%s) on %s (%s) = %.2f:1; want >= %.1f:1",
 							mode, p.fg, fg, p.bg, bg, ratio, p.min)
 					}
+				}
+			}
+		})
+	}
+}
+
+// TestThemeFiles_LightOnly pins the promise of a light-only theme: its dark
+// block must repeat the light palette exactly, so the OS dark preference cannot
+// invert it.
+func TestThemeFiles_LightOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, th := range theme.All {
+		if !th.LightOnly {
+			continue
+		}
+		t.Run(th.Name, func(t *testing.T) {
+			t.Parallel()
+			blocks := parseThemeFile(t, th.Name)
+			light, dark := blocks["light"], blocks["dark"]
+			for tok, want := range light.colors {
+				if got := dark.colors[tok]; got != want {
+					t.Errorf("dark --color-%s = %s; want the light value %s", tok, got, want)
+				}
+			}
+			for tok, want := range light.shadows {
+				if got := dark.shadows[tok]; got != want {
+					t.Errorf("dark --shadow-%s = %s; want the light value %s", tok, got, want)
 				}
 			}
 		})

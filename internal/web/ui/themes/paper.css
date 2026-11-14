@@ -1,4 +1,4 @@
-/* paper — Warm editorial off-white with sepia and brick. Print-quiet, high contrast. */
+/* paper — Warm editorial off-white with sepia and brick. Light-only, even in dark mode. */
 :root[data-theme="paper"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #faf4ef;
@@ -50,54 +50,55 @@
   --shadow-pop: 0 4px 10px -2px rgb(43 34 26 / 0.1), 0 16px 40px -12px rgb(43 34 26 / 0.2);
 }
 @media (prefers-color-scheme: dark) {
+  /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
   :root[data-theme="paper"] {
     /* brand ramp 50..950 (primary hue) */
-    --color-brand-50: #f7e4d9;
-    --color-brand-100: #eec7b6;
-    --color-brand-200: #dea993;
-    --color-brand-300: #c98f74;
-    --color-brand-400: #ad7257;
-    --color-brand-500: #8c5c44;
-    --color-brand-600: #6e4936;
-    --color-brand-700: #55392b;
-    --color-brand-800: #422d22;
-    --color-brand-900: #33231b;
-    --color-brand-950: #060504;
+    --color-brand-50: #faf4ef;
+    --color-brand-100: #f4e6dc;
+    --color-brand-200: #e8cbb9;
+    --color-brand-300: #d9a98f;
+    --color-brand-400: #c48364;
+    --color-brand-500: #a96246;
+    --color-brand-600: #8f4c34;
+    --color-brand-700: #7b3f2c;
+    --color-brand-800: #653324;
+    --color-brand-900: #4f281d;
+    --color-brand-950: #2b1710;
 
     /* surfaces + text */
-    --color-canvas: #14120f;
-    --color-surface: #1c1916;
-    --color-raised: #26211c;
-    --color-line: #3a332c;
-    --color-ink: #f0e9df;
-    --color-muted: #c3b7a8;
-    --color-faint: #95897b;
+    --color-canvas: #faf8f4;
+    --color-surface: #fffdfa;
+    --color-raised: #f4efe6;
+    --color-line: #e3dacd;
+    --color-ink: #1b1917;
+    --color-muted: #5b544c;
+    --color-faint: #857c70;
 
     /* primary actions */
-    --color-primary: #d08a6a;
-    --color-primary-hover: #dda082;
-    --color-on-primary: #241a14;
-    --color-primary-soft: #2e211b;
-    --color-primary-soft-hover: #3a2a22;
-    --color-on-primary-soft: #f0c9b4;
+    --color-primary: #7b3f2c;
+    --color-primary-hover: #653324;
+    --color-on-primary: #fffdfa;
+    --color-primary-soft: #f6e9e1;
+    --color-primary-soft-hover: #eeddd2;
+    --color-on-primary-soft: #6a3325;
 
     /* status */
-    --color-success: #8fbf9f;
-    --color-success-soft: #1e2c24;
-    --color-on-success-soft: #b8d9c2;
-    --color-danger: #d98b7d;
-    --color-danger-hover: #e3a094;
-    --color-danger-soft: #34201c;
-    --color-on-danger-soft: #efc0b6;
-    --color-warn: #d8ab6a;
-    --color-warn-soft: #302619;
-    --color-on-warn-soft: #e8cd9d;
+    --color-success: #2f6b46;
+    --color-success-soft: #e8f0e6;
+    --color-on-success-soft: #24513a;
+    --color-danger: #a8322a;
+    --color-danger-hover: #8e2a22;
+    --color-danger-soft: #f8e7e2;
+    --color-on-danger-soft: #84231c;
+    --color-warn: #8a5a12;
+    --color-warn-soft: #f8ecd8;
+    --color-on-warn-soft: #6f4a0e;
 
     /* accent */
-    --color-glow: #d08a6a;
+    --color-glow: #c08a5e;
 
-    /* elevation, tinted with this theme's ink */
-    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.35), 0 4px 14px -4px rgb(0 0 0 / 0.4);
-    --shadow-pop: 0 4px 10px -2px rgb(0 0 0 / 0.45), 0 16px 40px -12px rgb(0 0 0 / 0.55);
+    /* elevation, tinted with this theme's ink; paper stays almost flat */
+    --shadow-card: 0 1px 2px 0 rgb(43 34 26 / 0.04), 0 4px 14px -4px rgb(43 34 26 / 0.08);
+    --shadow-pop: 0 4px 10px -2px rgb(43 34 26 / 0.1), 0 16px 40px -12px rgb(43 34 26 / 0.2);
   }
 }
