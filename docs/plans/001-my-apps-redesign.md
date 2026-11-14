@@ -1,6 +1,6 @@
 # 001 — My Apps redesign
 
-**Status:** draft for discussion · **Scope:** design only — no application code changed
+**Status:** direction chosen — hybrid riff · **Scope:** design only — no application code changed
 
 The current My Apps page is a three-column card grid. Each card carries an icon,
 name, description, host and an “Open” action. It works, but with 19 apps it takes
@@ -113,6 +113,76 @@ keyboard navigation; discovery of new apps is weaker.
 focusing search? Do we want recents above the directory (requires
 `last_opened_at`)? Is `⌘K` appropriate on Windows/Linux (show `Ctrl K`)?
 
+## Chosen direction — hybrid
+
+The chosen direction combines Idea 1's structure with Idea 2's icon mode and
+Idea 3's keyboard launcher.
+
+### Comfortable / Iconized switch
+
+The current Condensed switch becomes a two-state **Comfortable / Iconized**
+switch. It changes the whole page, not just the card density.
+
+**Comfortable** keeps the grouped list: Favourites then All apps, with icon,
+name, description, host, star and Open per row.
+
+![Comfortable mode with many apps](assets/001-my-apps/04-hybrid-comfortable-many.png)
+
+**Iconized** turns every app into a compact tile and compresses the favourites
+into a single shelf. The tile star is always present — outlined when not
+favourited, amber when it is — so pinning never requires opening the app first.
+Descriptions and hosts move to the tile tooltip.
+
+![Iconized mode with many apps](assets/001-my-apps/05-hybrid-iconized-many.png)
+
+The single-app state follows the same mode:
+
+- Comfortable: one full-width row plus the “more apps will appear” note.
+- Iconized: one focused card with description, host and Open, instead of a
+  lone tile in an empty grid.
+
+![Comfortable mode with one app](assets/001-my-apps/07-hybrid-comfortable-one.png)
+
+![Iconized mode with one app](assets/001-my-apps/08-hybrid-iconized-one.png)
+
+### Command launcher
+
+`Ctrl K` (or `⌘ K` on macOS) opens a command-launcher modal over the page. There
+is no permanent search field; the launcher is the only search UI, so the page
+stays visually quiet.
+
+![Command launcher modal with type-ahead](assets/001-my-apps/06-command-launcher.png)
+
+- Type-ahead matches name, slug and host (and possibly description); results
+  update on every keystroke.
+- Favourites sort first, then the rest; the first result is selected by default.
+- `↑`/`↓` moves the selection, `Enter` opens, `Esc` closes.
+- The dialog traps focus while open, restores focus to the page on close, and
+  has an explicit empty-results state.
+- Mobile has no keyboard chord, so the page head gets a small search icon that
+  opens the same modal. The shortcut hint is shown only where it applies.
+
+### What this resolves
+
+- Hierarchy without losing the icon-led feel: the switch chooses between text
+  scanning and icon scanning.
+- Density: Comfortable rows and Iconized tiles both use substantially less
+  vertical space than the current cards.
+- Favouriting from the small layout: every tile carries a star control.
+- Power-user speed: the command launcher is available from either mode.
+- Single-app accounts: each mode has a deliberate state rather than a grid with
+  one card.
+
+### Remaining implementation decisions
+
+1. Does the switch persist per browser (reusing the current density
+   localStorage key) or per account? The current density preference is local.
+2. Does the command launcher include a “Recent” section? That needs
+   `last_opened_at` data, so it can ship later without blocking the redesign.
+3. Should the star in a tile be always visible (shown here) or revealed on hover
+   for pointer devices with an always-visible variant on touch?
+4. Mobile search trigger placement: page-head icon vs a floating button.
+
 ## Comparison
 
 | | Grouped list | Launcher | Spotlight |
@@ -125,24 +195,16 @@ focusing search? Do we want recents above the directory (requires
 | New data needed | none | none | recents need `last_opened_at` |
 | Implementation effort | low/medium | low/medium | medium (search + keyboard) |
 
-## Recommendation
+## Next steps for implementation
 
-Start with **Idea 1** as the structural direction (groups and dense rows), and
-borrow the **Idea 2** tile launcher as the Compact/visual mode or as the
-small-screen presentation. That gives density and hierarchy without losing the
-icon-led feel of the current page. Spotlight is the strongest long-term option
-for very large app counts, but it is a bigger behavioural change and benefits
-from last-opened data.
-
-The one-app states are deliberately included in every idea; the Launcher’s
-focused card currently handles that case best.
-
-## Next steps
-
-1. Pick one direction (or a defined hybrid).
-2. Decide whether to add `last_opened_at` / categories; both unlock richer
-   grouping and “Recent” rows.
-3. Decide what happens to the current Condensed switch: keep it as a
-   Comfortable/Compact toggle, or remove it if the new default is dense enough.
-4. Turn the chosen wireframe into a real template and add regression tests for
-   the many-app, favourite, and single-app states.
+1. Replace the current card grid with the hybrid page: grouped Comfortable
+   rows, Iconized shelf + tile grid, and the Comfortable/Iconized switch.
+2. Add the star button to every tile, reusing the existing
+   `POST /apps/{id}/favorite` endpoint with an accessible label and optimistic
+   state handling.
+3. Build the command launcher as a single reusable dialog: type-ahead filter,
+   keyboard navigation, focus trap, empty state, and the mobile search trigger.
+4. Keep the existing dashboard data model for the first release; add
+   `last_opened_at` and Recent grouping only if the launcher needs it later.
+5. Add regression tests for many apps, one app, favourite toggling, and the
+   launcher’s filter/select/enter behaviour.
