@@ -99,7 +99,7 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 					Min:  0, Max: 8760, Value: value(settings.SessionIdleTimeoutMinutes)},
 				{Kind: kindSelect, Key: settings.Theme, Label: "Server default theme",
 					Help:    "The default for everyone. Each person can choose their own under Profile.",
-					Value:   value(settings.Theme),
+					Value:   theme.Canonical(value(settings.Theme)),
 					Options: themeOptions()},
 			},
 		},

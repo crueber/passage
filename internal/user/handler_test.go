@@ -1433,7 +1433,7 @@ func TestHandler_GetDashboard_ThemeOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if err := f.userSvc.UpdateTheme(ctx, u.ID, "nord"); err != nil {
+	if err := f.userSvc.UpdateTheme(ctx, u.ID, "arctic-blue"); err != nil {
 		t.Fatalf("UpdateTheme: %v", err)
 	}
 	u, err = f.userStore.GetByID(ctx, u.ID)
@@ -1449,7 +1449,7 @@ func TestHandler_GetDashboard_ThemeOverride(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GetDashboard: got status %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), `data-theme="nord"`) {
+	if !strings.Contains(rec.Body.String(), `data-theme="arctic-blue"`) {
 		t.Error("dashboard does not render the account theme")
 	}
 }

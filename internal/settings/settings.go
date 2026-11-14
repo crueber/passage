@@ -236,7 +236,7 @@ func ApplyToConfig(ctx context.Context, s Store, cfg *config.Config, logger *slo
 	cfg.Metrics.Enabled = Bool(ctx, s, MetricsEnabled, cfg.Metrics.Enabled)
 	cfg.Metrics.Token = Raw(ctx, s, MetricsToken, cfg.Metrics.Token)
 
-	cfg.UI.Theme = String(ctx, s, Theme, cfg.UI.Theme)
+	cfg.UI.Theme = theme.Canonical(String(ctx, s, Theme, cfg.UI.Theme))
 
 	cfg.RateLimit.LoginRequests = Int(ctx, s, RateLimitLoginRequests, cfg.RateLimit.LoginRequests, 0, 100000)
 	cfg.RateLimit.LoginWindowMinutes = Int(ctx, s, RateLimitLoginWindowMinutes, cfg.RateLimit.LoginWindowMinutes, 1, 100000)

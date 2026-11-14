@@ -85,7 +85,7 @@ func TestHandler_PostUpdateProfile_Theme(t *testing.T) {
 		rec := httptest.NewRecorder()
 		f.handler.PostUpdateProfile(rec, profileRequest(t, url.Values{
 			"display_name": {"Themed User"},
-			"theme":        {"nord"},
+			"theme":        {"arctic-blue"},
 		}, u))
 
 		if rec.Code != http.StatusFound {
@@ -95,8 +95,8 @@ func TestHandler_PostUpdateProfile_Theme(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if fresh.Theme != "nord" {
-			t.Errorf("theme = %q, want nord", fresh.Theme)
+		if fresh.Theme != "arctic-blue" {
+			t.Errorf("theme = %q, want arctic-blue", fresh.Theme)
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/profile", nil)
@@ -104,7 +104,7 @@ func TestHandler_PostUpdateProfile_Theme(t *testing.T) {
 		rec = httptest.NewRecorder()
 		f.handler.GetProfile(rec, req)
 		body := rec.Body.String()
-		for _, want := range []string{`data-theme="nord"`, `<option value="nord" selected>`} {
+		for _, want := range []string{`data-theme="arctic-blue"`, `<option value="arctic-blue" selected>Arctic Blue</option>`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("profile page missing %q", want)
 			}
@@ -120,7 +120,7 @@ func TestHandler_PostUpdateProfile_Theme(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Register: %v", err)
 		}
-		if err := f.userSvc.UpdateTheme(ctx, u.ID, "nord"); err != nil {
+		if err := f.userSvc.UpdateTheme(ctx, u.ID, "arctic-blue"); err != nil {
 			t.Fatalf("UpdateTheme: %v", err)
 		}
 
@@ -137,7 +137,7 @@ func TestHandler_PostUpdateProfile_Theme(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if fresh.Theme != "nord" {
+		if fresh.Theme != "arctic-blue" {
 			t.Errorf("theme = %q, want the previous value", fresh.Theme)
 		}
 	})

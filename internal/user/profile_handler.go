@@ -40,7 +40,7 @@ func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "profile.html", profileData{
-		Themed:    web.Themed{Theme: u.Theme},
+		Themed:    web.NewThemed(u.Theme),
 		User:      u,
 		Themes:    theme.All,
 		Flash:     flash,

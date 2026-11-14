@@ -425,7 +425,7 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.render(w, r, "user-dashboard", dashboardData{
-		Themed:      web.Themed{Theme: u.Theme},
+		Themed:      web.NewThemed(u.Theme),
 		User:        u,
 		Apps:        apps,
 		Flash:       flashFromCode(r.URL.Query().Get("flash")),

@@ -335,7 +335,7 @@ func pageUserName(r *http.Request) string {
 // from the request context (set by csrf.ProtectAuthenticated middleware).
 func (h *Handler) base(r *http.Request, nav string) basePage {
 	return basePage{
-		Themed:    web.Themed{Theme: pageTheme(r)},
+		Themed:    web.NewThemed(pageTheme(r)),
 		ActiveNav: nav,
 		UserName:  pageUserName(r),
 		CSRFToken: csrf.TokenFromContext(r.Context()),
@@ -352,7 +352,7 @@ func (h *Handler) smtpConfigured(ctx context.Context) bool {
 // baseFlash constructs a basePage with an attached Flash message.
 func (h *Handler) baseFlash(r *http.Request, nav string, flash *Flash) basePage {
 	return basePage{
-		Themed:    web.Themed{Theme: pageTheme(r)},
+		Themed:    web.NewThemed(pageTheme(r)),
 		ActiveNav: nav,
 		UserName:  pageUserName(r),
 		Flash:     flash,

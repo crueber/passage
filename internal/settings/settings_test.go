@@ -110,7 +110,7 @@ func TestApplyToConfig(t *testing.T) {
 		settings.WebhookTimeoutSeconds:       "9",
 		settings.SMTPHost:                    "smtp.example.com",
 		settings.SMTPPort:                    "2525",
-		settings.Theme:                       "nord",
+		settings.Theme:                       "arctic-blue",
 		settings.RateLimitLoginRequests:      "7",
 		settings.RateLimitLoginWindowMinutes: "3",
 		settings.MaxLoginFailures:            "not-a-number",
@@ -146,7 +146,7 @@ func TestApplyToConfig(t *testing.T) {
 	if cfg.SMTP.Host != "smtp.example.com" || cfg.SMTP.Port != 2525 {
 		t.Errorf("SMTP = %q:%d", cfg.SMTP.Host, cfg.SMTP.Port)
 	}
-	if cfg.UI.Theme != "nord" {
+	if cfg.UI.Theme != "arctic-blue" {
 		t.Errorf("Theme = %q", cfg.UI.Theme)
 	}
 	if cfg.RateLimit.LoginRequests != 7 || cfg.RateLimit.LoginWindowMinutes != 3 {

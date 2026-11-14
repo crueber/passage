@@ -1,5 +1,5 @@
-/* rose-pine — Muted rose and iris over soft dusk surfaces. */
-:root[data-theme="rose-pine"] {
+/* Dusk Rose — muted rose and iris over soft dusk surfaces. */
+:root[data-theme="dusk-rose"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #f6f1f8;
   --color-brand-100: #ece3f1;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(87 82 121 / 0.12), 0 16px 40px -12px rgb(87 82 121 / 0.25);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="rose-pine"] {
+  :root[data-theme="dusk-rose"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #e9e3f2;
     --color-brand-100: #d3c9e2;

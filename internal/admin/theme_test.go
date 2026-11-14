@@ -14,7 +14,7 @@ func TestGetUsers_ThemeOverride(t *testing.T) {
 
 	f := newFixture(t)
 	adminUser := createAdminUser(t, f, "themeadmin", "themeadmin@example.com")
-	if err := f.userStore.SetTheme(context.Background(), adminUser.ID, "nord"); err != nil {
+	if err := f.userStore.SetTheme(context.Background(), adminUser.ID, "arctic-blue"); err != nil {
 		t.Fatalf("SetTheme: %v", err)
 	}
 	token := createSession(t, f, adminUser.ID)
@@ -24,7 +24,7 @@ func TestGetUsers_ThemeOverride(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), `data-theme="nord"`) {
+	if !strings.Contains(rec.Body.String(), `data-theme="arctic-blue"`) {
 		t.Error("admin page does not render the account theme")
 	}
 }

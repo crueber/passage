@@ -61,7 +61,7 @@ func TestSettings_SavesOnlyTheSubmittedTab(t *testing.T) {
 	}
 
 	form := url.Values{"tab": {"general"}, "allow_registration": {"on"},
-		"session_duration_hours": {"48"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"nord"}}
+		"session_duration_hours": {"48"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"arctic-blue"}}
 	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if rec.Result().StatusCode != http.StatusFound {
@@ -74,7 +74,7 @@ func TestSettings_SavesOnlyTheSubmittedTab(t *testing.T) {
 	want := map[string]string{
 		"allow_registration":     "true",
 		"session_duration_hours": "48",
-		"ui_theme":               "nord",
+		"ui_theme":               "arctic-blue",
 		// Untouched by this tab:
 		"auth_password_enabled": "false",
 	}
@@ -105,7 +105,7 @@ func TestSettings_Validation(t *testing.T) {
 		{
 			name: "session duration out of range",
 			tab:  "general",
-			form: url.Values{"session_duration_hours": {"0"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"slate"}},
+			form: url.Values{"session_duration_hours": {"0"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"cool-slate"}},
 			want: "enter a whole number between 1 and 8760",
 			keep: `value="0"`,
 		},
@@ -281,7 +281,7 @@ func TestSettings_ReloadsLiveComponents(t *testing.T) {
 	f.handler.SetSettingsReloader(func(context.Context) { calls++ })
 
 	good := url.Values{"tab": {"general"}, "allow_registration": {"on"},
-		"session_duration_hours": {"24"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"slate"}}
+		"session_duration_hours": {"24"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"cool-slate"}}
 	rec := adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(good.Encode()), "application/x-www-form-urlencoded")
 	if rec.Result().StatusCode != http.StatusFound {
@@ -292,7 +292,7 @@ func TestSettings_ReloadsLiveComponents(t *testing.T) {
 	}
 
 	bad := url.Values{"tab": {"general"}, "allow_registration": {"on"},
-		"session_duration_hours": {"0"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"slate"}}
+		"session_duration_hours": {"0"}, "session_idle_timeout_minutes": {"0"}, "ui_theme": {"cool-slate"}}
 	rec = adminRequest(t, router, http.MethodPost, "/admin/settings", token, f.cfg.Session.CookieName,
 		strings.NewReader(bad.Encode()), "application/x-www-form-urlencoded")
 	if calls != 1 {

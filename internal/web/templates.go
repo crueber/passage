@@ -4,6 +4,8 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+
+	"github.com/crueber/passage/internal/theme"
 )
 
 //go:embed templates
@@ -13,6 +15,10 @@ var TemplateFS embed.FS
 // template function reads it via PageTheme; an empty Theme means "follow the
 // server default", which the function supplies.
 type Themed struct{ Theme string }
+
+// NewThemed builds the theme carrier for a stored slug, resolving a legacy
+// pre-rename value to its current name.
+func NewThemed(name string) Themed { return Themed{Theme: theme.Canonical(name)} }
 
 // PageTheme returns the embedded theme slug. It exists so the template function
 // can resolve a page theme without reflection, and so public pages that do not

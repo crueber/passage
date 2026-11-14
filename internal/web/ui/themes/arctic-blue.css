@@ -1,5 +1,5 @@
-/* nord — Arctic blue-gray. Cool, calm, low saturation; snow-storm light over polar-night dark. */
-:root[data-theme="nord"] {
+/* Arctic Blue — cool, low-saturation blue-gray with frost-blue accents. */
+:root[data-theme="arctic-blue"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #eff4f9;
   --color-brand-100: #dfe9f2;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(46 52 64 / 0.12), 0 16px 40px -12px rgb(46 52 64 / 0.25);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="nord"] {
+  :root[data-theme="arctic-blue"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #eaf1f8;
     --color-brand-100: #e1eaf3;

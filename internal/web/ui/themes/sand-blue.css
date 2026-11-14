@@ -1,5 +1,5 @@
-/* solarized — Solarized. Calibrated teal and sand; blue primary, exact and restrained. */
-:root[data-theme="solarized"] {
+/* Sand & Blue — sand canvas with a calibrated blue primary. */
+:root[data-theme="sand-blue"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #eef6fb;
   --color-brand-100: #d9ecf7;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(88 110 117 / 0.12), 0 16px 40px -12px rgb(88 110 117 / 0.25);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="solarized"] {
+  :root[data-theme="sand-blue"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #0f4a5c;
     --color-brand-100: #0e4556;

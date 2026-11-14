@@ -530,7 +530,7 @@ func (h *Handler) PostMFASetup(w http.ResponseWriter, r *http.Request) {
 		Detail:   "totp",
 	})
 	h.render(w, r, "mfa_recovery_codes.html", mfaCodesData{
-		Themed:    web.Themed{Theme: u.Theme},
+		Themed:    web.NewThemed(u.Theme),
 		User:      u,
 		CSRFToken: csrf.TokenFromContext(r.Context()),
 		Codes:     codes,
@@ -540,7 +540,7 @@ func (h *Handler) PostMFASetup(w http.ResponseWriter, r *http.Request) {
 // renderMFASetup renders the enrollment page for a pending secret.
 func (h *Handler) renderMFASetup(w http.ResponseWriter, r *http.Request, u *User, enr mfa.Enrollment, required bool, flash *Flash) {
 	h.render(w, r, "mfa_setup.html", mfaSetupData{
-		Themed:    web.Themed{Theme: u.Theme},
+		Themed:    web.NewThemed(u.Theme),
 		User:      u,
 		Flash:     flash,
 		CSRFToken: csrf.TokenFromContext(r.Context()),
@@ -637,7 +637,7 @@ func (h *Handler) PostMFARecoveryCodes(w http.ResponseWriter, r *http.Request) {
 		Username: u.Username,
 	})
 	h.render(w, r, "mfa_recovery_codes.html", mfaCodesData{
-		Themed:      web.Themed{Theme: u.Theme},
+		Themed:      web.NewThemed(u.Theme),
 		User:        u,
 		CSRFToken:   csrf.TokenFromContext(r.Context()),
 		Codes:       codes,

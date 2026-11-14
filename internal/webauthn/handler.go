@@ -279,7 +279,7 @@ func (h *Handler) GetPasskeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "passkeys.html", passkeysData{
-		Themed:            web.Themed{Theme: u.Theme},
+		Themed:            web.NewThemed(u.Theme),
 		User:              u,
 		Credentials:       creds,
 		Flash:             flash,

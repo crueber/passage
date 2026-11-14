@@ -1,5 +1,5 @@
-/* GitHub Light — Primer's cool white canvas, gray lines and blue primary. Light in every system scheme. */
-:root[data-theme="github-light"] {
+/* Clean White (Light) — white and gray with a clear blue primary. Light-only. */
+:root[data-theme="clean-white"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #eff6ff;
   --color-brand-100: #ddf4ff;
@@ -51,7 +51,7 @@
 }
 @media (prefers-color-scheme: dark) {
   /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
-  :root[data-theme="github-light"] {
+  :root[data-theme="clean-white"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #eff6ff;
     --color-brand-100: #ddf4ff;

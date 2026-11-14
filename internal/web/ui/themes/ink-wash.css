@@ -1,5 +1,5 @@
-/* kanagawa — Ink-wash sumi: wave blue with a sparing dragon-red accent. */
-:root[data-theme="kanagawa"] {
+/* Ink Wash — sumi ink surfaces with wave blue and a sparing dragon-red accent. */
+:root[data-theme="ink-wash"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #eef1f6;
   --color-brand-100: #dde4ee;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(84 84 100 / 0.16), 0 16px 40px -12px rgb(84 84 100 / 0.28);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="kanagawa"] {
+  :root[data-theme="ink-wash"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #2b3145;
     --color-brand-100: #282d40;

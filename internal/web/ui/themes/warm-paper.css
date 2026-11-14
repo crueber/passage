@@ -1,5 +1,5 @@
-/* paper — Warm editorial off-white with sepia and brick. Light-only, even in dark mode. */
-:root[data-theme="paper"] {
+/* Warm Paper (Light) — warm editorial off-white with sepia and brick. Light-only. */
+:root[data-theme="warm-paper"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #faf4ef;
   --color-brand-100: #f4e6dc;
@@ -51,7 +51,7 @@
 }
 @media (prefers-color-scheme: dark) {
   /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
-  :root[data-theme="paper"] {
+  :root[data-theme="warm-paper"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #faf4ef;
     --color-brand-100: #f4e6dc;

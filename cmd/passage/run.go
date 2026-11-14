@@ -38,6 +38,7 @@ import (
 	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/settings"
+	"github.com/crueber/passage/internal/theme"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
 	"github.com/crueber/passage/internal/webauthn"
@@ -295,7 +296,7 @@ func run() error {
 			// Live: the server default can be changed in Settings → General
 			// without a restart. The render path has no request context, and
 			// the read is a single indexed row.
-			return settings.String(context.Background(), settingsStore, settings.Theme, cfg.UI.Theme)
+			return theme.Canonical(settings.String(context.Background(), settingsStore, settings.Theme, cfg.UI.Theme))
 		},
 	})
 	if err != nil {

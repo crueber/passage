@@ -1,5 +1,5 @@
-/* One Light — Atom's soft white with slate text and a cool indigo primary. Light in every system scheme. */
-:root[data-theme="one-light"] {
+/* Studio White (Light) — soft white, slate text and an indigo primary. Light-only. */
+:root[data-theme="studio-white"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #eef2ff;
   --color-brand-100: #dde6ff;
@@ -51,7 +51,7 @@
 }
 @media (prefers-color-scheme: dark) {
   /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
-  :root[data-theme="one-light"] {
+  :root[data-theme="studio-white"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #eef2ff;
     --color-brand-100: #dde6ff;

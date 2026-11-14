@@ -203,7 +203,7 @@ func TestGetSessions_ThemeOverride(t *testing.T) {
 	f := newSessionsFixture(t)
 	ctx := context.Background()
 
-	if err := f.users.UpdateTheme(ctx, f.user.ID, "nord"); err != nil {
+	if err := f.users.UpdateTheme(ctx, f.user.ID, "arctic-blue"); err != nil {
 		t.Fatalf("UpdateTheme: %v", err)
 	}
 	u, err := f.users.GetByID(ctx, f.user.ID)
@@ -215,7 +215,7 @@ func TestGetSessions_ThemeOverride(t *testing.T) {
 	rec := httptest.NewRecorder()
 	f.handler.GetSessions(rec, req)
 
-	if !strings.Contains(rec.Body.String(), `data-theme="nord"`) {
+	if !strings.Contains(rec.Body.String(), `data-theme="arctic-blue"`) {
 		t.Error("sessions page does not render the account theme")
 	}
 }

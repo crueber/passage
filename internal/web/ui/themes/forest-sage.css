@@ -1,5 +1,5 @@
-/* everforest — Earthy parchment and deep green-gray. Warm botanical sage, olive and moss. */
-:root[data-theme="everforest"] {
+/* Forest Sage — parchment and green-gray with sage and olive. */
+:root[data-theme="forest-sage"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #f3f6e2;
   --color-brand-100: #e7eec6;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(82 94 80 / 0.12), 0 16px 40px -12px rgb(82 94 80 / 0.25);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="everforest"] {
+  :root[data-theme="forest-sage"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #dfe9c2;
     --color-brand-100: #c6d3a6;

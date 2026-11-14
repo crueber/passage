@@ -27,23 +27,23 @@ type Theme struct {
 // Keep this list in sync with internal/web/ui/themes/: every entry must have a
 // CSS file and every CSS file must have an entry (enforced by tests).
 var All = []Theme{
-	{Name: "slate", Label: "Slate", Description: "Neutral cool gray with a steel-blue primary."},
-	{Name: "nord", Label: "Nord", Description: "Arctic blue-gray with frost-blue accents."},
-	{Name: "gruvbox", Label: "Gruvbox", Description: "Warm retro earth tones: cream, olive, amber, rust."},
-	{Name: "solarized", Label: "Solarized", Description: "Precision teal and sand with a blue primary."},
-	{Name: "catppuccin", Label: "Catppuccin", Description: "Soft pastel Latte and Mocha with a mauve primary."},
-	{Name: "tokyo-night", Label: "Tokyo Night", Description: "Neon indigo night with periwinkle and cyan."},
-	{Name: "rose-pine", Label: "Rosé Pine", Description: "Muted rose and iris over soft dusk surfaces."},
-	{Name: "everforest", Label: "Everforest", Description: "Earthy parchment and deep green-gray, sage primary."},
-	{Name: "kanagawa", Label: "Kanagawa", Description: "Ink-wash sumi surfaces with wave blue and dragon red."},
-	{Name: "paper", Label: "Paper", Description: "Warm editorial off-white with sepia and brick. Always light.", LightOnly: true},
-	{Name: "github-light", Label: "GitHub Light", Description: "Primer's cool white canvas, gray lines and blue primary. Always light.", LightOnly: true},
-	{Name: "one-light", Label: "One Light", Description: "Atom One Light: soft white, slate text and indigo primary. Always light.", LightOnly: true},
-	{Name: "ayu-light", Label: "Ayu Light", Description: "Ayu Light: airy warm white with an orange primary. Always light.", LightOnly: true},
+	{Name: "cool-slate", Label: "Cool Slate", Description: "Neutral graphite with a steel-blue primary."},
+	{Name: "arctic-blue", Label: "Arctic Blue", Description: "Cool blue-gray with frost-blue accents."},
+	{Name: "warm-retro", Label: "Warm Retro", Description: "Cream, olive, amber and rust earth tones."},
+	{Name: "sand-blue", Label: "Sand & Blue", Description: "Sand canvas with a calibrated blue primary."},
+	{Name: "pastel-mauve", Label: "Pastel Mauve", Description: "Soft pastel surfaces with a mauve primary."},
+	{Name: "neon-indigo", Label: "Neon Indigo", Description: "Indigo night with periwinkle and cyan."},
+	{Name: "dusk-rose", Label: "Dusk Rose", Description: "Muted rose and iris over soft dusk surfaces."},
+	{Name: "forest-sage", Label: "Forest Sage", Description: "Parchment and green-gray with sage and olive."},
+	{Name: "ink-wash", Label: "Ink Wash", Description: "Sumi ink surfaces with wave blue and dragon red."},
+	{Name: "warm-paper", Label: "Warm Paper (Light)", Description: "Warm editorial off-white with sepia and brick. Always light.", LightOnly: true},
+	{Name: "clean-white", Label: "Clean White (Light)", Description: "White and gray with a clear blue primary. Always light.", LightOnly: true},
+	{Name: "studio-white", Label: "Studio White (Light)", Description: "Soft white, slate text and an indigo primary. Always light.", LightOnly: true},
+	{Name: "amber-sand", Label: "Amber Sand (Light)", Description: "Airy warm white with a soft amber primary. Always light.", LightOnly: true},
 }
 
 // defaultName is the theme used when ui.theme is left at its default.
-const defaultName = "slate"
+const defaultName = "cool-slate"
 
 // Default returns the name of the default theme. It is always a member of All.
 func Default() string { return defaultName }
@@ -57,12 +57,42 @@ func Names() []string {
 	return out
 }
 
-// Lookup returns the theme with the given name.
+// Lookup returns the theme with the given name. Legacy pre-rename slugs resolve
+// to their current theme.
 func Lookup(name string) (Theme, bool) {
+	name = Canonical(name)
 	for _, t := range All {
 		if t.Name == name {
 			return t, true
 		}
 	}
 	return Theme{}, false
+}
+
+// legacyNames maps the pre-rename slugs to their canonical replacements. They
+// are accepted forever so a database, bookmark, or config file written before
+// the rename still resolves instead of silently falling back to the default.
+var legacyNames = map[string]string{
+	"slate":        "cool-slate",
+	"nord":         "arctic-blue",
+	"gruvbox":      "warm-retro",
+	"solarized":    "sand-blue",
+	"catppuccin":   "pastel-mauve",
+	"tokyo-night":  "neon-indigo",
+	"rose-pine":    "dusk-rose",
+	"everforest":   "forest-sage",
+	"kanagawa":     "ink-wash",
+	"paper":        "warm-paper",
+	"github-light": "clean-white",
+	"one-light":    "studio-white",
+	"ayu-light":    "amber-sand",
+}
+
+// Canonical resolves a legacy slug to its current name and leaves an current or
+// unknown value untouched. Use it wherever a stored value is rendered.
+func Canonical(name string) string {
+	if current, ok := legacyNames[name]; ok {
+		return current
+	}
+	return name
 }

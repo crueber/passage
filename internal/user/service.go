@@ -552,6 +552,7 @@ const MaxDisplayNameLength = 100
 func (s *Service) UpdateTheme(ctx context.Context, userID, themeName string) error {
 	themeName = strings.TrimSpace(themeName)
 	if themeName != "" {
+		themeName = theme.Canonical(themeName)
 		if _, ok := theme.Lookup(themeName); !ok {
 			return ErrInvalidTheme
 		}

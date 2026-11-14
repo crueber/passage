@@ -101,8 +101,8 @@ func TestRegistry(t *testing.T) {
 		want any
 	}{
 		{"len(All)", len(theme.All), 13},
-		{"first theme", theme.All[0].Name, "slate"},
-		{"Default()", theme.Default(), "slate"},
+		{"first theme", theme.All[0].Name, "cool-slate"},
+		{"Default()", theme.Default(), "cool-slate"},
 		{"len(Names())", len(theme.Names()), len(theme.All)},
 	}
 	for _, tt := range tests {
@@ -118,6 +118,23 @@ func TestRegistry(t *testing.T) {
 	}
 	if _, ok := theme.Lookup("no-such-theme"); ok {
 		t.Error("Lookup(\"no-such-theme\") unexpectedly succeeded")
+	}
+	// Legacy pre-rename slugs stay resolvable, so an un-migrated row or an old
+	// bookmark renders the current theme instead of the default.
+	for legacy, current := range map[string]string{
+		"slate": "cool-slate", "nord": "arctic-blue", "gruvbox": "warm-retro",
+		"solarized": "sand-blue", "catppuccin": "pastel-mauve", "tokyo-night": "neon-indigo",
+		"rose-pine": "dusk-rose", "everforest": "forest-sage", "kanagawa": "ink-wash",
+		"paper": "warm-paper", "github-light": "clean-white", "one-light": "studio-white",
+		"ayu-light": "amber-sand",
+	} {
+		got, ok := theme.Lookup(legacy)
+		if !ok || got.Name != current {
+			t.Errorf("Lookup(%q) = %q, %v; want %q", legacy, got.Name, ok, current)
+		}
+		if got := theme.Canonical(legacy); got != current {
+			t.Errorf("Canonical(%q) = %q, want %q", legacy, got, current)
+		}
 	}
 
 	for i, name := range theme.Names() {

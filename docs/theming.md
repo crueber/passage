@@ -4,12 +4,18 @@ Passage ships thirteen colour themes. The server default is chosen in Settings �
 General (`ui.theme`), and each person can override it on their Profile page:
 
 ```html
-<html lang="en" data-theme="slate">
+<html lang="en" data-theme="cool-slate">
 ```
 
 A theme is nothing but a set of CSS custom-property overrides scoped to that
 attribute. The signed-in page data carries the account override; public pages
 fall back to the server default.
+
+Theme names describe the palette rather than the project they were inspired by
+(`Cool Slate`, `Arctic Blue`, `Warm Retro`, …). The slug, CSS filename,
+`data-theme` value and registry name are the same string. Slugs from before the
+rename (`slate`, `nord`, `gruvbox`, …) remain accepted as aliases and are
+rewritten by migration 031.
 
 ## How the cascade works
 
@@ -97,7 +103,8 @@ Rules:
 ## Adding a theme
 
 1. Create `internal/web/ui/themes/<name>.css` using the slug as the filename
-   and as the `data-theme` value.
+   and as the `data-theme` value. Pick a descriptive slug and label for the
+   palette (`cool-slate` / `Cool Slate`), not an upstream project name.
 2. Run `./tools/build-themes.sh` (or `make themes`) to regenerate
    `internal/web/static/themes.css`.
 3. Register it in `internal/theme/theme.go` (`All`, in display order) with a

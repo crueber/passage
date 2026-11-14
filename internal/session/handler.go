@@ -99,7 +99,7 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, r, "sessions.html", sessionsPageData{
-		Themed:    web.Themed{Theme: u.Theme},
+		Themed:    web.NewThemed(u.Theme),
 		User:      u,
 		Sessions:  views,
 		Flash:     flashFromCode(r.URL.Query().Get("flash")),

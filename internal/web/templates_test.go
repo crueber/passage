@@ -128,7 +128,7 @@ func TestRender_ThemeAttributes(t *testing.T) {
 				{Kind: "bool", Key: "allow_registration", Label: "Allow public registration", Value: "true"},
 				{Kind: "number", Key: "session_duration_hours", Label: "Session duration (hours)", Value: "24", Min: 1, Max: 8760},
 				{Kind: "number_pair", Key: "rate_limit_login_requests", Key2: "rate_limit_login_window_minutes", Label: "Sign-in", Label2: "Window (minutes)", Value: "10", Value2: "15", Max: 100000},
-				{Kind: "select", Key: "ui_theme", Label: "Server default theme", Value: "slate", Options: []testOption{{Value: "slate", Label: "Slate"}}},
+				{Kind: "select", Key: "ui_theme", Label: "Server default theme", Value: "cool-slate", Options: []testOption{{Value: "cool-slate", Label: "Cool Slate"}}},
 				{Kind: "radio", Key: "login_header_style", Label: "Header style", Value: "for", Options: []testOption{{Value: "for", Label: "Keep the name first"}, {Value: "plain", Label: "Drop it"}}},
 				{Kind: "password", Key: "metrics_token", Label: "Metrics bearer token", MaxLen: 200},
 			},

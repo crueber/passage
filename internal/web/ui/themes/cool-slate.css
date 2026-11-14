@@ -1,5 +1,5 @@
-/* slate — Neutral cool gray. Crisp, quiet graphite surfaces with a steel-blue primary. */
-:root[data-theme="slate"] {
+/* Cool Slate — neutral graphite surfaces with a steel-blue primary. */
+:root[data-theme="cool-slate"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #f4f6f9;
   --color-brand-100: #e8ecf1;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(23 28 36 / 0.12), 0 16px 40px -12px rgb(23 28 36 / 0.25);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="slate"] {
+  :root[data-theme="cool-slate"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #1c2330;
     --color-brand-100: #19202a;

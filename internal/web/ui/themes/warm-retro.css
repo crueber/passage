@@ -1,5 +1,5 @@
-/* gruvbox — Warm retro earth tones. Cream paper and deep warm gray, olive, amber, rust. */
-:root[data-theme="gruvbox"] {
+/* Warm Retro — cream, olive, amber and rust earth tones. */
+:root[data-theme="warm-retro"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #fdf7dc;
   --color-brand-100: #f9edbd;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(60 56 54 / 0.12), 0 16px 40px -12px rgb(60 56 54 / 0.25);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="gruvbox"] {
+  :root[data-theme="warm-retro"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #f8eab4;
     --color-brand-100: #efdc8b;

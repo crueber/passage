@@ -38,7 +38,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"Auth.LockoutMinutes", cfg.Auth.LockoutMinutes, 15},
 		{"Log.Level", cfg.Log.Level, "info"},
 		{"Log.Format", cfg.Log.Format, "json"},
-		{"UI.Theme", cfg.UI.Theme, "slate"},
+		{"UI.Theme", cfg.UI.Theme, "cool-slate"},
 	}
 
 	for _, tt := range tests {

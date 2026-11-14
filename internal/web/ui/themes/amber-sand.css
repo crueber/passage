@@ -1,5 +1,5 @@
-/* Ayu Light — airy warm white with soft gray text and an orange primary. Light in every system scheme. */
-:root[data-theme="ayu-light"] {
+/* Amber Sand (Light) — airy warm white with a soft amber primary. Light-only. */
+:root[data-theme="amber-sand"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #fff7ef;
   --color-brand-100: #ffecd9;
@@ -51,7 +51,7 @@
 }
 @media (prefers-color-scheme: dark) {
   /* Light-only theme: repeat the light tokens so dark mode does not invert it. */
-  :root[data-theme="ayu-light"] {
+  :root[data-theme="amber-sand"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #fff7ef;
     --color-brand-100: #ffecd9;

@@ -1,5 +1,5 @@
-/* tokyo-night — Neon indigo night with periwinkle and cyan. */
-:root[data-theme="tokyo-night"] {
+/* Neon Indigo — indigo night surfaces with periwinkle and cyan. */
+:root[data-theme="neon-indigo"] {
   /* brand ramp 50..950 (primary hue) */
   --color-brand-50: #f2f4fe;
   --color-brand-100: #e5eafa;
@@ -50,7 +50,7 @@
   --shadow-pop: 0 4px 10px -2px rgb(42 79 168 / 0.14), 0 16px 40px -12px rgb(42 79 168 / 0.28);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="tokyo-night"] {
+  :root[data-theme="neon-indigo"] {
     /* brand ramp 50..950 (primary hue) */
     --color-brand-50: #f2f4fe;
     --color-brand-100: #e5eafa;

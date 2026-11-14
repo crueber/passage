@@ -27,7 +27,7 @@ A self-hosted authentication service for home labs. Passage provides a single fr
   <a href="screenshots/12-identity-providers.png"><img src="screenshots/12-identity-providers.png" alt="Upstream identity providers managed in the admin UI" width="31%" /></a>
 </p>
 
-<p align="center"><sub>Dark theme throughout; the sign-in page is shown in the light theme. Passage also ships nine other colour themes — see <a href="docs/theming.md">docs/theming.md</a>.</sub></p>
+<p align="center"><sub>Dark theme throughout; the sign-in page is shown in the light theme. Passage also ships twelve other colour themes — see <a href="docs/theming.md">docs/theming.md</a>.</sub></p>
 
 ---
 
@@ -72,7 +72,7 @@ The single biggest, most important feature: **simplicity**. Passage is built for
 - **Admin web UI** — manage users, apps (OAuth clients, access policies, groups and roles), sessions, settings, logs, API tokens and signing keys without touching config files
 - **Email** — optional self-registration with address verification, administrator invitations, password reset, and magic-link sign-in
 - **Secrets encrypted at rest** — TOTP secrets are sealed with AES-256-GCM; the key comes from config or a `0600` file beside the database
-- **Thirteen colour themes** — slate, nord, gruvbox, solarized, catppuccin, tokyo-night, rose-pine, everforest, kanagawa, paper, github-light, one-light and ayu-light; set a server default and let each person choose their own under Profile (Paper, GitHub Light, One Light and Ayu Light stay light in dark mode)
+- **Thirteen colour themes** — Cool Slate, Arctic Blue, Warm Retro, Sand & Blue, Pastel Mauve, Neon Indigo, Dusk Rose, Forest Sage, Ink Wash, Warm Paper (Light), Clean White (Light), Studio White (Light) and Amber Sand (Light); set a server default and let each person choose their own under Profile (the four Light themes stay light in dark mode)
 - **Single static binary** — no runtime dependencies, no CGo, no Docker required to run
 - **SQLite backing store** — a single `.db` file; no separate database server
 

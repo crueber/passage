@@ -791,7 +791,7 @@ func TestGetPasskeys_Tabs(t *testing.T) {
 	if err := f.userSvc.UpdateDisplayName(ctx, u.ID, "Sam Rivera"); err != nil {
 		t.Fatalf("update display name: %v", err)
 	}
-	if err := f.userSvc.UpdateTheme(ctx, u.ID, "nord"); err != nil {
+	if err := f.userSvc.UpdateTheme(ctx, u.ID, "arctic-blue"); err != nil {
 		t.Fatalf("update theme: %v", err)
 	}
 	token, _, err := f.sessionSvc.CreateSession(ctx, u.ID, nil, "127.0.0.1", "test")
@@ -807,7 +807,7 @@ func TestGetPasskeys_Tabs(t *testing.T) {
 			"Sam Rivera",
 			`href="/passkeys?tab=mfa"`,
 			`href="/passkeys?tab=password"`,
-			`data-theme="nord"`,
+			`data-theme="arctic-blue"`,
 			"Register a new passkey",
 			"Your passkeys",
 			`id="usernav-toggle"`,

@@ -67,7 +67,7 @@ func TestMigration030_PopulatedDatabase(t *testing.T) {
 
 	// The column accepts a registered slug and survives a reopen.
 	if _, err := database.ExecContext(ctx,
-		`UPDATE users SET theme = 'nord' WHERE id = 'user-1'`); err != nil {
+		`UPDATE users SET theme = 'forest-sage' WHERE id = 'user-1'`); err != nil {
 		t.Fatalf("set theme: %v", err)
 	}
 	if err := database.Close(); err != nil {
@@ -82,7 +82,7 @@ func TestMigration030_PopulatedDatabase(t *testing.T) {
 		`SELECT theme FROM users WHERE id = 'user-1'`).Scan(&theme); err != nil {
 		t.Fatalf("read theme after reopen: %v", err)
 	}
-	if theme != "nord" {
-		t.Errorf("theme after reopen = %q, want nord", theme)
+	if theme != "forest-sage" {
+		t.Errorf("theme after reopen = %q, want forest-sage", theme)
 	}
 }
