@@ -60,6 +60,23 @@ const (
 	apiRateLimitWindow   = time.Minute
 )
 
+// magicLinkLockout is how long a client address stays blocked after it burns
+// its failed magic-link guesses. The threshold and window come from the admin
+// "Magic link" rate limit; this is the floor that makes the throttle worth
+// having, so it is deliberately not a setting.
+const magicLinkLockout = 24 * time.Hour
+
+// magicLinkThrottleConfig maps the admin "Magic link" rate limit onto the
+// failed-guess throttle: N failed guesses per the configured window, then a
+// magicLinkLockout block. A zero request count disables both.
+func magicLinkThrottleConfig(ctx context.Context, store settings.Store, cfg *config.Config) ratelimit.MagicLinkConfig {
+	return ratelimit.MagicLinkConfig{
+		MaxFailures: settings.Int(ctx, store, settings.RateLimitMagicLinkRequests, cfg.RateLimit.MagicLinkRequests, 0, 100000),
+		Window:      time.Duration(settings.Int(ctx, store, settings.RateLimitMagicLinkWindowMinutes, cfg.RateLimit.MagicLinkWindowMinutes, 1, 100000)) * time.Minute,
+		Lockout:     magicLinkLockout,
+	}
+}
+
 // auditAPIAdapter adapts the admin audit service to adminapi.auditSource. The
 // admin UI package and the REST API package deliberately do not import each
 // other, so the mapping lives here at the wiring layer.
@@ -463,6 +480,18 @@ func run() error {
 		Lockout:     time.Duration(cfg.Auth.LockoutMinutes) * time.Minute,
 	}, time.Now)
 
+	// Magic-link requests only go to existing accounts, and an address that
+	// keeps naming accounts that do not exist is blocked. The threshold and
+	// window are the admin Magic link rate limit (“N per window”, the same
+	// numbers the request limiter uses), so there is one place to tune it; the
+	// block that follows is always magicLinkLockout. SQLite-backed so a block
+	// survives a restart.
+	magicLinkThrottle := ratelimit.NewMagicLinkService(
+		ratelimit.NewMagicLinkStore(database),
+		magicLinkThrottleConfig(ctx, settingsStore, cfg),
+		time.Now,
+	)
+
 	// Rate limits and lockout thresholds are held by long-lived limiter
 	// objects. Re-apply them after a settings save instead of asking for a
 	// restart; changing a limit clears that limiter's in-memory windows, which
@@ -483,7 +512,25 @@ func run() error {
 			MaxFailures: settings.Int(ctx, settingsStore, settings.MaxLoginFailures, cfg.Auth.MaxLoginFailures, 0, 1000),
 			Lockout:     time.Duration(settings.Int(ctx, settingsStore, settings.LockoutMinutes, cfg.Auth.LockoutMinutes, 0, 100000)) * time.Minute,
 		})
+		magicLinkThrottle.SetConfig(magicLinkThrottleConfig(ctx, settingsStore, cfg))
 	}
+
+	// Drop magic-link throttle rows that can no longer block or count. Runs
+	// hourly; a row is only interesting for 24 hours after its last failure.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := magicLinkThrottle.PurgeExpired(ctx, time.Now().UTC().Add(-24*time.Hour)); err != nil {
+					logger.Error("magic link throttle cleanup failed", "error", err)
+				}
+			}
+		}
+	}()
 
 	// Start rate limiter cleanup goroutines (every 5 minutes each).
 	for _, rl := range []*ratelimit.Limiter{loginLimiter, resetLimiter, oauthTokenLimiter, setupLimiter, registerLimiter, magicLinkLimiter, apiLimiter} {
@@ -518,7 +565,7 @@ func run() error {
 	adminHandler.SetSettingsReloader(reloadLimiters)
 
 	// Build user handler.
-	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, tmpl, cfg, logger)
+	userHandler := user.NewHandler(userSvc, mfaSvc, appSvc, sessionSvc, settingsStore, mailer, session.UserFromContext, authRecorder, accountThrottle, magicLinkThrottle, tmpl, cfg, logger)
 	// The login page renders one button per stored upstream provider. The
 	// adapter lives here because idp imports user, so user cannot import idp.
 	userHandler.SetProviderSource(idpButtons{store: idpStore})

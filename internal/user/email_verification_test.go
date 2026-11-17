@@ -42,6 +42,7 @@ type recordingSender struct {
 	err           error
 	verifications []verificationEmail
 	invitations   []invitationEmail
+	magicLinks    []string
 }
 
 func (s *recordingSender) SendVerifyEmail(_ context.Context, to, name, url string) error {
@@ -65,7 +66,25 @@ func (s *recordingSender) SendInvite(_ context.Context, to, name, inviter, url s
 }
 
 func (s *recordingSender) SendPasswordReset(_ context.Context, _, _, _ string) error { return nil }
-func (s *recordingSender) SendMagicLink(_ context.Context, _, _, _ string) error     { return nil }
+
+func (s *recordingSender) SendMagicLink(_ context.Context, to, _, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	s.magicLinks = append(s.magicLinks, to)
+	return nil
+}
+
+// sentMagicLinks returns a copy of the addresses a sign-in link was sent to.
+func (s *recordingSender) sentMagicLinks() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.magicLinks))
+	copy(out, s.magicLinks)
+	return out
+}
 
 // sent returns a copy of the recorded verification emails (race-safe).
 func (s *recordingSender) sent() []verificationEmail {

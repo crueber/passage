@@ -3,99 +3,27 @@ package user_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/crueber/passage/internal/app"
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/config"
+	"github.com/crueber/passage/internal/ratelimit"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/testutil"
 	"github.com/crueber/passage/internal/theme"
 	"github.com/crueber/passage/internal/user"
 	"github.com/crueber/passage/internal/web"
 )
-
-// TestFindOrCreateByEmail_ExistingUser verifies that FindOrCreateByEmail returns
-// the existing user (created=false) when the email is already registered.
-func TestFindOrCreateByEmail_ExistingUser(t *testing.T) {
-	t.Parallel()
-	svc := newUserService(t, true)
-	ctx := context.Background()
-
-	// Pre-create a user.
-	if _, err := svc.Register(ctx, "alice_magic", "alice_magic@example.com", "password123"); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-
-	u, created, err := svc.FindOrCreateByEmail(ctx, "alice_magic@example.com")
-	if err != nil {
-		t.Fatalf("FindOrCreateByEmail: unexpected error: %v", err)
-	}
-	if created {
-		t.Error("FindOrCreateByEmail: expected created=false for existing user")
-	}
-	if u.Email != "alice_magic@example.com" {
-		t.Errorf("FindOrCreateByEmail: got email %q, want %q", u.Email, "alice_magic@example.com")
-	}
-}
-
-// TestFindOrCreateByEmail_NewUser verifies that FindOrCreateByEmail creates a
-// new user when the email is not found, and returns created=true.
-func TestFindOrCreateByEmail_NewUser(t *testing.T) {
-	t.Parallel()
-	svc := newUserService(t, true)
-	ctx := context.Background()
-
-	u, created, err := svc.FindOrCreateByEmail(ctx, "newmagic@example.com")
-	if err != nil {
-		t.Fatalf("FindOrCreateByEmail: unexpected error: %v", err)
-	}
-	if !created {
-		t.Error("FindOrCreateByEmail: expected created=true for new user")
-	}
-	if u == nil {
-		t.Fatal("FindOrCreateByEmail: expected non-nil user")
-	}
-	if u.ID == "" {
-		t.Error("FindOrCreateByEmail: expected non-empty ID")
-	}
-	if u.Email != "newmagic@example.com" {
-		t.Errorf("FindOrCreateByEmail: got email %q, want %q", u.Email, "newmagic@example.com")
-	}
-	// Username should be derived from the local part of the email.
-	if u.Username == "" {
-		t.Error("FindOrCreateByEmail: expected non-empty username")
-	}
-	if !u.IsActive {
-		t.Error("FindOrCreateByEmail: expected new user to be active")
-	}
-}
-
-// TestFindOrCreateByEmail_DerivedUsername verifies that the username is derived
-// correctly from the email local part, replacing non-alphanumeric chars with _.
-func TestFindOrCreateByEmail_DerivedUsername(t *testing.T) {
-	t.Parallel()
-	svc := newUserService(t, true)
-	ctx := context.Background()
-
-	u, created, err := svc.FindOrCreateByEmail(ctx, "foo.bar+baz@example.com")
-	if err != nil {
-		t.Fatalf("FindOrCreateByEmail: unexpected error: %v", err)
-	}
-	if !created {
-		t.Error("FindOrCreateByEmail: expected created=true")
-	}
-	// "foo.bar+baz" → "foo_bar_baz"
-	if u.Username == "" {
-		t.Error("FindOrCreateByEmail: expected non-empty derived username")
-	}
-}
 
 // TestConsumeMagicLinkToken_HappyPath verifies the full create → consume cycle.
 func TestConsumeMagicLinkToken_HappyPath(t *testing.T) {
@@ -254,15 +182,29 @@ func newMagicLinkHandlerFixture(t *testing.T) (*user.Handler, *handlerFixture) {
 	appStore := app.NewStore(db)
 	authStore := authlog.NewStore(db)
 	authRecorder := authlog.NewRecorder(authStore, nil, logger)
-	h := user.NewHandler(userSvc, nil, app.NewService(appStore, appStore, logger), sessionSvc, magicLinkEnabledSettings{}, noopSender{}, session.UserFromContext, authRecorder, nil, tmpl, cfg, logger)
+
+	// A real SQLite-backed per-address throttle with a clock the tests move by
+	// hand, so a 24-hour block can be asserted without sleeping.
+	magicClock := newTestClock()
+	magicThrottle := ratelimit.NewMagicLinkService(
+		ratelimit.NewMagicLinkStore(db),
+		ratelimit.MagicLinkConfig{MaxFailures: 3, Window: 24 * time.Hour, Lockout: 24 * time.Hour},
+		magicClock.Now,
+	)
+	mail := &recordingSender{}
+
+	h := user.NewHandler(userSvc, nil, app.NewService(appStore, appStore, logger), sessionSvc, magicLinkEnabledSettings{}, mail, session.UserFromContext, authRecorder, nil, magicThrottle, tmpl, cfg, logger)
 
 	f := &handlerFixture{
-		db:        db,
-		handler:   h,
-		userSvc:   userSvc,
-		userStore: userStore,
-		cfg:       cfg,
-		authStore: authStore,
+		db:            db,
+		handler:       h,
+		userSvc:       userSvc,
+		userStore:     userStore,
+		cfg:           cfg,
+		authStore:     authStore,
+		magicThrottle: magicThrottle,
+		magicClock:    magicClock,
+		magicMail:     mail,
 	}
 	return h, f
 }
@@ -457,7 +399,7 @@ func TestHandler_GetMagicLinkVerify(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 		// disabledSettings returns "false" for every key, disabling all auth methods.
 		appStore := app.NewStore(db)
-		h := user.NewHandler(userSvc, nil, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, nil, tmpl, cfg, logger)
+		h := user.NewHandler(userSvc, nil, app.NewService(appStore, appStore, logger), sessionSvc, disabledSettings{}, noopSender{}, session.UserFromContext, nil, nil, nil, tmpl, cfg, logger)
 
 		req := httptest.NewRequest(http.MethodGet, "/login/magic/verify?token=anytoken", nil)
 		rec := httptest.NewRecorder()
@@ -466,6 +408,145 @@ func TestHandler_GetMagicLinkVerify(t *testing.T) {
 		res := rec.Result()
 		if res.StatusCode != http.StatusForbidden {
 			t.Errorf("magic link disabled: got status %d, want %d", res.StatusCode, http.StatusForbidden)
+		}
+	})
+}
+
+// postMagicLink submits the request form from the given client address.
+func postMagicLink(t *testing.T, h *user.Handler, email, ip string) *httptest.ResponseRecorder {
+	t.Helper()
+	form := url.Values{"email": {email}}
+	req := httptest.NewRequest(http.MethodPost, "/login/magic", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = ip + ":54321"
+	rec := httptest.NewRecorder()
+	h.PostMagicLinkRequest(rec, req)
+	return rec
+}
+
+// countUsers is the number of rows in users, used to prove a refused request
+// never provisions an account.
+func countUsers(t *testing.T, f *handlerFixture) int {
+	t.Helper()
+	var n int
+	if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM users").Scan(&n); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	return n
+}
+
+// TestHandler_PostMagicLinkRequest covers the account gate, the shared
+// response, and the per-address failure throttle. Every request ends on the
+// same page: the response must not reveal whether an address is registered.
+func TestHandler_PostMagicLinkRequest(t *testing.T) {
+	t.Parallel()
+
+	t.Run("existing account receives a link", func(t *testing.T) {
+		t.Parallel()
+		h, f := newMagicLinkHandlerFixture(t)
+
+		if _, err := f.userSvc.Register(context.Background(), "mlknown", "mlknown@example.com", "password123"); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+
+		rec := postMagicLink(t, h, "mlknown@example.com", "198.51.100.10")
+		if body := rec.Body.String(); !strings.Contains(body, "If there&rsquo;s an account at that address") {
+			t.Fatalf("existing account: expected the shared page, got %q", body)
+		}
+		if got := f.magicMail.sentMagicLinks(); len(got) != 1 || got[0] != "mlknown@example.com" {
+			t.Fatalf("sent links = %v, want one to mlknown@example.com", got)
+		}
+	})
+
+	t.Run("unknown account is indistinguishable and creates nothing", func(t *testing.T) {
+		t.Parallel()
+		h, f := newMagicLinkHandlerFixture(t)
+
+		if _, err := f.userSvc.Register(context.Background(), "mlreal", "mlreal@example.com", "password123"); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+
+		known := postMagicLink(t, h, "mlreal@example.com", "198.51.100.11").Body.String()
+		unknown := postMagicLink(t, h, "nobody@example.com", "198.51.100.12").Body.String()
+		if unknown != known {
+			t.Errorf("unknown-account response differs from the known-account response:\nunknown: %q\nknown:   %q", unknown, known)
+		}
+
+		// Exactly one account exists, and only the real address was mailed.
+		if n := countUsers(t, f); n != 1 {
+			t.Errorf("users = %d, want 1 (a magic-link request must not provision)", n)
+		}
+		if got := f.magicMail.sentMagicLinks(); len(got) != 1 || got[0] != "mlreal@example.com" {
+			t.Errorf("sent links = %v, want only mlreal@example.com", got)
+		}
+	})
+
+	t.Run("three failed guesses block the address for 24 hours", func(t *testing.T) {
+		t.Parallel()
+		h, f := newMagicLinkHandlerFixture(t)
+		if _, err := f.userSvc.Register(context.Background(), "mlblocked", "mlblocked@example.com", "password123"); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+
+		const ip = "198.51.100.13"
+		var first string
+		for i := 1; i <= 3; i++ {
+			body := postMagicLink(t, h, fmt.Sprintf("guess%d@example.com", i), ip).Body.String()
+			if i == 1 {
+				first = body
+			}
+			if body != first {
+				t.Fatalf("guess %d: response changed while probing; want a constant page", i)
+			}
+		}
+
+		// The address is blocked now: even a real account is answered with the
+		// same page, and nothing is sent.
+		rec := postMagicLink(t, h, "mlblocked@example.com", ip)
+		if body := rec.Body.String(); body != first {
+			t.Errorf("blocked address: response changed; want the shared page")
+		}
+		if got := f.magicMail.sentMagicLinks(); len(got) != 0 {
+			t.Errorf("blocked address sent %v; want nothing", got)
+		}
+
+		// A different address is unaffected and still gets its link.
+		other := postMagicLink(t, h, "mlblocked@example.com", "198.51.100.14")
+		if body := other.Body.String(); body != first {
+			t.Errorf("other address: response changed; want the shared page")
+		}
+		if got := f.magicMail.sentMagicLinks(); len(got) != 1 || got[0] != "mlblocked@example.com" {
+			t.Errorf("other address sent %v, want one to mlblocked@example.com", got)
+		}
+	})
+
+	t.Run("the block lifts after 24 hours", func(t *testing.T) {
+		t.Parallel()
+		h, f := newMagicLinkHandlerFixture(t)
+		if _, err := f.userSvc.Register(context.Background(), "mlafter", "mlafter@example.com", "password123"); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+
+		const ip = "198.51.100.15"
+		for i := 1; i <= 3; i++ {
+			postMagicLink(t, h, fmt.Sprintf("late%d@example.com", i), ip)
+		}
+		blocked := postMagicLink(t, h, "mlafter@example.com", ip).Body.String()
+		if got := f.magicMail.sentMagicLinks(); len(got) != 0 {
+			t.Fatalf("blocked address sent %v; want nothing", got)
+		}
+		if body := postMagicLink(t, h, "mlafter@example.com", ip).Body.String(); body != blocked {
+			t.Fatalf("blocked response is not the shared page")
+		}
+
+		f.magicClock.Advance(24*time.Hour + time.Second)
+
+		rec := postMagicLink(t, h, "mlafter@example.com", ip)
+		if body := rec.Body.String(); body != blocked {
+			t.Errorf("after the block expired: response changed; want the shared page")
+		}
+		if got := f.magicMail.sentMagicLinks(); len(got) != 1 || got[0] != "mlafter@example.com" {
+			t.Errorf("after the block expired sent links = %v, want one to mlafter@example.com", got)
 		}
 	})
 }

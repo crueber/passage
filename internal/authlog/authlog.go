@@ -11,22 +11,23 @@ import "time"
 // and the admin security-log page (via Names), so the filter cannot drift from
 // what is actually recorded.
 const (
-	EventLoginSuccess      = "login.success"
-	EventLoginFailure      = "login.failure"
-	EventLoginThrottled    = "login.throttled"
-	EventLogout            = "logout"
-	EventPasskeyLogin      = "passkey.login"
-	EventPasskeyFailure    = "passkey.failure"
-	EventMagicLinkLogin    = "magiclink.login"
-	EventMagicLinkFailure  = "magiclink.failure"
-	EventRegisterSuccess   = "register.success"
-	EventPasswordChanged   = "password.changed"
-	EventOAuthAuthorize    = "oauth.authorize"
-	EventOAuthToken        = "oauth.token"
-	EventOAuthTokenFailed  = "oauth.token_failure"
-	EventOAuthRefreshReuse = "oauth.refresh_reuse"
-	EventOAuthRevoke       = "oauth.revoke"
-	EventOAuthLogout       = "oauth.logout"
+	EventLoginSuccess       = "login.success"
+	EventLoginFailure       = "login.failure"
+	EventLoginThrottled     = "login.throttled"
+	EventLogout             = "logout"
+	EventPasskeyLogin       = "passkey.login"
+	EventPasskeyFailure     = "passkey.failure"
+	EventMagicLinkLogin     = "magiclink.login"
+	EventMagicLinkFailure   = "magiclink.failure"
+	EventMagicLinkThrottled = "magiclink.throttled"
+	EventRegisterSuccess    = "register.success"
+	EventPasswordChanged    = "password.changed"
+	EventOAuthAuthorize     = "oauth.authorize"
+	EventOAuthToken         = "oauth.token"
+	EventOAuthTokenFailed   = "oauth.token_failure"
+	EventOAuthRefreshReuse  = "oauth.refresh_reuse"
+	EventOAuthRevoke        = "oauth.revoke"
+	EventOAuthLogout        = "oauth.logout"
 
 	// Two-factor authentication. A challenge is issued after a correct password
 	// when the account has TOTP enabled; it is not a login on its own. No event
@@ -93,6 +94,7 @@ func Names() []string {
 		EventPasskeyFailure,
 		EventMagicLinkLogin,
 		EventMagicLinkFailure,
+		EventMagicLinkThrottled,
 		EventRegisterSuccess,
 		EventPasswordChanged,
 		EventOAuthAuthorize,

@@ -86,6 +86,8 @@ The sliding-window IP limiters live in the process heap and reset on restart. Th
 
 Per-account password-login throttling is separate and **is** persistent: `login_throttle` is a SQLite table keyed by the lowercased username, so a lockout survives a restart. Locks expire automatically (`auth.lockout_minutes`), and an admin can clear one early from the Users page.
 
+Magic-link requests have their own persistent per-address throttle for the same reason: `magic_link_throttle` records requests that name an address with no account. The response never varies — an existing account, an unknown one, a blocked client and a mail failure all render the same "if there is an account at that address, it has been sent" page — so the form cannot be used to test whether an address is registered. The threshold and window are the admin “Magic link” rate limit (N requests per window, default 5 per 60 minutes); reaching it blocks the client address for 24 hours. Requesting a link for a real account is never counted, so a mistyped address costs a guess, not a lockout.
+
 ### 3. `SameSite: Lax` Is Not Full CSRF Protection
 
 Modern browsers have inconsistencies in when `SameSite: Lax` cookies are sent. The synchronizer token (HMAC-signed `_csrf` field) is the authoritative CSRF defence; `SameSite: Lax` is an additional layer.

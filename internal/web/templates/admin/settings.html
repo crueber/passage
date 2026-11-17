@@ -67,6 +67,7 @@
                        min="1" max="{{.Max}}" value="{{.Value2}}">
               </div>
             </div>
+            {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
           </div>
 
           {{else if eq .Kind "number"}}

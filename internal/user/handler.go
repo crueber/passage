@@ -84,6 +84,14 @@ type loginThrottle interface {
 	Reset(ctx context.Context, username string) error
 }
 
+// magicLinkThrottle is the per-address throttle for magic-link requests.
+// Defined at the consumer boundary; backed by *ratelimit.MagicLinkService in
+// run.go. It only counts requests for addresses that have no account.
+type magicLinkThrottle interface {
+	Status(ctx context.Context, ip string) (ratelimit.MagicLinkStatus, error)
+	RecordFailure(ctx context.Context, ip string) (ratelimit.MagicLinkStatus, error)
+}
+
 // Handler handles user-facing HTTP flows: login, register, password reset, logout.
 type Handler struct {
 	users    *Service
@@ -97,6 +105,9 @@ type Handler struct {
 	authEvents authEventRecorder
 	// throttle is the per-account password-login throttle. May be nil.
 	throttle loginThrottle
+	// magicThrottle blocks addresses that keep asking for sign-in links to
+	// addresses with no account. May be nil (tests).
+	magicThrottle magicLinkThrottle
 	// passkey is the WebAuthn bridge that can complete a pending second-factor
 	// challenge. May be nil (passkeys disabled, or tests).
 	passkey secondFactorPasskey
@@ -118,23 +129,25 @@ func NewHandler(
 	userCtx userContextReader,
 	authEvents authEventRecorder,
 	throttle loginThrottle,
+	magicThrottle magicLinkThrottle,
 	tmpl *template.Template,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *Handler {
 	return &Handler{
-		users:      users,
-		mfa:        mfaSvc,
-		apps:       apps,
-		sessions:   sessions,
-		settings:   settings,
-		mailer:     mailer,
-		userCtx:    userCtx,
-		authEvents: authEvents,
-		throttle:   throttle,
-		tmpl:       tmpl,
-		cfg:        cfg,
-		logger:     logger,
+		users:         users,
+		mfa:           mfaSvc,
+		apps:          apps,
+		sessions:      sessions,
+		settings:      settings,
+		mailer:        mailer,
+		userCtx:       userCtx,
+		authEvents:    authEvents,
+		throttle:      throttle,
+		magicThrottle: magicThrottle,
+		tmpl:          tmpl,
+		cfg:           cfg,
+		logger:        logger,
 	}
 }
 
