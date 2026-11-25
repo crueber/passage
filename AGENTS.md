@@ -6,13 +6,15 @@ This file is read by AI coding agents at the start of every session. Read it ful
 
 ## What is Passage?
 
-Passage is a self-hosted authentication proxy for home labs. It implements the **forward-auth pattern**: a reverse proxy (Nginx, Traefik, Caddy) sends every request to Passage's `/auth/*` endpoint before forwarding it to the upstream service. Passage returns `200 OK` if the request is authenticated, or redirects to the login page if not.
+Passage is a self-hosted authentication proxy for home labs. It implements the **forward-auth pattern**: a reverse proxy (Nginx, Traefik, Caddy) sends every request to Passage's `/auth/*` endpoint before forwarding it to the upstream service. Passage returns `200 OK` if the request is authenticated, or redirects to the login page if not. It is also an **OAuth 2.0 / OIDC provider**, which is the better fit for applications that speak OIDC natively.
 
 **Key characteristics:**
 - Single static Go binary — no CGo, no external runtime dependencies
 - SQLite backing store via `modernc.org/sqlite` (pure Go driver)
 - Web UI built with `html/template` + `embed.FS` + Tailwind CSS v4 (compiled locally, vendored output)
-- Supports username/password (bcrypt), passkeys (WebAuthn), and OAuth 2.0 / OIDC provider
+- Sign-in by password (bcrypt), passkey (WebAuthn), magic link, upstream OIDC provider, or password plus TOTP with recovery codes; administrators can also invite accounts by email
+- Per-app access grants, roles, groups and an optional access policy (group/role/CIDR/hours/admin-only), a read-only admin API with bearer tokens, Prometheus metrics and an authentication event log
+- Everything past bootstrap is configured in the admin UI and stored in SQLite: the config file only sets the listener, public URL, database path, key material, cookie shape and logging
 
 ---
 
@@ -31,18 +33,20 @@ Version:   injected at build time via -ldflags "-X main.version=..." (defaults t
 
 ```
 passage/
-  cmd/passage/          # main.go (thin entry point), run.go (wires everything — all DI happens here)
+  cmd/passage/          # main.go (thin entry point), run.go (wires everything — all DI happens here), metrics.go
   internal/
     config/             # config loading — YAML file + PASSAGE_* env var overrides
     db/                 # SQLite open + goose migrations
       migrations/       # *.sql embedded migration files (001_*.sql … 033_*.sql)
-    user/               # model, store, service, handler, magic links, setup tokens
+    user/               # model, store, service, handler, magic links, invitations, profile, setup tokens
     app/                # model, store, service (host pattern matching, per-app session duration, auth method flags)
     session/            # model, store, service, middleware (RequireSession), user sessions page
     forwardauth/        # /auth/nginx, /auth/traefik, /auth/start, /auth/sign_out
-    admin/              # admin UI handlers, RequireAdmin middleware, settings store, audit log
+    admin/              # admin UI handlers, RequireAdmin middleware, settings store, audit log, pagination
+    settings/           # database-backed feature settings: keys, defaults, typed accessors, ApplyToConfig
+    authlog/            # authentication event store + recorder (security log, webhook, retention)
     email/              # go-mail wrapper + embedded templates
-    oauth/              # OAuth 2.0 / OIDC provider — authorize, token, userinfo, JWKS, PKCE
+    oauth/              # OAuth 2.0 / OIDC provider — authorize, token, userinfo, JWKS, keyring, PKCE
     webauthn/           # WebAuthn registration/authentication ceremonies + SQLite credential/challenge stores
     mfa/                # TOTP (RFC 6238) + single-use recovery codes, pending login challenges, AES-256-GCM secret encryption (cipher.go/key.go)
     idp/                # upstream OIDC providers: discovery, PKCE, id_token verification, account links
@@ -50,20 +54,32 @@ passage/
     adminapi/           # read-only /api/v1 + API tokens (SHA-256 at rest)
     metrics/            # Prometheus registry, text encoder, HTTP instrumentation (no deps)
     csrf/               # CSRF middleware: ProtectAnonymous (double-submit) + ProtectAuthenticated (session-bound HMAC)
-    ratelimit/          # in-memory sliding-window limiter + chi Middleware
+    ratelimit/          # in-memory sliding-window limiter + chi Middleware, and the SQLite-backed
+                        # per-account (login_throttle) and per-address (magic_link_throttle) throttles
+    theme/              # colour-theme registry (All / Names / Lookup / Canonical / Default)
     web/
       templates/        # html/template files, embedded via embed.FS (user pages at top level, admin pages in admin/)
-      static/           # passage.css + themes.css (both generated), htmx.min.js, passkey.js
+      static/           # passage.css + themes.css (both generated), app.js, htmx.min.js, passkey.js
       ui/               # input.css (Tailwind v4 source; rebuild with `make css`) + themes/<name>.css (plain CSS)
     testutil/           # NewTestDB(t) — in-memory SQLite with migrations, for tests
-  docs/                 # config examples + security.md, forward-auth.md, theming.md, idp.md, app-access-policies.md, admin-api.md, metrics.md, oauth-signing-key-rotation.md, auth0-vs-passage.md
-  tools/                # tailwindcss standalone CLI binary (gitignored — fetch the v4.x release to rebuild CSS)
-  Makefile              # css / build / vet / test targets
+  .forgejo/workflows/   # CI (test, image, release) and publish-github.yml — the development repository's CI
+  scripts/              # publish-to-github.sh + publish/*.yml (the GitHub workflows installed at publish time)
+  docs/                 # config examples plus security, forward-auth, theming, idp, app-access-policies,
+                        # admin-api, metrics, jwt-access-tokens, oauth-signing-key-rotation, auth0-vs-passage;
+                        # plans/ holds tracked design notes and docs/demo.webm|webp the README demo
+  screenshots/          # README gallery (generated from a demo instance, not hand-edited)
+  site/                 # static marketing page published to GitHub Pages: index.html, one hand-written
+                        # style.css carrying the app's tokens, img/ (cropped webp screenshots); no build step
+  tools/                # build-css.sh, build-themes.sh, fetch-tailwind.sh (tracked) + the gitignored
+                        # tailwindcss standalone CLI binary
+  Makefile              # css / themes / assets / build / vet / test targets
   Dockerfile            # multi-stage build; runtime mounts /data volume for SQLite
   docker-compose.yml    # local deployment example
   passage.example.yaml  # copy to passage.yaml — full config reference
   .env.example          # PASSAGE_* env var reference
 ```
+
+There is no `.github/` in the development tree: it is installed from `scripts/publish/` when a release is published.
 
 ---
 
@@ -90,7 +106,7 @@ All dependencies are **pure Go — no CGo**. Do not introduce any dependency tha
 All wiring lives in `cmd/passage/run.go` — construction order matters. Key facts:
 
 - **Top-level context**: `signal.NotifyContext` (SIGINT/SIGTERM). Every background goroutine and the HTTP server shutdown hang off this context. Never start a goroutine without wiring it to a cancellable context.
-- **Background cleanup goroutines** (started in `run()`): expired sessions (hourly), WebAuthn challenges (10 min), OAuth codes/tokens (hourly), rate-limiter cleanup (5 min).
+- **Background cleanup goroutines** (started in `run()`): expired sessions and idle sessions (hourly), WebAuthn and MFA challenges (10 min), OAuth codes/tokens (hourly), authentication-log retention (daily), expired invitations (hourly), magic-link throttle rows (hourly), in-memory rate-limiter windows (5 min).
 - **Construction order**: settings store and app store are built *before* `session.NewService` because the session service reads the global `session_duration_hours` setting and per-app duration overrides (via the unexported `appDurationAdapter` at the wiring layer). Cross-package adapters live in `run.go`, not in the packages themselves.
 - **Dashboard handler**: `/` (the "My Apps" page) is served by `user.Handler.GetDashboard` — not a run.go closure — so it can be regression-tested (see `internal/user/handler_test.go`). Pins live on `user_app_access.favorite`, so they are per-user and vanish with the access grant; `GetDashboard` puts pinned apps first with a stable sort and `POST /apps/{id}/favorite` toggles one (no access row = no-op). The page renders both views: **Comfortable** grouped rows and an **Iconized** shelf/tile launcher. `data-app-view` resolves from the `passage_app_view` browser cookie → `users.app_view` → Comfortable; `?view=` is the no-JS switch fallback and sets the cookie. `app.js` updates the attribute/cookie instantly, migrates the old `passage.density` localStorage value, and runs the Ctrl/⌘K command launcher (type-ahead over server-rendered links, arrow/Enter/Esc, focus trap); mobile uses a floating search button. Tile stars are always visible. `user.NewHandler` takes an `AppLister` (satisfied by `*app.Service`) and a `userContextReader` (wired to `session.UserFromContext`) at the consumer boundary, because `internal/session` imports `internal/user`.
 - **Feature settings live in the database, not the config file.** `passage.yaml` (and the matching `PASSAGE_*` env vars) is bootstrap-only: listen address, `server.base_url`, database path, session-cookie shape, `security.encryption_key`, `csrf.key`, logging. Everything else is stored in the `settings` table and edited in **Settings** (`internal/admin/settings_form.go`). `internal/settings` owns the keys, defaults, typed accessors (`String`/`Raw`/`Bool`/`Int`, all of which fall back rather than fail a request) and `ApplyToConfig`, which copies the startup values into the config snapshot as fallbacks. **No setting requires a restart.** Registration, MFA policy, session lifetime, sign-in copy, theme, metrics and idle timeout are read per use; bcrypt cost and SMTP are read per hash/email; the webhook resolves its URL, secret and timeout per delivery; rate limits and lockout thresholds are re-applied through `Handler.SetSettingsReloader` after a successful save (changing a limit clears that limiter's in-memory windows). Adding a setting means: a key + default in `internal/settings`, a field in `settings_form.go`, a migration row seeding the default (`INSERT OR IGNORE`), and a live read (or a reload hook for stateful components).
@@ -99,6 +115,7 @@ All wiring lives in `cmd/passage/run.go` — construction order matters. Key fac
 - **Magic links sign in existing accounts only, silently**: every request renders the same "if there is an account at that address, it has been sent" page, so an unknown address, a blocked client and a mail failure are indistinguishable (no enumeration oracle). Requests for addresses with no user are recorded in `magic_link_throttle` (keyed by client address); the threshold and window are the admin Magic link rate limit (`rate_limit_magic_link_requests` per `rate_limit_magic_link_window_minutes`, re-applied on save), and reaching it blocks the address for 24 hours, checked before the lookup. Successful requests are never counted, and the block is persistent so a restart does not lift it. The 24-hour block is fixed in `run.go` (`magicLinkLockout`), not a setting.
 - **Step-up auth**: `prompt=login|none`, `max_age` and `acr_values=urn:passage:reauth` are handled at `/oauth/authorize`; a session older than 60 s bounces through the normal login flow back to the same authorize URL (the window is the loop guard). `prompt=none` answers `login_required` only to a registered `redirect_uri`.
 - **OAuth access tokens**: issued as RS256 JWTs signed by the current keyring (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `scope`, `client_id`); `aud` is the RFC 8707 `resource` when one was granted, else the client id. `apps.scopes` / `apps.resources` are opt-in per-app registries (one value per line, empty = today's behaviour). Opaque tokens issued before this change still validate through the `oauth_tokens` path, so an upgrade never forces a re-login. Revoking a JWT writes its `jti` to `oauth_revoked_jti`; introspection, userinfo and `ValidateAccessToken` consult it, and the hourly cleanup prunes expired rows.
+- **Throttling has two layers.** Request bursts are bounded by in-memory sliding-window limiters (`internal/ratelimit`, reset on restart) whose budgets are the Settings → Rate limits values. Credential guessing is bounded by persistent SQLite throttles that survive a restart: `login_throttle` (per username; `auth.max_login_failures` / `auth.lockout_minutes`) and `magic_link_throttle` (per client address; see the magic-link bullet). Both are re-applied from the database after a settings save.
 - **Per-app access policies**: `internal/policy` evaluates group/role/CIDR/admin-only/hours; enforced in forward-auth (403), at OAuth authorize (`access_denied`) and again at the token endpoint (code exchange and every refresh, `invalid_grant`), never on the dashboard. An empty policy returns before any DB work. Empty fields mean no restriction.
 - **Upstream IdPs**: providers live in `idp_providers` (migration 028) and are managed at `/admin/providers`; client secrets are sealed with the instance cipher, bound to the provider id. The list is read per request, so an added provider works immediately. Sign-in is state+nonce+PKCE, linked by (provider, subject) then verified email, optionally auto-created. Like passkeys and magic links, it never gets an MFA step.
 - **Invitations**: the way an administrator creates an account while `allow_registration` is off. `/admin/users/invite` emails a single-use link (`invitations`, migration 029); no `users` row exists until the recipient opens `/invite/{token}`, chooses a username, display name and password, and the service creates the account — verified, because clicking the link proves mailbox control. The accept route is deliberately outside the registration policy; the invitation row is the authorisation. Re-inviting an address replaces the pending link; a consumed link keeps its `accepted_at` row. Expired, never-accepted rows are pruned hourly. A separate `/profile` page (reached by clicking the display name in the top bar) runs `POST /profile`, which updates only `users.name` via `Store.SetName`, so a user can change their display name any time without touching credentials. The Security page (`/passkeys`) is split into **Passkeys**, **Two-factor authentication** (`?tab=mfa`) and **Password** (`?tab=password`, hidden when `auth_password_enabled` is off) tabs; MFA redirects land on the MFA tab. `POST /password` verifies the current password (skipped when the account has none), rotates the hash, revokes every session and immediately issues a replacement for this browser.
@@ -110,16 +127,15 @@ Route groups in `run.go`; when adding routes, pick the right group:
 
 | Group | Middleware | Routes |
 |---|---|---|
-| Global | `RequestID`, `RealIP`, `Logger`, `Recoverer`, `web.SecurityHeaders()` | everything |
-| Public JSON | none | `/healthz`, passkey auth routes, `/login/mfa/passkey/*` (a passkey completing a pending second factor), `/.well-known/*`, `/oauth/*` |
-| Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/login/mfa`, `/register`, `/reset`, `/login/magic`, `/login/oidc/*`, `/setup` |
-| Metrics | none (optional bearer token) | `/metrics` — `metrics.enabled=false` answers 404 |
+| Global | `RequestID`, `RealIP`, `Logger`, metrics counter, `Recoverer`, `web.SecurityHeaders()` | everything; `/static/*` is served here |
+| Public | none | `/healthz`, `/metrics` (404 when disabled), `/.well-known/*`, `/oauth/*`, `/logout`, `/verify-email/{token}`, passkey login routes, `/login/mfa/passkey/*`, `/login/oidc/*` |
+| Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/register`, `/invite/{token}`, `/reset`, `/reset/{token}`, `/login/mfa`, `/login/magic`, `/setup` (POSTs are rate-limited) |
 | API | bearer token (`adminapi.RequireToken`) + limiter | `/api/v1/*` — read-only, no session or CSRF |
-| Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, `/sessions` (+ revoke), `/mfa/*` + Security page (ungated), passkey profile routes |
-| Behind the "require MFA" gate | `user.RequireMFA` inside the session group | app routes and `/admin/*` when `auth_require_mfa` is on |
-| Admin | `admin.RequireAdmin` + `csrf.ProtectAuthenticated` | `/admin/*` |
+| Session-required | `session.RequireSession` + `csrf.ProtectAuthenticated` | `/`, `/apps/{id}/favorite`, `/verify-email/resend`, `/sessions` (+ revoke), `/profile`, `/password`, the MFA routes, the Security page and the passkey profile routes — the last five sit outside the MFA gate so a user who must enrol can reach them |
+| Behind the "require MFA" gate | `user.RequireMFA` inside the session group | dashboard, favourites, verification resend, sessions |
+| Admin | `admin.RequireAdmin` + `csrf.ProtectAuthenticated` + `RequireMFA` | `/admin/*` |
 
-- Rate limiting: `ratelimit.Middleware(limiter)` applied per-route (`/login`, `/reset`, `/oauth/token`, `/setup`). Limiters are in-memory sliding-window, configured in the `ratelimit` config section. Read-only OAuth endpoints (discovery, JWKS, userinfo) are deliberately NOT rate-limited.
+- Rate limiting: `ratelimit.Middleware(limiter)` is applied per route — sign-in (`POST /login`, `/login/mfa`, `/login/mfa/passkey/*`, `POST /password`), registration (`/register`, `/invite/{token}`), password reset, magic link (`POST /login/magic`, `/verify-email/{token}`, `/verify-email/resend`), OAuth token/revoke/introspect, setup, and the API. The limiters are in-memory sliding windows configured in Settings → Rate limits. Read-only OAuth endpoints (discovery, JWKS, userinfo) are deliberately NOT rate-limited.
 - Logout is a GET that only revokes the session cookie — no CSRF token by design.
 - Passkey endpoints are JSON APIs driven by `passkey.js` — no CSRF token needed (WebAuthn does not submit cross-origin credentials). A passkey can also satisfy a pending second-factor challenge (`/login/mfa/passkey/*`): those calls are authenticated by the SameSite=Lax `passage_mfa` cookie, bound to the challenge token through the WebAuthn `ChallengeStorer` (`"mfa:"` namespace), and finish through `completeMFAChallenge` — the same path a TOTP code takes.
 
@@ -134,7 +150,8 @@ Route groups in `run.go`; when adding routes, pick the right group:
 ## Deployment & CI
 
 - **CI** (`.github/workflows/`): on every push/PR runs `go mod verify`, `go vet ./...`, `go test -race ./...`, and a **CSS drift check** — rebuilds `internal/web/static/passage.css` from `input.css` with the pinned tailwindcss CLI (`tools/fetch-tailwind.sh` downloads it and verifies the sha256) and fails if the committed output differs, so `input.css` edits always ship with a fresh `make css` run. A second drift step runs `./tools/build-themes.sh --check` for `themes.css`. On push to `main` it builds a multi-arch (amd64/arm64) image with buildah and pushes it to the development registry; on a `v*` tag it also cross-compiles `passage-linux-amd64` and `passage-linux-arm64`, writes `SHA256SUMS.txt`, and publishes the release with those assets.
-- **Publishing is one-way.** GitHub is a release channel, not a development repository: the push mirror stays disabled and no development commit is ever pushed there directly. The publish workflow in the development repository (`.forgejo/workflows/publish-github.yml`, run manually with a version bump) tags the development repository and dispatches its CI so it builds and releases that version, then exports the tree, installs the GitHub workflows from `scripts/publish/`, and pushes **one squash commit per release** plus the tag to GitHub — whose own workflows build `ghcr.io/crueber/passage` and the GitHub release from that commit. Edit `scripts/publish/*.yml` for GitHub-side CI changes; the checked-in `.github/workflows/` exists only in the published tree.
+- **Publishing is one-way.** GitHub is a release channel, not a development repository: the push mirror stays disabled and no development commit is ever pushed there directly. The publish workflow in the development repository (`.forgejo/workflows/publish-github.yml`, run manually with a version bump) tags the development repository and dispatches its CI so it builds and releases that version, then exports the tree, installs the GitHub workflows from `scripts/publish/` (including `pages.yml`), and pushes **one squash commit per release** plus the tag to GitHub — whose own workflows build `ghcr.io/crueber/passage`, the GitHub release and the project website from that commit. Edit `scripts/publish/*.yml` for GitHub-side CI changes; the checked-in `.github/workflows/` exists only in the published tree.
+- **The website** (`site/`) is published to GitHub Pages by `scripts/publish/pages.yml`, installed as `.github/workflows/pages.yml` at publish time. It is plain HTML, one hand-written `site/style.css` and local webp images — no build step, no CDN, no JavaScript, and every URL is relative because Pages serves it from `/<repo>/`. Dark mode is `prefers-color-scheme`; `site/style.css` copies the tokens from `internal/web/ui/input.css` by hand, so a token change must be mirrored there. Images under `site/img/` are cropped and downscaled from `screenshots/`; regenerate them from those sources rather than hand-editing. One-time setup on GitHub: **Settings → Pages → Source: GitHub Actions**.
 
 ---
 
@@ -226,6 +243,8 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 
 ---
 
+## UI & Template Conventions
+
 - **Tailwind CSS v4** is the CSS framework. Source of truth is `internal/web/ui/input.css`: a `@theme` block of design tokens (brand scale, semantic surface/ink/line/muted colours, radii, shadows) plus `@layer components` classes (`.btn`, `.card`, `.input`, `.label`, `.table`, `.badge`, `.note`, `.stat`, `.empty`, `.sidebar-link`, …). Prefer existing component classes and utilities over inventing new ones.
 - `internal/web/static/passage.css` is **generated** — minified Tailwind output, committed. Never hand-edit it. Edit `input.css` and rebuild with `make css` (the `tailwindcss` standalone CLI lives at `tools/tailwindcss`, gitignored; fetch the v4.x release binary for linux/macOS to rebuild). **Always rebuild after any change that could introduce a new class candidate — including docs edits.**
 - **Tailwind scan scope is pinned** (`@import "tailwindcss" source(none)` + explicit `@source` lines in `input.css`): only `templates/` and the two JS files are scanned. Without this, Tailwind auto-detects every non-ignored repo file — including markdown — and prose words become CSS candidates (an AGENTS.md edit once generated an `.invisible` utility and failed the CI drift check). If you add a file that contains class names, register it with an `@source` line.
@@ -292,6 +311,10 @@ go test -race ./...
 
 # 4. Module hygiene — go.mod and go.sum are clean
 go mod tidy && git diff --exit-code go.mod go.sum
+
+# 5. Generated CSS matches its sources (what CI's drift checks enforce)
+make css && ./tools/build-themes.sh
+git diff --exit-code internal/web/static/passage.css internal/web/static/themes.css
 ```
 
 ---
@@ -307,6 +330,13 @@ go mod tidy && git diff --exit-code go.mod go.sum
 - **No unapproved dependencies** — do not add packages not in `go.mod` without flagging it first
 - **No scope creep** — do not implement features beyond what the current phase requires (YAGNI)
 - **No files outside the project structure** without a documented reason
+
+---
+
+## Documentation Assets
+
+- The README demo (`docs/demo.webm` plus the animated `docs/demo.webp` preview) and every image in `screenshots/` are captured from a demo instance, not written by hand. Re-record or re-capture rather than editing the files. `site/img/` holds cropped, downscaled webp copies of the `screenshots/` gallery; regenerate them from the originals instead of editing them.
+- Demo material is public: use the fictional account, `*.example.com` hostnames, RFC 5737 documentation addresses, and generic app names. Never capture real hostnames, private addresses, personal names, or an inventory that describes the real lab. Redact app lists in screenshots when they name real services.
 
 ---
 

@@ -1,0 +1,48 @@
+# GitHub Pages for the project website (site/).
+#
+# Installed as .github/workflows/pages.yml by scripts/publish-to-github.sh; the
+# development tree keeps it here with the other GitHub-side workflows. The page
+# is plain HTML, one hand-written stylesheet and local webp images, so the
+# artifact is site/ exactly as committed — no build step.
+#
+# ONE-TIME SETUP (GitHub): repository Settings -> Pages -> Source: GitHub
+# Actions. Without it configure-pages fails; enable it once, then this workflow
+# deploys on the next push under site/ (or run it by hand from Actions).
+#
+# A release created with the built-in GITHUB_TOKEN does not start new workflow
+# runs, so the push trigger and workflow_dispatch are what normally deploy.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

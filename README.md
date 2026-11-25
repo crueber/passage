@@ -1,6 +1,12 @@
-# Passage
+<h1 align="center">Passage</h1>
 
-A self-hosted authentication service for home labs. Passage provides a single front door for all your self-hosted applications — users log in once, and every app they access can trust that identity.
+<p align="center"><strong>One front door for every app in your home lab.</strong></p>
+
+<p align="center">
+  Self-hosted authentication for the services you run: forward-auth for the proxy, OpenID Connect for the apps that speak it, and passkeys, two-factor and upstream providers for the people who sign in.
+</p>
+
+<p align="center"><a href="https://crueber.github.io/passage/"><strong>Website: crueber.github.io/passage</strong></a></p>
 
 ---
 
@@ -392,3 +398,6 @@ Passage is built on the shoulders of these excellent open-source projects:
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+> No politics allowed — see our [Code of Conduct](CODE_OF_CONDUCT.md).
+

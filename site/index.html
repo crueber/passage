@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Passage — one front door for every app in your home lab</title>
+<meta name="description" content="Passage is a self-hosted authentication service for home labs: forward-auth for Nginx, Traefik and Caddy, OAuth 2.0 and OpenID Connect for the apps that speak it, passkeys and two-factor for the people who sign in, one SQLite file and one static Go binary. MIT licensed.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crueber.github.io/passage/">
+<meta property="og:title" content="Passage — one front door for every app in your home lab">
+<meta property="og:description" content="Self-hosted authentication for the services you run: forward-auth, OpenID Connect, passkeys, two-factor and one place to decide who gets in.">
+<meta property="og:image" content="https://crueber.github.io/passage/img/sign-in-600.webp">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>passage</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#access">Access</a>
+      <a href="#sign-in">Sign-in</a>
+      <a href="#console">Console</a>
+      <a href="#self-host">Self-host</a>
+    </nav>
+    <div class="top-end">
+      <a class="gh" href="https://github.com/crueber/passage">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============================================================ hero -->
+  <section class="hero" id="top" aria-labelledby="hero-title">
+    <div class="wrap hero-in">
+      <div>
+        <p class="eyebrow">Self-hosted authentication for the home lab</p>
+        <h1 id="hero-title">One front door for every app in your home lab.</h1>
+        <p class="lede">Your reverse proxy asks Passage about each request, apps that speak OAuth&nbsp;2.0 and OpenID Connect ask it for a token, and one admin screen decides who gets in. Users sign in once and every app behind it trusts that identity.</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="#self-host">Get started</a>
+          <a class="btn" href="https://github.com/crueber/passage">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+            View on GitHub
+          </a>
+        </div>
+        <p class="hero-note"><strong>One static Go binary.</strong> No CGo, no Node, no separate database service. <a href="https://github.com/crueber/passage/blob/main/docs/demo.webm">Watch the 1:09 demo</a>.</p>
+      </div>
+      <figure class="hero-shot">
+        <img class="shot" src="img/sign-in-600.webp" width="600" height="760" decoding="async" alt="Passage's sign-in page: a username and password form, then Sign in with a passkey, Email me a sign-in link, Sign in with Authentik and Sign in with Keycloak.">
+        <figcaption>The sign-in page, with every method an admin has enabled — light palette.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============================================================ trust strip -->
+  <section class="trust" aria-label="At a glance">
+    <ul class="wrap trust-list">
+      <li><strong>One binary</strong> static Go, no runtime</li>
+      <li><strong>SQLite</strong> one file, nothing else</li>
+      <li><strong>Forward-auth</strong> Nginx, Traefik, Caddy</li>
+      <li><strong>OAuth 2.0 / OIDC</strong> provider built in</li>
+      <li><strong>Passkeys</strong> and TOTP second factor</li>
+      <li><strong>MIT licensed</strong> yours to run</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================ how it works -->
+  <section class="band" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">How it works</p>
+        <h2 id="how-title">Two doors, one identity</h2>
+        <p class="sec-lede">Most lab apps have no login of their own, or one you would rather not keep a password in. Passage meets both cases with the same accounts, the same access grants and the same audit trail.</p>
+      </div>
+
+      <div class="paths">
+        <article class="path">
+          <div class="path-head">
+            <h3>Forward-auth, for the proxy</h3>
+            <span class="badge">Nginx &middot; Traefik &middot; Caddy</span>
+          </div>
+          <p>Every request passes through Passage before it reaches the app. A <code>200</code> forwards it; a <code>401</code> or <code>403</code> sends the browser back through Passage, which asks for a sign-in or explains that this account has no access. On success the upstream receives the user's name, address, id and admin flag as headers — add one <code>auth_request_set</code> plus <code>proxy_set_header</code> pair per header you want to keep.</p>
+<pre class="code" tabindex="0" aria-label="Nginx forward-auth configuration"><code><span class="c"># nginx: put one upstream behind Passage</span>
+location /auth/ {
+  internal;
+  proxy_pass http://localhost:8080;
+  proxy_pass_request_body off;
+  proxy_set_header Content-Length "";
+}
+
+location / {
+  auth_request /auth/nginx;
+  error_page 401 403 = @login;
+
+  auth_request_set $u $upstream_http_x_passage_username;
+  proxy_set_header X-Passage-Username $u;
+  proxy_pass http://your-upstream-service;
+}
+
+location @login {
+  set $login https://auth.example.com/auth/start;
+  return 302 $login?rd=$request_uri;
+}</code></pre>
+          <ul class="ticks">
+            <li>One block per proxy: <code>/auth/nginx</code>, <code>/auth/traefik</code>, or a plain redirect through <code>/auth/start</code>.</li>
+            <li>Covers anything the proxy can reach, including apps with no login at all.</li>
+            <li>Works behind an existing TLS termination; Passage never needs a public port of its own.</li>
+          </ul>
+        </article>
+
+        <article class="path">
+          <div class="path-head">
+            <h3>OIDC, for the apps that speak it</h3>
+            <span class="badge badge-green">OAuth 2.0 / OIDC</span>
+          </div>
+          <p>Passage is a full identity provider: authorization code flow with PKCE (S256), rotating refresh tokens, discovery, JWKS, userinfo, RP-initiated logout, revocation and introspection. Grafana, Gitea, Nextcloud, Jellyfin and hundreds more connect without a plugin.</p>
+<pre class="code" tabindex="0" aria-label="OpenID Connect client settings"><code><span class="c"># every OIDC client needs the same endpoints</span>
+issuer       https://auth.home.example.com
+discovery    /.well-known/openid-configuration
+authorize    /oauth/authorize
+token        /oauth/token
+jwks         /.well-known/jwks.json</code></pre>
+          <ul class="ticks">
+            <li>Access tokens are RS256 JWTs, so a downstream API can verify them offline against the JWKS.</li>
+            <li>Per-app allowed scopes and RFC&nbsp;8707 audiences, both optional.</li>
+            <li>Revoking a token adds its <code>jti</code> to a denylist that introspection and userinfo honour.</li>
+            <li>Rotate the signing key from the console; older keys keep verifying until you retire them.</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ access -->
+  <section class="section" id="access" aria-labelledby="access-title">
+    <div class="wrap split">
+      <div>
+        <p class="label">Access</p>
+        <h2 id="access-title">Who gets in, app by app</h2>
+        <div class="prose">
+          <p>Access is a grant, not a default. A user sees an app on their dashboard because somebody granted it, and the same grant is what forward-auth and the token endpoint check — so there is one answer to “can this person use this?” and it is stored once.</p>
+          <p>On top of grants, an app can carry a policy. Every field is optional and an empty policy means no restriction; when several are set, all of them must pass. Policies apply at the proxy, at <code>/oauth/authorize</code> and again at the token endpoint, so a refresh cannot slip past a rule that changed.</p>
+        </div>
+        <ul class="ticks">
+          <li><strong>Groups and roles</strong> that belong to the app, assignable per user.</li>
+          <li><strong>CIDR ranges</strong> for “only from the house”, IPv4 or IPv6.</li>
+          <li><strong>Hours and days</strong> for apps that should close at night.</li>
+          <li><strong>Admin only</strong> for the console-adjacent pages.</li>
+          <li><strong>Step-up sign-in</strong> with <code>prompt=login</code>, <code>max_age</code> and <code>acr_values</code> when an app needs a fresh login.</li>
+          <li><strong>Sessions</strong> a user can see, revoke one at a time, or end everywhere; an optional idle timeout.</li>
+        </ul>
+      </div>
+      <figure class="fig">
+        <img class="shot" src="img/policy-light-1280.webp" srcset="img/policy-light-640.webp 640w, img/policy-light-1280.webp 1280w" sizes="(min-width: 920px) 540px, calc(100vw - 40px)" width="1280" height="782" loading="lazy" decoding="async" alt="An app's Policies tab: required group platform, required role ops, allowed CIDRs 192.168.0.0/16 and 2001:db8::/32, allowed hours 09:00-17:00, allowed days 1-5 and an Admin users only switch.">
+        <figcaption>An app policy — light palette: group, role, CIDRs, hours, days, admin-only, all optional.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============================================================ sign-in -->
+  <section class="band" id="sign-in" aria-labelledby="signin-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">Sign-in</p>
+        <h2 id="signin-title">As much password as you want</h2>
+        <p class="sec-lede">Pick the methods that suit the people in the house. Each one is switched on in Settings and appears on the login page immediately, with no restart and no config file to edit.</p>
+      </div>
+
+      <ul class="feat-grid">
+        <li class="feat">
+          <h3>Passkeys</h3>
+          <p>WebAuthn platform authenticators and hardware keys. Sign in without a password — or keep the password and let a passkey satisfy the second factor.</p>
+        </li>
+        <li class="feat">
+          <h3>Password and TOTP</h3>
+          <p>bcrypt at a configurable cost, RFC&nbsp;6238 codes enrolled by QR, single-use recovery codes, and a per-account lockout after repeated failures.</p>
+        </li>
+        <li class="feat">
+          <h3>Magic links</h3>
+          <p>A single-use link by email for existing accounts. Unknown addresses, blocked clients and mail failures all get the same page, so the form cannot be used to find out who has an account.</p>
+        </li>
+        <li class="feat">
+          <h3>Upstream providers</h3>
+          <p>Add Authentik, Keycloak, Google or any OIDC provider in the console. Optional auto-creation and verified-email linking; the buttons appear at once.</p>
+        </li>
+        <li class="feat">
+          <h3>Invitations</h3>
+          <p>An admin invites an address even when public registration is off. The recipient chooses a username and password, and the account starts verified because the link proves the mailbox.</p>
+        </li>
+        <li class="feat">
+          <h3>Email when you want it</h3>
+          <p>Optional self-registration with address verification, password reset and invitation mail through your own SMTP server — or none of it.</p>
+        </li>
+      </ul>
+
+      <figure class="fig">
+        <img class="shot" src="img/providers-dark-1280.webp" srcset="img/providers-dark-640.webp 640w, img/providers-dark-1280.webp 1280w" sizes="(min-width: 1080px) 1016px, calc(100vw - 40px)" width="1280" height="331" loading="lazy" decoding="async" alt="Identity providers in the dark palette: an Authentik row and a Keycloak row, each with its issuer URL and whether new accounts are created or linked only.">
+        <figcaption>Upstream providers, reviewed in the dark palette: one row each, with the issuer and what happens on a first sign-in.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============================================================ console -->
+  <section class="section" id="console" aria-labelledby="console-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">The console</p>
+        <h2 id="console-title">Everything after first boot lives in the UI</h2>
+        <p class="sec-lede">The config file sets the listener, the public URL, the database path, the cookie shape and the keys. Users, apps, grants, policies, sign-in methods, rate limits, themes and the webhook are rows in SQLite, edited in the console and applied as soon as you save.</p>
+      </div>
+
+      <div class="fig-pair">
+        <figure class="fig">
+          <img class="shot" src="img/logs-light-1280.webp" srcset="img/logs-light-640.webp 640w, img/logs-light-1280.webp 1280w" sizes="(min-width: 760px) 500px, calc(100vw - 40px)" width="1280" height="804" loading="lazy" decoding="async" alt="The authentication log: sign-ins, a passkey login, a provider login, an access denied, an MFA challenge, an OAuth token exchange and a failed password, each with user, test-net address and user agent.">
+          <figcaption>The authentication log — light palette — filterable by event, outcome, user and time.</figcaption>
+        </figure>
+        <figure class="fig">
+          <img class="shot" src="img/keys-dark-1280.webp" srcset="img/keys-dark-640.webp 640w, img/keys-dark-1280.webp 1280w" sizes="(min-width: 760px) 500px, calc(100vw - 40px)" width="1280" height="498" loading="lazy" decoding="async" alt="Signing keys in the dark palette: the current RSA key, an active older key and a retired one, with a Rotate key button.">
+          <figcaption>Signing keys: rotate without breaking live tokens.</figcaption>
+        </figure>
+      </div>
+
+      <ul class="feat-grid">
+        <li class="feat">
+          <h3>Audit log</h3>
+          <p>Every sign-in, failure, lockout, passkey, magic link, MFA and OAuth event, written once and kept for 90 days.</p>
+        </li>
+        <li class="feat">
+          <h3>Security webhook</h3>
+          <p>Each event POSTed as JSON, optionally HMAC-signed, to whatever watches the house. Its URL, secret and timeout are read per delivery.</p>
+        </li>
+        <li class="feat">
+          <h3>Prometheus metrics</h3>
+          <p>Authentication, session and HTTP counters plus instance gauges on <code>/metrics</code>, optionally behind a bearer token.</p>
+        </li>
+        <li class="feat">
+          <h3>Read-only admin API</h3>
+          <p><code>/api/v1</code> exposes users, apps, sessions and the audit log to scripts, with revocable tokens stored as SHA-256 digests.</p>
+        </li>
+        <li class="feat">
+          <h3>Two-factor policy</h3>
+          <p>Let people enrol on their own, or require a second factor for everyone — with single-use recovery codes to get back in.</p>
+        </li>
+        <li class="feat">
+          <h3>Thirteen colour themes</h3>
+          <p>Set a server default and let each person choose their own under Profile. Every palette is contrast-checked, and the four light themes stay deliberately light.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================================================ self-host -->
+  <section class="band" id="self-host" aria-labelledby="host-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">Self-host</p>
+        <h2 id="host-title">Running in a few steps</h2>
+        <p class="sec-lede">One container, or one binary, and one data volume. Put it behind the same proxy it is protecting and give it a hostname of its own.</p>
+      </div>
+
+      <div class="split">
+        <div>
+          <ol class="steps">
+            <li>
+              <h3>Start it</h3>
+              <p>Copy the example environment file, set <code>PASSAGE_SERVER_BASE_URL</code>, and bring the container up. The database is a single file in <code>/data</code>.</p>
+            </li>
+            <li>
+              <h3>Create the first admin</h3>
+              <p>A one-time setup token is printed to stdout on an empty database. Open <code>/setup</code>, paste it, and choose a password; the page disables itself as soon as an admin exists.</p>
+            </li>
+            <li>
+              <h3>Add an app and point the proxy at it</h3>
+              <p>Give the app a name, a host pattern and — if it speaks OIDC — its redirect URIs. Then add the <code>/auth/nginx</code> or <code>/auth/traefik</code> block and grant the people who should reach it.</p>
+            </li>
+          </ol>
+          <p class="note"><strong>Run one replica.</strong> The SQLite database is the only state — users, grants, sessions and signing keys all live in it — so run a single replica, not a cluster.</p>
+        </div>
+        <div class="host-code">
+<pre class="code" tabindex="0" aria-label="Docker Compose example"><code><span class="c"># docker-compose.yml</span>
+services:
+  passage:
+    image: ghcr.io/crueber/passage:latest
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    environment:
+      PASSAGE_SERVER_BASE_URL: https://auth.example.com
+      PASSAGE_SESSION_COOKIE_SECURE: "true"
+    volumes: ["passage-data:/data"]
+volumes:
+  passage-data:</code></pre>
+<pre class="code" tabindex="0" aria-label="Building the binary"><code><span class="c"># or one static binary, no Docker</span>
+CGO_ENABLED=0 go build -o passage ./cmd/passage
+cp passage.example.yaml passage.yaml   <span class="c"># set base_url</span>
+./passage --config passage.yaml</code></pre>
+          <p class="note">The image is published for amd64 and arm64. Every <a href="https://github.com/crueber/passage/releases/latest">release</a> also carries both Linux binaries and a <code>SHA256SUMS.txt</code>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div class="foot-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>passage</span>
+    </div>
+    <nav class="foot-links" aria-label="Project links">
+      <a href="https://github.com/crueber/passage">Source on GitHub</a>
+      <a href="https://github.com/crueber/passage/releases/latest">Releases</a>
+      <a href="https://github.com/crueber/passage/pkgs/container/passage">Container package</a>
+      <a href="https://github.com/crueber/passage#readme">Documentation</a>
+      <a href="https://github.com/crueber/passage/blob/main/docs/forward-auth.md">Forward-auth guide</a>
+      <a href="https://github.com/crueber/passage/blob/main/docs/security.md">Security model</a>
+      <a href="https://github.com/crueber/passage/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a>
+    </nav>
+    <div class="foot-legal">
+      <p>&copy; 2026 Christopher Rueber &middot; <a href="https://github.com/crueber/passage/blob/main/LICENSE">MIT License</a></p>
+      <p>Self-hosted authentication for the home lab.</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
