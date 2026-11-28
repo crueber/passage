@@ -36,21 +36,91 @@ func (s *SQLiteStore) ListGroupsForRole(ctx context.Context, roleID string) ([]*
 		SELECT ` + aliasedNamedColumns + ` FROM app_groups g
 		JOIN app_role_groups rg ON rg.group_id = g.id
 		WHERE rg.role_id = ? ORDER BY g.name`
-	rows, err := s.db.QueryContext(ctx, query, roleID)
+	return s.queryUserGroups(ctx, query, roleID)
+}
+
+// ListRoleGroupsByApp returns all role->group memberships for an app in a
+// single query, keyed by role ID with groups ordered by name.
+func (s *SQLiteStore) ListRoleGroupsByApp(ctx context.Context, appID string) (map[string][]*Group, error) {
+	const query = `
+		SELECT rg.role_id, ` + aliasedNamedColumns + `
+		FROM app_role_groups rg
+		JOIN app_groups g ON g.id = rg.group_id
+		JOIN app_roles r ON r.id = rg.role_id
+		WHERE r.app_id = ? AND g.app_id = ?
+		ORDER BY g.name`
+	rows, err := s.db.QueryContext(ctx, query, appID, appID)
 	if err != nil {
-		return nil, fmt.Errorf("app store list groups for role: %w", err)
+		return nil, fmt.Errorf("app store list role groups by app: %w", err)
 	}
 	defer rows.Close()
 
-	var groups []*Group
+	out := make(map[string][]*Group)
 	for rows.Next() {
+		var roleID string
 		var g Group
-		if err := rows.Scan(&g.ID, &g.AppID, &g.Name, &g.Description, &g.CreatedAt, &g.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("app store list groups for role scan: %w", err)
+		if err := rows.Scan(&roleID, &g.ID, &g.AppID, &g.Name, &g.Description, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("app store list role groups by app scan: %w", err)
 		}
-		groups = append(groups, &g)
+		out[roleID] = append(out[roleID], &g)
 	}
-	return groups, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("app store list role groups by app rows: %w", err)
+	}
+	return out, nil
+}
+
+// ListUserAssignments loads a user's direct groups, role-inherited groups, and
+// roles across every app in three flat queries.
+func (s *SQLiteStore) ListUserAssignments(ctx context.Context, userID string) (*UserAssignments, error) {
+	res := &UserAssignments{
+		DirectGroups:    make(map[string]map[string]bool),
+		InheritedGroups: make(map[string]map[string]bool),
+		Roles:           make(map[string]map[string]bool),
+	}
+
+	loadPairs := func(label, query string, dst map[string]map[string]bool) error {
+		rows, err := s.db.QueryContext(ctx, query, userID)
+		if err != nil {
+			return fmt.Errorf("app store list user %s: %w", label, err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var appID, itemID string
+			if err := rows.Scan(&appID, &itemID); err != nil {
+				return fmt.Errorf("app store list user %s scan: %w", label, err)
+			}
+			if dst[appID] == nil {
+				dst[appID] = make(map[string]bool)
+			}
+			dst[appID][itemID] = true
+		}
+		return rows.Err()
+	}
+
+	if err := loadPairs("direct groups", `
+		SELECT ug.app_id, ug.group_id
+		FROM user_app_groups ug
+		JOIN app_groups g ON g.id = ug.group_id AND g.app_id = ug.app_id
+		WHERE ug.user_id = ?`, res.DirectGroups); err != nil {
+		return nil, err
+	}
+	if err := loadPairs("inherited groups", `
+		SELECT DISTINCT ur.app_id, g.id
+		FROM user_app_roles ur
+		JOIN app_role_groups rg ON rg.role_id = ur.role_id
+		JOIN app_groups g ON g.id = rg.group_id AND g.app_id = ur.app_id
+		WHERE ur.user_id = ?`, res.InheritedGroups); err != nil {
+		return nil, err
+	}
+	if err := loadPairs("roles", `
+		SELECT ur.app_id, ur.role_id
+		FROM user_app_roles ur
+		JOIN app_roles r ON r.id = ur.role_id AND r.app_id = ur.app_id
+		WHERE ur.user_id = ?`, res.Roles); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // AssignUserGroup grants a user a direct group within an app.
@@ -78,7 +148,7 @@ func (s *SQLiteStore) UnassignUserGroup(ctx context.Context, userID, appID, grou
 func (s *SQLiteStore) ListUserDirectGroups(ctx context.Context, userID, appID string) ([]*Group, error) {
 	const query = `
 		SELECT ` + aliasedNamedColumns + ` FROM app_groups g
-		JOIN user_app_groups ug ON ug.group_id = g.id
+		JOIN user_app_groups ug ON ug.group_id = g.id AND g.app_id = ug.app_id
 		WHERE ug.user_id = ? AND ug.app_id = ? ORDER BY g.name`
 	return s.queryUserGroups(ctx, query, userID, appID)
 }
@@ -90,7 +160,7 @@ func (s *SQLiteStore) ListUserInheritedGroups(ctx context.Context, userID, appID
 	const query = `
 		SELECT DISTINCT ` + aliasedNamedColumns + ` FROM app_groups g
 		JOIN app_role_groups rg ON rg.group_id = g.id
-		JOIN user_app_roles ur ON ur.role_id = rg.role_id
+		JOIN user_app_roles ur ON ur.role_id = rg.role_id AND g.app_id = ur.app_id
 		WHERE ur.user_id = ? AND ur.app_id = ? ORDER BY g.name`
 	return s.queryUserGroups(ctx, query, userID, appID)
 }
@@ -138,7 +208,7 @@ func (s *SQLiteStore) ListUserRoles(ctx context.Context, userID, appID string) (
 	const query = `
 		SELECT r.id, r.app_id, r.name, r.description, r.created_at, r.updated_at
 		FROM app_roles r
-		JOIN user_app_roles ur ON ur.role_id = r.id
+		JOIN user_app_roles ur ON ur.role_id = r.id AND r.app_id = ur.app_id
 		WHERE ur.user_id = ? AND ur.app_id = ? ORDER BY r.name`
 	rows, err := s.db.QueryContext(ctx, query, userID, appID)
 	if err != nil {
@@ -161,27 +231,27 @@ func (s *SQLiteStore) ListUserRoles(ctx context.Context, userID, appID string) (
 // for join queries against app_groups.
 const aliasedNamedColumns = `g.id, g.app_id, g.name, g.description, g.created_at, g.updated_at`
 
-// userRoleNames returns the names of the roles a user holds within an app.
+// UserRoleNames returns the names of the roles a user holds within an app.
 func (s *SQLiteStore) UserRoleNames(ctx context.Context, userID, appID string) ([]string, error) {
 	const query = `
 		SELECT r.name FROM app_roles r
-		JOIN user_app_roles ur ON ur.role_id = r.id
+		JOIN user_app_roles ur ON ur.role_id = r.id AND r.app_id = ur.app_id
 		WHERE ur.user_id = ? AND ur.app_id = ? ORDER BY r.name`
 	return s.stringList(ctx, "user role names", query, userID, appID)
 }
 
-// effectiveGroupNames returns the names of a user's effective groups within
+// EffectiveGroupNames returns the names of a user's effective groups within
 // an app: direct groups plus the groups of every role the user holds,
 // deduplicated and ordered by name. This is the set embedded in OIDC claims.
 func (s *SQLiteStore) EffectiveGroupNames(ctx context.Context, userID, appID string) ([]string, error) {
 	const query = `
 		SELECT g.name FROM app_groups g
-		JOIN user_app_groups ug ON ug.group_id = g.id
+		JOIN user_app_groups ug ON ug.group_id = g.id AND g.app_id = ug.app_id
 		WHERE ug.user_id = ? AND ug.app_id = ?
 		UNION
 		SELECT g.name FROM app_groups g
 		JOIN app_role_groups rg ON rg.group_id = g.id
-		JOIN user_app_roles ur ON ur.role_id = rg.role_id
+		JOIN user_app_roles ur ON ur.role_id = rg.role_id AND g.app_id = ur.app_id
 		WHERE ur.user_id = ? AND ur.app_id = ?
 		ORDER BY 1`
 	return s.stringList(ctx, "effective group names", query, userID, appID, userID, appID)

@@ -9,13 +9,15 @@
       <div class="flex items-center gap-1.5">
         <label for="admin-nav-toggle" class="sidebar-burger">
           {{template "ic-menu"}}
+          <span class="sr-only">Menu</span>
         </label>
         <a href="/" class="wordmark" aria-label="My Apps">{{template "logo"}}<span>passage</span></a>
       </div>
       <nav class="flex items-center gap-1" aria-label="Account">
         {{if .UserName}}<a href="/profile" class="toplink" title="Your profile">{{template "ic-users"}}<span class="hidden sm:inline">{{.UserName}}</span></a>{{end}}
-        <a href="/logout" class="toplink">{{template "ic-logout"}}<span class="hidden sm:inline">Sign out</span></a>
+        <a href="/logout" class="toplink" aria-label="Sign out">{{template "ic-logout"}}<span class="hidden sm:inline">Sign out</span></a>
       </nav>
+    </div>
   </header>
   <div class="flex w-full flex-1">
 {{end}}

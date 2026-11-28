@@ -78,7 +78,7 @@ type family struct {
 	labelNames []string
 	gauge      GaugeFunc
 
-	mu     sync.Mutex
+	mu     sync.RWMutex
 	series map[string]*series
 }
 
@@ -181,23 +181,33 @@ func (r *Registry) register(name, help string, k kind, labelNames []string, fn G
 
 // seriesFor returns the series for values, creating it on first use. The
 // returned pointer is stable for the life of the process, so increments need no
-// lock beyond this lookup.
+// write lock on the hot path once the series exists.
 func (f *family) seriesFor(values []string) *series {
 	key := seriesKey(values)
 
+	f.mu.RLock()
+	s, ok := f.series[key]
+	f.mu.RUnlock()
+	if ok {
+		return s
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	s, ok := f.series[key]
-	if !ok {
-		s = &series{values: slices.Clone(values)}
-		f.series[key] = s
+	if s, ok = f.series[key]; ok {
+		return s
 	}
+	s = &series{values: slices.Clone(values)}
+	f.series[key] = s
 	return s
 }
 
 // seriesKey encodes a label-value tuple as a map key without ambiguity: values
 // containing the separator cannot collide with a different tuple.
 func seriesKey(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	for _, v := range values {
 		b.WriteString(strconv.Itoa(len(v)))
@@ -255,7 +265,7 @@ func (r *Registry) snapshot(ctx context.Context) []familySnapshot {
 				r.logger.Warn("metrics: gauge callback failed", "metric", fam.name, "error", err)
 				continue
 			}
-			snap.samples = gaugeSamples(samples)
+			snap.samples = r.gaugeSamples(fam, samples)
 		}
 
 		out = append(out, snap)
@@ -265,7 +275,7 @@ func (r *Registry) snapshot(ctx context.Context) []familySnapshot {
 
 // counterSamples copies the family's series and formats their values.
 func (f *family) counterSamples() []sampleSnapshot {
-	f.mu.Lock()
+	f.mu.RLock()
 	samples := make([]sampleSnapshot, 0, len(f.series))
 	for _, s := range f.series {
 		samples = append(samples, sampleSnapshot{
@@ -273,16 +283,25 @@ func (f *family) counterSamples() []sampleSnapshot {
 			value:  strconv.FormatUint(s.count.Load(), 10),
 		})
 	}
-	f.mu.Unlock()
+	f.mu.RUnlock()
 
 	sortSamples(samples)
 	return samples
 }
 
-// gaugeSamples formats the values returned by a gauge callback.
-func gaugeSamples(got []Sample) []sampleSnapshot {
+// gaugeSamples formats the values returned by a gauge callback, dropping any
+// sample whose label-value count does not match the family's declared labels.
+func (r *Registry) gaugeSamples(fam *family, got []Sample) []sampleSnapshot {
 	samples := make([]sampleSnapshot, 0, len(got))
 	for _, s := range got {
+		if len(s.Values) != len(fam.labelNames) {
+			r.logger.Warn("metrics: gauge sample has the wrong number of label values",
+				"metric", fam.name,
+				"labels", len(fam.labelNames),
+				"values", len(s.Values),
+			)
+			continue
+		}
 		samples = append(samples, sampleSnapshot{
 			values: slices.Clone(s.Values),
 			value:  strconv.FormatFloat(s.Value, 'f', -1, 64),

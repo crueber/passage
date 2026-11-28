@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -86,18 +85,4 @@ func (h *Handler) sendVerificationEmail(ctx context.Context, r *http.Request, u 
 		return fmt.Errorf("send verification email: %w", err)
 	}
 	return nil
-}
-
-// baseURL returns the absolute origin used to build links in emails. It
-// prefers server.base_url and falls back to the request when it is unset
-// (development only; production configurations set base_url).
-func (h *Handler) baseURL(r *http.Request) string {
-	if h.cfg.Server.BaseURL != "" {
-		return strings.TrimRight(h.cfg.Server.BaseURL, "/")
-	}
-	scheme := "https"
-	if r.TLS == nil {
-		scheme = "http"
-	}
-	return scheme + "://" + r.Host
 }

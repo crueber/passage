@@ -107,6 +107,59 @@
   }
 
   /**
+   * Fetch a JSON endpoint and parse its response safely, turning non-JSON
+   * error responses (e.g. 401/403/502 or HTML login redirects) into a clean
+   * humanError instead of a raw SyntaxError.
+   */
+  async function fetchJSON(url, opts, fallbackMsg) {
+    var resp = await fetch(url, opts);
+    var data = null;
+    try {
+      data = await resp.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!resp.ok) {
+      throw humanError((data && data.error) || fallbackMsg);
+    }
+    if (!data || typeof data !== 'object') {
+      throw humanError(fallbackMsg);
+    }
+    return data;
+  }
+
+  /**
+   * Run a WebAuthn assertion ceremony (begin -> credentials.get -> finish)
+   * and return the parsed JSON response from the finish endpoint.
+   */
+  async function runAssertion({ beginURL, beginBody, finishURL, beginFallback, finishFallback }) {
+    var optionsJSON = await fetchJSON(
+      beginURL,
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(beginBody || {})
+      },
+      beginFallback
+    );
+    var publicKey = preparePublicKeyOptions(optionsJSON.publicKey || optionsJSON);
+
+    var assertion = await navigator.credentials.get({ publicKey: publicKey });
+
+    return fetchJSON(
+      finishURL,
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentialToJSON(assertion))
+      },
+      finishFallback
+    );
+  }
+
+  /**
    * One short sentence for a failed ceremony. Server messages are passed
    * through; browser/DOM errors ("Cannot read properties of null…",
    * DOMException stacks) are not, so they get a plain explanation instead.
@@ -115,6 +168,9 @@
     if (e && e.human) return e.message;
     if (e && e.name === 'NotAllowedError') {
       return 'No passkey was used. Try again, or unlock your password manager.';
+    }
+    if (e && e.name === 'InvalidStateError') {
+      return 'This passkey is already registered on this account.';
     }
     if (e && e.name === 'NotSupportedError') {
       return 'This browser or device cannot use passkeys.';
@@ -128,7 +184,7 @@
     var btn = document.getElementById('register-passkey-btn');
     if (!btn) return;
 
-    if (!window.PublicKeyCredential) {
+    if (!window.PublicKeyCredential || !navigator.credentials) {
       hidePasskeyUI();
       btn.style.display = 'none';
       return;
@@ -142,12 +198,11 @@
 
       try {
         // 1. Fetch the creation options from the server.
-        var beginResp = await fetch('/passkeys/register/begin', { credentials: 'same-origin' });
-        if (!beginResp.ok) {
-          var err = await beginResp.json();
-          throw humanError(err.error || 'Failed to begin registration');
-        }
-        var optionsJSON = await beginResp.json();
+        var optionsJSON = await fetchJSON(
+          '/passkeys/register/begin',
+          { credentials: 'same-origin' },
+          'Failed to begin registration'
+        );
 
         // 2. Convert base64url fields to ArrayBuffers.
         var publicKey = preparePublicKeyOptions(optionsJSON.publicKey || optionsJSON);
@@ -164,20 +219,19 @@
         }
         var csrfMeta = document.querySelector('meta[name="csrf-token"]');
         var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
-        var finishResp = await fetch(finishURL, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/json',
-            'HX-CSRF-Token': csrfToken
+        await fetchJSON(
+          finishURL,
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+              'HX-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify(credentialToJSON(credential))
           },
-          body: JSON.stringify(credentialToJSON(credential))
-        });
-
-        if (!finishResp.ok) {
-          var ferr = await finishResp.json();
-          throw humanError(ferr.error || 'Registration failed');
-        }
+          'Registration failed'
+        );
 
         if (status) status.textContent = 'Passkey registered! Reloading…';
         window.location.reload();
@@ -195,7 +249,7 @@
     var btn = document.getElementById('passkey-login-btn');
     if (!btn) return;
 
-    if (!window.PublicKeyCredential) {
+    if (!window.PublicKeyCredential || !navigator.credentials) {
       hidePasskeyUI();
       btn.style.display = 'none';
       return;
@@ -268,38 +322,14 @@
       if (status) status.textContent = 'Waiting for passkey…';
 
       try {
-        // 1. Fetch the assertion options from the server.
         var username = usernameInput ? usernameInput.value.trim() : '';
-        var beginResp = await fetch('/login/passkey/begin', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: username })
+        var result = await runAssertion({
+          beginURL: '/login/passkey/begin',
+          beginBody: { username: username },
+          finishURL: '/login/passkey/finish',
+          beginFallback: 'Failed to begin login',
+          finishFallback: 'Login failed'
         });
-        if (!beginResp.ok) {
-          var err = await beginResp.json();
-          throw humanError(err.error || 'Failed to begin login');
-        }
-        var optionsJSON = await beginResp.json();
-        var publicKey = preparePublicKeyOptions(optionsJSON.publicKey || optionsJSON);
-
-        // 2. Ask the authenticator to sign the challenge.
-        var assertion = await navigator.credentials.get({ publicKey: publicKey });
-
-        // 3. Post the signed assertion to the server.
-        var finishResp = await fetch('/login/passkey/finish', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(credentialToJSON(assertion))
-        });
-
-        if (!finishResp.ok) {
-          var ferr = await finishResp.json();
-          throw humanError(ferr.error || 'Login failed');
-        }
-
-        var result = await finishResp.json();
         window.location.href = result.redirect || '/';
 
       } catch (e) {
@@ -323,7 +353,7 @@
     var btn = document.getElementById('passkey-mfa-btn');
     if (!btn) return;
 
-    if (!window.PublicKeyCredential) {
+    if (!window.PublicKeyCredential || !navigator.credentials) {
       // The server decided a passkey is available; this browser cannot use
       // one. Hide the option rather than leaving a button that always fails.
       hidePasskeyUI();
@@ -338,37 +368,13 @@
       if (status) status.textContent = 'Waiting for passkey…';
 
       try {
-        // 1. Fetch the assertion options bound to this pending challenge.
-        var beginResp = await fetch('/login/mfa/passkey/begin', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}'
+        var result = await runAssertion({
+          beginURL: '/login/mfa/passkey/begin',
+          beginBody: {},
+          finishURL: '/login/mfa/passkey/finish',
+          beginFallback: 'Failed to begin passkey sign-in',
+          finishFallback: 'Passkey sign-in failed'
         });
-        if (!beginResp.ok) {
-          var err = await beginResp.json();
-          throw humanError(err.error || 'Failed to begin passkey sign-in');
-        }
-        var optionsJSON = await beginResp.json();
-        var publicKey = preparePublicKeyOptions(optionsJSON.publicKey || optionsJSON);
-
-        // 2. Ask the authenticator to sign the challenge.
-        var assertion = await navigator.credentials.get({ publicKey: publicKey });
-
-        // 3. Post the signed assertion to the server.
-        var finishResp = await fetch('/login/mfa/passkey/finish', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(credentialToJSON(assertion))
-        });
-
-        if (!finishResp.ok) {
-          var ferr = await finishResp.json();
-          throw humanError(ferr.error || 'Passkey sign-in failed');
-        }
-
-        var result = await finishResp.json();
         window.location.href = result.redirect || '/';
 
       } catch (e) {

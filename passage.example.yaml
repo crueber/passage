@@ -12,6 +12,13 @@ server:
   # Required — used for email links, WebAuthn, and OIDC discovery.
   # Must match the public URL that clients use to reach Passage.
   base_url: "https://auth.home.example.com"
+  # Optional list of proxy CIDRs/IPs whose X-Forwarded-For / X-Real-IP headers
+  # are honored. Omit for the default (loopback, RFC 1918, ULA, link-local,
+  # and CGNAT/Tailscale 100.64.0.0/10). Set to [] if Passage is reached directly
+  # without a reverse proxy (including direct Docker port publishing).
+  # trusted_proxies:
+  #   - "127.0.0.0/8"
+  #   - "172.16.0.0/12"
 
 database:
   path: "./passage.db"

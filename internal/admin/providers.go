@@ -53,7 +53,7 @@ func (h *Handler) GetProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, r, "admin-providers", providersData{
-		basePage:  h.base(r, "providers"),
+		basePage:  h.baseQueryFlash(r, "providers"),
 		Providers: list,
 	})
 }
@@ -93,6 +93,10 @@ func (h *Handler) GetEditProvider(w http.ResponseWriter, r *http.Request) {
 
 // PostCreateProvider stores a new provider.
 func (h *Handler) PostCreateProvider(w http.ResponseWriter, r *http.Request) {
+	if h.providers == nil {
+		http.Error(w, "Identity providers are not available.", http.StatusInternalServerError)
+		return
+	}
 	p := providerFromForm(r)
 
 	// Uniqueness is checked here so the operator gets the field error rather
@@ -109,6 +113,11 @@ func (h *Handler) PostCreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.providers.Create(r.Context(), p); err != nil {
+		if errors.Is(err, idp.ErrProviderNameTaken) {
+			h.renderProviderFormError(w, r, providerFormData{IsNew: true, Provider: p,
+				FormError: "That name is already in use by another provider."})
+			return
+		}
 		h.logger.Error("admin: create identity provider", "error", err)
 		h.renderProviderFormError(w, r, providerFormData{IsNew: true, Provider: p,
 			FormError: "Failed to save the provider. Please try again."})
@@ -120,6 +129,10 @@ func (h *Handler) PostCreateProvider(w http.ResponseWriter, r *http.Request) {
 
 // PostUpdateProvider saves changes to one provider.
 func (h *Handler) PostUpdateProvider(w http.ResponseWriter, r *http.Request) {
+	if h.providers == nil {
+		http.Error(w, "Identity providers are not available.", http.StatusInternalServerError)
+		return
+	}
 	existing, err := h.providers.GetByID(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		if errors.Is(err, idp.ErrProviderNotFound) {
@@ -152,6 +165,11 @@ func (h *Handler) PostUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.providers.Update(r.Context(), p); err != nil {
+		if errors.Is(err, idp.ErrProviderNameTaken) {
+			h.renderProviderFormError(w, r, providerFormData{Provider: p,
+				FormError: "That name is already in use by another provider."})
+			return
+		}
 		h.logger.Error("admin: update identity provider", "error", err)
 		h.renderProviderFormError(w, r, providerFormData{Provider: p,
 			FormError: "Failed to save the provider. Please try again."})
@@ -163,6 +181,10 @@ func (h *Handler) PostUpdateProvider(w http.ResponseWriter, r *http.Request) {
 
 // PostDeleteProvider removes a provider.
 func (h *Handler) PostDeleteProvider(w http.ResponseWriter, r *http.Request) {
+	if h.providers == nil {
+		http.Error(w, "Identity providers are not available.", http.StatusInternalServerError)
+		return
+	}
 	id := chi.URLParam(r, "id")
 	p, err := h.providers.GetByID(r.Context(), id)
 	if err != nil {

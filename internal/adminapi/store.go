@@ -68,6 +68,8 @@ func (s *SQLiteStore) Create(ctx context.Context, t *Token) error {
 	}
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = time.Now().UTC()
+	} else {
+		t.CreatedAt = t.CreatedAt.UTC()
 	}
 
 	const query = `
@@ -125,7 +127,7 @@ func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*Token, error) {
 // Revoke stamps the revocation time on a token.
 func (s *SQLiteStore) Revoke(ctx context.Context, id string, at time.Time) error {
 	const query = `UPDATE api_tokens SET revoked_at = ? WHERE id = ?`
-	res, err := s.db.ExecContext(ctx, query, at, id)
+	res, err := s.db.ExecContext(ctx, query, at.UTC(), id)
 	if err != nil {
 		return fmt.Errorf("adminapi store revoke: %w", err)
 	}
@@ -142,7 +144,7 @@ func (s *SQLiteStore) Revoke(ctx context.Context, id string, at time.Time) error
 // TouchLastUsed records a successful use of a token.
 func (s *SQLiteStore) TouchLastUsed(ctx context.Context, id string, at time.Time) error {
 	const query = `UPDATE api_tokens SET last_used_at = ? WHERE id = ?`
-	res, err := s.db.ExecContext(ctx, query, at, id)
+	res, err := s.db.ExecContext(ctx, query, at.UTC(), id)
 	if err != nil {
 		return fmt.Errorf("adminapi store touch last used: %w", err)
 	}

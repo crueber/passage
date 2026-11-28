@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -85,7 +86,7 @@ func (h *Handler) PostInviteAccept(w http.ResponseWriter, r *http.Request) {
 		renderErr("Username is required.", username, displayName)
 		return
 	}
-	if len(displayName) > MaxDisplayNameLength {
+	if utf8.RuneCountInString(displayName) > MaxDisplayNameLength {
 		renderErr(fmt.Sprintf("Display name must be at most %d characters.", MaxDisplayNameLength), username, displayName)
 		return
 	}

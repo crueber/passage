@@ -11,10 +11,6 @@ import (
 	"github.com/crueber/passage/internal/adminapi"
 )
 
-// apiTokenNameMaxLength bounds a token label. The name is a human reminder of
-// where a token is used ("grafana exporter"), not a data field.
-const apiTokenNameMaxLength = 100
-
 // apiTokenManager is the admin-facing view of API tokens. Defined at the
 // consumer boundary; backed by *adminapi.Service in run.go.
 type apiTokenManager interface {
@@ -38,15 +34,19 @@ type apiTokensData struct {
 
 // GetAPITokens renders the token list and the create form.
 func (h *Handler) GetAPITokens(w http.ResponseWriter, r *http.Request) {
-	var flash *Flash
-	if code := r.URL.Query().Get("flash"); code != "" {
-		flash = flashFromQuery(code)
+	if h.apiTokens == nil {
+		http.Error(w, "API tokens are not available.", http.StatusInternalServerError)
+		return
 	}
-	h.renderAPITokens(w, r, h.baseFlash(r, "api-tokens", flash), apiTokensData{})
+	h.renderAPITokens(w, r, h.baseQueryFlash(r, "api-tokens"), apiTokensData{})
 }
 
 // PostCreateAPIToken mints a token and renders it exactly once.
 func (h *Handler) PostCreateAPIToken(w http.ResponseWriter, r *http.Request) {
+	if h.apiTokens == nil {
+		http.Error(w, "API tokens are not available.", http.StatusInternalServerError)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		h.renderAPITokens(w, r,
 			h.baseFlash(r, "api-tokens", &Flash{Type: "error", Message: "Invalid form submission."}),
@@ -56,15 +56,9 @@ func (h *Handler) PostCreateAPIToken(w http.ResponseWriter, r *http.Request) {
 
 	name := strings.TrimSpace(r.FormValue("name"))
 	base := h.baseFlash(r, "api-tokens", nil)
-	if name == "" || len(name) > apiTokenNameMaxLength {
-		base.Flash = &Flash{Type: "error", Message: "Give the token a name of at most 100 characters."}
-		h.renderAPITokens(w, r, base, apiTokensData{Name: name})
-		return
-	}
-
 	plaintext, token, err := h.apiTokens.Create(r.Context(), name)
 	if err != nil {
-		if errors.Is(err, adminapi.ErrNameRequired) {
+		if errors.Is(err, adminapi.ErrNameRequired) || errors.Is(err, adminapi.ErrNameTooLong) {
 			base.Flash = &Flash{Type: "error", Message: "Give the token a name of at most 100 characters."}
 		} else {
 			h.logger.Error("admin: create api token", "error", err)
@@ -87,6 +81,10 @@ func (h *Handler) PostCreateAPIToken(w http.ResponseWriter, r *http.Request) {
 // PostRevokeAPIToken revokes a token. Requests already using it start failing
 // with 401 immediately; the row is kept so the history stays readable.
 func (h *Handler) PostRevokeAPIToken(w http.ResponseWriter, r *http.Request) {
+	if h.apiTokens == nil {
+		http.Error(w, "API tokens are not available.", http.StatusInternalServerError)
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	token, err := h.apiTokens.Revoke(r.Context(), id)

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -54,7 +55,11 @@ func (r *Registry) Handler(opts HandlerOptions) http.Handler {
 		h := w.Header()
 		h.Set("Content-Type", contentType)
 		h.Set("Cache-Control", "no-store")
+		h.Set("Content-Length", strconv.Itoa(buf.Len()))
 		w.WriteHeader(http.StatusOK)
+		if req.Method == http.MethodHead {
+			return
+		}
 		// A scrape client that disconnects mid-response is not an error worth
 		// reporting: there is no partial-state risk and nobody to tell.
 		_, _ = w.Write(buf.Bytes())

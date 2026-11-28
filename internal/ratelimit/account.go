@@ -195,6 +195,26 @@ func (s *AccountStore) clearExpired(ctx context.Context, username string, now ti
 	return nil
 }
 
+// PurgeExpired removes stale login_throttle rows whose lock has ended (or
+// never existed) and that have not been updated since before.
+func (s *AccountStore) PurgeExpired(ctx context.Context, before time.Time) (int64, error) {
+	const query = `
+		DELETE FROM login_throttle
+		WHERE (locked_until IS NULL OR locked_until <= ?)
+		  AND updated_at < ?`
+
+	cutoff := formatAccountTime(before)
+	res, err := s.db.ExecContext(ctx, query, cutoff, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("account store purge expired: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("account store purge expired rows: %w", err)
+	}
+	return n, nil
+}
+
 // AccountService applies the lockout policy on top of AccountStore. The clock
 // is injected so tests advance time instead of sleeping.
 type AccountService struct {
@@ -229,17 +249,20 @@ func (s *AccountService) config() AccountConfig {
 	return s.cfg
 }
 
+func (c AccountConfig) enabled() bool {
+	return c.MaxFailures > 0 && c.Lockout > 0
+}
+
 // Enabled reports whether throttling is configured. Either a zero failure
 // threshold or a zero lockout duration disables the feature.
 func (s *AccountService) Enabled() bool {
-	cfg := s.config()
-	return cfg.MaxFailures > 0 && cfg.Lockout > 0
+	return s.config().enabled()
 }
 
 // Status returns the effective state for username at the current clock time.
 // An expired lock is cleared as a side effect of reading it.
 func (s *AccountService) Status(ctx context.Context, username string) (AccountStatus, error) {
-	if !s.Enabled() {
+	if !s.config().enabled() {
 		return AccountStatus{}, nil
 	}
 
@@ -274,7 +297,8 @@ func (s *AccountService) Status(ctx context.Context, username string) (AccountSt
 // when the configured threshold is reached. Attempts made while a lock is
 // still active are rejected without incrementing the counter.
 func (s *AccountService) RecordFailure(ctx context.Context, username string) (AccountStatus, error) {
-	if !s.Enabled() {
+	cfg := s.config()
+	if !cfg.enabled() {
 		return AccountStatus{}, nil
 	}
 
@@ -298,7 +322,6 @@ func (s *AccountService) RecordFailure(ctx context.Context, username string) (Ac
 		return AccountStatus{}, err
 	}
 
-	cfg := s.config()
 	if failures >= cfg.MaxFailures {
 		until := now.Add(cfg.Lockout)
 		if err := s.store.Lock(ctx, username, until); err != nil {
@@ -312,7 +335,7 @@ func (s *AccountService) RecordFailure(ctx context.Context, username string) (Ac
 
 // Reset clears the failure counter after a successful password login.
 func (s *AccountService) Reset(ctx context.Context, username string) error {
-	if !s.Enabled() {
+	if !s.config().enabled() {
 		return nil
 	}
 	return s.store.Reset(ctx, username)
@@ -327,10 +350,16 @@ func (s *AccountService) Unlock(ctx context.Context, username string) error {
 // ListLocked returns the accounts currently locked at the clock's current
 // time, for the admin user list.
 func (s *AccountService) ListLocked(ctx context.Context) ([]*AccountState, error) {
-	if !s.Enabled() {
+	if !s.config().enabled() {
 		return nil, nil
 	}
 	return s.store.ListLocked(ctx, s.now())
+}
+
+// PurgeExpired removes stale unlocked rows older than before so failed logins
+// against nonexistent usernames do not grow login_throttle unboundedly.
+func (s *AccountService) PurgeExpired(ctx context.Context, before time.Time) (int64, error) {
+	return s.store.PurgeExpired(ctx, before)
 }
 
 // normalizeUsername is the single definition of a throttle bucket key.

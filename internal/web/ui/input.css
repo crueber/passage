@@ -159,12 +159,6 @@
   .btn-primary:hover {
     @apply bg-primary-hover;
   }
-  .btn-soft {
-    @apply bg-primary-soft text-on-primary-soft;
-  }
-  .btn-soft:hover {
-    @apply bg-primary-soft-hover;
-  }
   .btn-ghost {
     @apply bg-transparent text-muted hover:bg-raised hover:text-ink;
   }
@@ -184,9 +178,6 @@
          readable in dark mode. */
       @apply bg-danger/20 text-on-danger-soft;
     }
-  }
-  .btn-warn {
-    @apply bg-warn-soft text-on-warn-soft;
   }
   .btn-outline {
     @apply border border-line bg-surface text-ink hover:bg-raised;
@@ -335,9 +326,6 @@
   .wordmark {
     @apply inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-ink;
   }
-  .wordmark-dot {
-    @apply inline-block size-2 rounded-full bg-primary;
-  }
 
   /* ── App top bar (user pages) ────────────────────────────────────────── */
   .topbar {
@@ -441,13 +429,10 @@
     @apply text-muted;
   }
   .sidebar-link.is-active {
-    @apply bg-primary-soft text-on-primary-soft;
+    @apply relative bg-primary-soft text-on-primary-soft;
   }
   .sidebar-link.is-active .ic {
     @apply text-primary;
-  }
-  .sidebar-link.is-active {
-    @apply relative;
   }
   .sidebar-link.is-active::before {
     content: "";
@@ -594,6 +579,7 @@
   .command-fab {
     @apply fixed right-5 bottom-5 z-30 grid size-14 place-items-center rounded-full bg-primary text-on-primary shadow-pop sm:hidden;
   }
+  .command-fab[hidden] { display: none; }
   .command-fab:hover { @apply bg-primary-hover; }
   .command-fab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
@@ -628,16 +614,10 @@
   .ic-lg {
     @apply size-6;
   }
-  .card-link {
-    @apply font-medium text-on-primary-soft underline decoration-primary/25
-      underline-offset-2 transition-colors hover:decoration-primary;
-  }
   .link {
     @apply text-on-primary-soft underline decoration-primary/25 underline-offset-2 hover:decoration-primary;
   }
-}
 
-@layer components {
   /* Legacy class hook kept for admin templates that emit `tag is-info is-light`. */
   .tag.is-info.is-light {
     @apply inline-flex items-center rounded-md bg-success-soft px-1.5 py-0.5 text-xs

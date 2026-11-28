@@ -2,7 +2,9 @@ package forwardauth
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/crueber/passage/internal/policy"
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // sessionValidator is the interface the Handler uses for session operations.
@@ -108,7 +111,12 @@ func (h *Handler) NginxAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	host := stripPort(parsed.Host)
+	host := parsed.Hostname()
+	if host == "" {
+		h.logger.Warn("nginx auth: X-Original-URL missing host", "url", originalURL)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	h.checkAuth(w, r, host)
 }
 
@@ -121,8 +129,17 @@ func (h *Handler) TraefikAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-
+	// Behind chained proxies X-Forwarded-Host may contain comma-separated hosts;
+	// take the first (client-facing) one.
+	if first, _, ok := strings.Cut(forwardedHost, ","); ok {
+		forwardedHost = strings.TrimSpace(first)
+	}
 	host := stripPort(forwardedHost)
+	if host == "" {
+		h.logger.Warn("traefik auth: empty host in X-Forwarded-Host")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	h.checkAuth(w, r, host)
 }
 
@@ -162,8 +179,13 @@ func (h *Handler) checkAuth(w http.ResponseWriter, r *http.Request, host string)
 	// Resolve the app from the host header.
 	a, err := h.apps.ResolveFromHost(ctx, host)
 	if err != nil {
-		h.logger.Debug("forward auth: no app for host", "host", host, "error", err)
-		w.WriteHeader(http.StatusUnauthorized)
+		if errors.Is(err, app.ErrNoAppForHost) || errors.Is(err, app.ErrNotFound) {
+			h.logger.Debug("forward auth: no app for host", "host", host, "error", err)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		h.logger.Error("forward auth: resolve app failed", "host", host, "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -171,7 +193,7 @@ func (h *Handler) checkAuth(w http.ResponseWriter, r *http.Request, host string)
 	hasAccess, err := h.apps.HasAccess(ctx, u.ID, a.ID)
 	if err != nil {
 		h.logger.Error("forward auth: access check failed", "user_id", u.ID, "app_id", a.ID, "error", err)
-		w.WriteHeader(http.StatusUnauthorized)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	if !hasAccess {
@@ -225,22 +247,8 @@ func (h *Handler) checkAuth(w http.ResponseWriter, r *http.Request, host string)
 func (h *Handler) AuthStart(w http.ResponseWriter, r *http.Request) {
 	rd := r.URL.Query().Get("rd")
 
-	// Safe if it starts with "/" but NOT "//" (protocol-relative URLs like
-	// //evil.example.com are treated as absolute by browsers and must be
-	// rejected) and contains no "\" (browsers normalize "\" to "/" in special-
-	// scheme URLs, so "/\evil.example.com" is equivalent to "//evil.example.com").
-	if rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\") {
-		// Store the return URL in a short-lived HttpOnly cookie.
-		http.SetCookie(w, &http.Cookie{
-			Name:     "passage_rd",
-			Value:    rd,
-			Path:     "/",
-			MaxAge:   300, // 5 minutes
-			HttpOnly: true,
-			Secure:   h.cfg.Session.CookieSecure,
-			SameSite: http.SameSiteLaxMode,
-			Expires:  time.Now().Add(5 * time.Minute),
-		})
+	if web.SafeReturnPath(rd) {
+		web.SetReturnCookie(w, rd, h.cfg.Session.CookieSecure)
 	}
 	// Always redirect to /login regardless of whether rd was valid.
 	http.Redirect(w, r, "/login", http.StatusFound)
@@ -249,21 +257,27 @@ func (h *Handler) AuthStart(w http.ResponseWriter, r *http.Request) {
 // SignOut revokes the current session cookie and returns 200.
 func (h *Handler) SignOut(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(h.cfg.Session.EffectiveCookieName())
-	if err == nil {
+	if err == nil && cookie.Value != "" {
 		// Ignore "not found" errors — session may already be expired/deleted.
 		if err := h.sessions.RevokeSession(r.Context(), cookie.Value); err != nil {
 			h.logger.Debug("sign out: revoke session", "error", err)
+		} else {
+			h.record(r, authlog.Event{
+				Event:   authlog.EventLogout,
+				Outcome: authlog.OutcomeSuccess,
+			})
 		}
 	}
 	session.ClearCookie(w, h.cfg)
 	w.WriteHeader(http.StatusOK)
 }
 
-// stripPort removes the port suffix from a host string, if present.
-// e.g. "example.com:443" → "example.com".
+// stripPort removes the port suffix from a host string (including bracketed
+// IPv6 literals like "[::1]:443" → "::1" and bare "[::1]" → "::1").
 func stripPort(host string) string {
-	if idx := strings.LastIndex(host, ":"); idx != -1 {
-		return host[:idx]
+	host = strings.TrimSpace(host)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
 	}
-	return host
+	return strings.Trim(host, "[]")
 }

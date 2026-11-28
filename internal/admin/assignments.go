@@ -65,8 +65,7 @@ func (h *Handler) GetAppUserAssignments(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	data, err := h.buildAssignmentsData(r, a, u,
-		h.baseFlash(r, "apps", flashFromQuery(r.URL.Query().Get("flash"))))
+	data, err := h.buildAssignmentsData(r, a, u, h.baseQueryFlash(r, "apps"))
 	if err != nil {
 		h.logger.Error("admin: build assignments page", "app_id", a.ID, "user_id", u.ID, "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

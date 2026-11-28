@@ -26,6 +26,9 @@ const (
 	// well beyond guessing range even against an offline hash search, which is
 	// why a plain SHA-256 digest is an adequate storage form.
 	tokenRandomBytes = 32
+
+	// MaxTokenNameLength bounds a token label in Unicode code points.
+	MaxTokenNameLength = 100
 )
 
 var (
@@ -35,6 +38,9 @@ var (
 
 	// ErrNameRequired reports a token creation attempt without a name.
 	ErrNameRequired = errors.New("adminapi: token name is required")
+
+	// ErrNameTooLong reports a token label exceeding MaxTokenNameLength runes.
+	ErrNameTooLong = errors.New("adminapi: token name is too long")
 )
 
 // Token is one API token as stored. TokenHash is the SHA-256 hex digest of the

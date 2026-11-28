@@ -60,6 +60,12 @@ func (p Policy) IsEmpty() bool {
 		!p.AdminOnly
 }
 
+// NeedsGroup reports whether evaluating this policy requires the user's groups.
+func (p Policy) NeedsGroup() bool { return strings.TrimSpace(p.RequiredGroup) != "" }
+
+// NeedsRole reports whether evaluating this policy requires the user's roles.
+func (p Policy) NeedsRole() bool { return strings.TrimSpace(p.RequiredRole) != "" }
+
 // Input is everything Evaluate needs: the policy and the facts about this
 // request. UserGroups and UserRoles are the user's effective names for the app
 // (the same sets embedded in OIDC claims).
@@ -232,6 +238,9 @@ func parseAddr(raw string) (netip.Addr, error) {
 func parseCIDRs(raw string) ([]netip.Prefix, error) {
 	tokens := splitList(raw)
 	if len(tokens) == 0 {
+		if strings.TrimSpace(raw) != "" {
+			return nil, fmt.Errorf("policy: allowed cidrs: %q contains no CIDR prefixes", raw)
+		}
 		return nil, nil
 	}
 	prefixes := make([]netip.Prefix, 0, len(tokens))
@@ -267,7 +276,7 @@ func parseHours(raw string) (start, end int, err error) {
 
 // parseClock parses "HH:MM" into minutes since midnight.
 func parseClock(s string) (int, error) {
-	if len(s) != 5 || s[2] != ':' {
+	if len(s) != 5 || s[2] != ':' || !isASCIIDigits(s[:2]) || !isASCIIDigits(s[3:]) {
 		return 0, errors.New("clock must be HH:MM")
 	}
 	hh, err := strconv.Atoi(s[:2])
@@ -299,23 +308,27 @@ func withinWindow(minutes, start, end int) bool {
 	return minutes >= start || minutes <= end
 }
 
-// parseDays parses an ISO weekday list with ranges, e.g. "1-5,7".
-func parseDays(raw string) (map[int]bool, error) {
+// parseDays parses an ISO weekday list with ranges, e.g. "1-5,7", into a
+// stack-allocated [8]bool (indexed 1..7) with zero heap allocations.
+func parseDays(raw string) ([8]bool, error) {
+	var days [8]bool
 	tokens := splitList(raw)
 	if len(tokens) == 0 {
-		return nil, nil
+		if strings.TrimSpace(raw) != "" {
+			return days, fmt.Errorf("policy: allowed days: %q contains no ISO weekdays (1-7)", raw)
+		}
+		return days, nil
 	}
-	days := make(map[int]bool, 7)
 	for _, tok := range tokens {
 		if strings.Contains(tok, "-") {
 			parts := strings.Split(tok, "-")
 			if len(parts) != 2 {
-				return nil, fmt.Errorf("policy: allowed days: %q is not an ISO weekday list (1-7, ranges like 1-5)", tok)
+				return days, fmt.Errorf("policy: allowed days: %q is not an ISO weekday list (1-7, ranges like 1-5)", tok)
 			}
 			first, errFirst := parseWeekday(parts[0])
 			last, errLast := parseWeekday(parts[1])
 			if errFirst != nil || errLast != nil || first > last {
-				return nil, fmt.Errorf("policy: allowed days: %q is not an ISO weekday range (ascending, 1-7)", tok)
+				return days, fmt.Errorf("policy: allowed days: %q is not an ISO weekday range (ascending, 1-7)", tok)
 			}
 			for d := first; d <= last; d++ {
 				days[d] = true
@@ -324,7 +337,7 @@ func parseDays(raw string) (map[int]bool, error) {
 		}
 		day, err := parseWeekday(tok)
 		if err != nil {
-			return nil, fmt.Errorf("policy: allowed days: %q is not an ISO weekday list (1-7, ranges like 1-5)", tok)
+			return days, fmt.Errorf("policy: allowed days: %q is not an ISO weekday list (1-7, ranges like 1-5)", tok)
 		}
 		days[day] = true
 	}
@@ -333,7 +346,11 @@ func parseDays(raw string) (map[int]bool, error) {
 
 // parseWeekday parses one ISO weekday number (1 = Monday … 7 = Sunday).
 func parseWeekday(s string) (int, error) {
-	day, err := strconv.Atoi(strings.TrimSpace(s))
+	s = strings.TrimSpace(s)
+	if !isASCIIDigits(s) {
+		return 0, fmt.Errorf("weekday %q is not a number", s)
+	}
+	day, err := strconv.Atoi(s)
 	if err != nil {
 		return 0, fmt.Errorf("weekday: %w", err)
 	}
@@ -341,6 +358,18 @@ func parseWeekday(s string) (int, error) {
 		return 0, fmt.Errorf("weekday %d out of range", day)
 	}
 	return day, nil
+}
+
+func isASCIIDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // isoWeekday converts a time.Weekday (Sunday = 0) to an ISO weekday (Monday =

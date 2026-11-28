@@ -14,6 +14,7 @@ import (
 	"github.com/crueber/passage/internal/config"
 	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // userGetter is the minimal interface needed to look up a user by ID.
@@ -198,14 +199,44 @@ func (s *Service) idleTimeout(ctx context.Context) time.Duration {
 // Exported so user-facing handlers can filter the sessions they list with
 // exactly the rule validation applies.
 func (s *Service) SessionExpired(ctx context.Context, sess *Session, now time.Time) bool {
+	return sessionExpiredWithIdle(sess, now, s.idleTimeout(ctx))
+}
+
+func sessionExpiredWithIdle(sess *Session, now time.Time, idle time.Duration) bool {
 	if sess.ExpiresAt.Before(now) {
 		return true
 	}
-	idle := s.idleTimeout(ctx)
 	if idle <= 0 {
 		return false
 	}
 	return now.Sub(sess.lastUsedOrCreated()) > idle
+}
+
+// FilterActive returns only sessions that have neither passed their absolute
+// expiry nor exceeded the live idle timeout, reading the idle setting once.
+func (s *Service) FilterActive(ctx context.Context, sessions []*Session, now time.Time) []*Session {
+	idle := s.idleTimeout(ctx)
+	active := make([]*Session, 0, len(sessions))
+	for _, sess := range sessions {
+		if !sessionExpiredWithIdle(sess, now, idle) {
+			active = append(active, sess)
+		}
+	}
+	return active
+}
+
+// DeleteIdleSessions sweeps sessions that have exceeded the live idle timeout.
+// Reading the setting per sweep ensures enabling, changing, or disabling the
+// idle timeout in Settings applies immediately without a restart.
+func (s *Service) DeleteIdleSessions(ctx context.Context) error {
+	idle := s.idleTimeout(ctx)
+	if idle <= 0 {
+		return nil
+	}
+	if err := s.store.DeleteIdleBefore(ctx, time.Now().UTC().Add(-idle)); err != nil {
+		return fmt.Errorf("delete idle sessions: %w", err)
+	}
+	return nil
 }
 
 // ValidateSession looks up the session, checks it is not expired (absolutely or
@@ -224,9 +255,10 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 	now := time.Now().UTC()
 
 	if sess.ExpiresAt.Before(now) {
-		// Opportunistically clean up expired sessions; ignore errors.
-		if err := s.store.DeleteExpired(ctx); err != nil {
-			s.logger.Warn("session cleanup failed", "error", err)
+		// Delete only this expired row on the hot path; the hourly sweeper
+		// clears the rest without taking a table-wide write lock per request.
+		if err := s.store.Delete(ctx, sess.ID); err != nil && !errors.Is(err, ErrSessionNotFound) {
+			s.logger.Warn("session: delete expired session", "error", err)
 		}
 		return nil, nil, ErrSessionExpired
 	}
@@ -298,14 +330,33 @@ func (s *Service) RevokeAllByUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-// ListAll returns all sessions ordered by creation time descending.
-// It delegates directly to the store.
+// ListAll returns all currently active sessions (excluding both absolutely
+// expired and idle-expired sessions) ordered by creation time descending.
 func (s *Service) ListAll(ctx context.Context) ([]*Session, error) {
 	sessions, err := s.store.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list all sessions: %w", err)
 	}
-	return sessions, nil
+	return s.FilterActive(ctx, sessions, time.Now().UTC()), nil
+}
+
+// CountActive returns the number of currently active sessions. When no idle
+// timeout is configured it runs a single COUNT(*) query; otherwise it counts
+// the idle-filtered active set so dashboard counts stay consistent with the
+// sessions list.
+func (s *Service) CountActive(ctx context.Context) (int, error) {
+	if s.idleTimeout(ctx) == 0 {
+		if counter, ok := s.store.(interface {
+			CountActive(context.Context) (int, error)
+		}); ok {
+			return counter.CountActive(ctx)
+		}
+	}
+	active, err := s.ListAll(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return len(active), nil
 }
 
 // ListByUser returns all sessions for the given user, ordered by creation
@@ -320,27 +371,10 @@ func (s *Service) ListByUser(ctx context.Context, userID string) ([]*Session, er
 
 // SetCookie writes the session cookie to the response.
 func SetCookie(w http.ResponseWriter, token string, expiresAt time.Time, cfg *config.Config) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Session.EffectiveCookieName(),
-		Value:    token,
-		Path:     "/",
-		Expires:  expiresAt,
-		HttpOnly: true,
-		Secure:   cfg.Session.CookieSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	web.SetSessionCookie(w, cfg.Session, token, expiresAt)
 }
 
 // ClearCookie writes an expired cookie to clear the session cookie.
 func ClearCookie(w http.ResponseWriter, cfg *config.Config) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Session.EffectiveCookieName(),
-		Value:    "",
-		Path:     "/",
-		Expires:  time.Unix(0, 0),
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   cfg.Session.CookieSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	web.ClearSessionCookie(w, cfg.Session)
 }

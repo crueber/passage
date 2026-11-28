@@ -1,9 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"html/template"
+	"log/slog"
+	"net/http"
 
 	"github.com/crueber/passage/internal/theme"
 )
@@ -52,4 +55,26 @@ func Parse(fs embed.FS, funcs template.FuncMap) (*template.Template, error) {
 		return nil, fmt.Errorf("web: parse templates: %w", err)
 	}
 	return tmpl, nil
+}
+
+// Render executes a named template into a buffer before writing HTTP 200 OK so
+// a template execution error never flushes a half-written response.
+func Render(w http.ResponseWriter, tmpl *template.Template, logger *slog.Logger, name string, data any) {
+	RenderStatus(w, tmpl, logger, http.StatusOK, name, data)
+}
+
+// RenderStatus executes a named template into a buffer, sets Content-Type,
+// writes status, and flushes the rendered HTML.
+func RenderStatus(w http.ResponseWriter, tmpl *template.Template, logger *slog.Logger, status int, name string, data any) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		if logger != nil {
+			logger.Error("render template", "template", name, "error", err)
+		}
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = buf.WriteTo(w)
 }

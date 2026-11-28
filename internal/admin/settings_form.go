@@ -132,7 +132,7 @@ func (h *Handler) settingsSections(ctx context.Context, override map[string]stri
 				{Kind: kindBool, Key: settings.PasswordEnabled, Label: "Enable password sign-in", Value: boolString(boolValue(settings.PasswordEnabled))},
 				{Kind: kindBool, Key: settings.PasskeyEnabled, Label: "Enable passkeys (WebAuthn)", Value: boolString(boolValue(settings.PasskeyEnabled))},
 				{Kind: kindBool, Key: settings.MagicLinkEnabled, Label: "Enable magic-link sign-in",
-					Help:  magicLinkHelp(settings.String(ctx, h.settings, settings.SMTPHost, h.cfg.SMTP.Host) != ""),
+					Help:  magicLinkHelp(h.smtpConfigured(ctx)),
 					Value: boolString(boolValue(settings.MagicLinkEnabled))},
 				{Kind: kindBool, Key: settings.RequireMFA, Label: "Require two-factor authentication",
 					Help:  "Everyone must enrol an authenticator app before using Passage. Passkeys and magic links are not affected.",
@@ -269,14 +269,21 @@ func (h *Handler) parseSettingsSection(r *http.Request, sec settingsSection) (ma
 			values[f.Key] = boolString(r.FormValue(f.Key) == "on")
 
 		case kindNumberPair:
-			for _, k := range []string{f.Key, f.Key2} {
-				raw := strings.TrimSpace(r.FormValue(k))
+			pairs := []struct {
+				key string
+				min int
+			}{
+				{f.Key, 0},
+				{f.Key2, 1},
+			}
+			for _, p := range pairs {
+				raw := strings.TrimSpace(r.FormValue(p.key))
 				n, err := strconv.Atoi(raw)
-				if err != nil || n < 0 || n > 100000 {
-					problems = append(problems, fmt.Sprintf("%s: enter a whole number between 0 and 100000.", fieldLabel(sec, k)))
+				if err != nil || n < p.min || n > 100000 {
+					problems = append(problems, fmt.Sprintf("%s: enter a whole number between %d and 100000.", fieldLabel(sec, p.key), p.min))
 					continue
 				}
-				values[k] = strconv.Itoa(n)
+				values[p.key] = strconv.Itoa(n)
 			}
 
 		case kindNumber:
@@ -303,7 +310,21 @@ func (h *Handler) parseSettingsSection(r *http.Request, sec settingsSection) (ma
 			}
 			values[f.Key] = raw
 
-		default: // text, password
+		case kindPassword:
+			// Preserve leading/trailing whitespace in SMTP passwords and webhook
+			// signing secrets; trim the metrics bearer token to match
+			// metrics.Handler's HTTP Authorization header parsing.
+			raw := r.FormValue(f.Key)
+			if f.Key == settings.MetricsToken {
+				raw = strings.TrimSpace(raw)
+			}
+			if f.MaxLen > 0 && len(raw) > f.MaxLen {
+				problems = append(problems, fmt.Sprintf("%s: at most %d characters.", f.Label, f.MaxLen))
+				continue
+			}
+			values[f.Key] = raw
+
+		default: // text
 			raw := strings.TrimSpace(r.FormValue(f.Key))
 			if f.MaxLen > 0 && len(raw) > f.MaxLen {
 				problems = append(problems, fmt.Sprintf("%s: at most %d characters.", f.Label, f.MaxLen))

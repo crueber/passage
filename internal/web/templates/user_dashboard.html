@@ -61,8 +61,10 @@
     <h2 class="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">Favourites</h2>
     <div class="app-row-grid">{{range .FavoriteEntries}}{{template "dashboard-row" .}}{{end}}</div>
     {{end}}
+    {{if .OtherEntries}}
     <h2 class="mt-8 mb-2 text-xs font-semibold tracking-wide text-faint uppercase">All apps</h2>
     <div class="app-row-grid">{{range .OtherEntries}}{{template "dashboard-row" .}}{{end}}</div>
+    {{end}}
     {{end}}
   </section>
 
@@ -81,7 +83,7 @@
     {{end}}
   </section>
 
-  <button type="button" class="command-fab" id="command-open" aria-label="Search apps">
+  <button type="button" class="command-fab" id="command-open" aria-label="Search apps" hidden>
     {{template "ic-search"}}
   </button>
 
@@ -149,11 +151,11 @@
 
 {{define "dashboard-fav-item"}}
 <div class="app-fav-item">
-  <a class="app-fav-link" href="{{.Href}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>
+  {{if .Href}}<a class="app-fav-link" href="{{.Href}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>{{else}}<div class="app-fav-link">{{end}}
     <span class="app-fav-icon">{{.Initial}}</span>
     <span class="app-fav-name">{{.Name}}</span>
     <span class="app-fav-host td-mono">{{.Host}}</span>
-  </a>
+  {{if .Href}}</a>{{else}}</div>{{end}}
   <form method="POST" action="/apps/{{.ID}}/favorite" class="app-fav-star">
     {{csrfField .CSRFToken}}
     <button type="submit" class="shelf-favorite is-favorite"

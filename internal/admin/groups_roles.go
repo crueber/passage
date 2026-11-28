@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -85,11 +86,12 @@ func (h *Handler) loadNamedItems(r *http.Request, a *app.App, kind string) ([]na
 	if err != nil {
 		return nil, err
 	}
+	groupsByRole, err := h.apps.ListRoleGroupsByApp(r.Context(), a.ID)
+	if err != nil {
+		return nil, err
+	}
 	for _, ro := range roles {
-		roleGroups, err := h.apps.ListGroupsForRole(r.Context(), ro.ID)
-		if err != nil {
-			return nil, err
-		}
+		roleGroups := groupsByRole[ro.ID]
 		names := make([]string, len(roleGroups))
 		for i, g := range roleGroups {
 			names[i] = g.Name
@@ -126,7 +128,7 @@ func (h *Handler) getAppNamedItems(w http.ResponseWriter, r *http.Request, kind 
 	}
 
 	data := appNamedItemsData{
-		basePage: h.baseFlash(r, "apps", flashFromQuery(r.URL.Query().Get("flash"))),
+		basePage: h.baseQueryFlash(r, "apps"),
 		appTabs:  appTabs{App: a, ActiveTab: kind},
 		Kind:     kind,
 		Plural:   namedItemPlural(kind),
@@ -154,8 +156,8 @@ func (h *Handler) postCreateNamedItem(w http.ResponseWriter, r *http.Request, ki
 		return
 	}
 
-	name := r.FormValue("name")
-	description := r.FormValue("description")
+	name := strings.TrimSpace(r.FormValue("name"))
+	description := strings.TrimSpace(r.FormValue("description"))
 	listURL := namedItemBasePath(a.ID, kind)
 
 	if name == "" {
@@ -268,6 +270,10 @@ func (h *Handler) getEditNamedItem(w http.ResponseWriter, r *http.Request, kind 
 			h.getNamedItemFailed(w, r, err, a, kind)
 			return
 		}
+		if g.AppID != a.ID {
+			h.getNamedItemFailed(w, r, app.ErrNotFound, a, kind)
+			return
+		}
 		item = &namedItemRow{ID: g.ID, Name: g.Name, Description: g.Description}
 	} else {
 		ro, err := h.apps.GetRole(r.Context(), chi.URLParam(r, "gid"))
@@ -275,10 +281,14 @@ func (h *Handler) getEditNamedItem(w http.ResponseWriter, r *http.Request, kind 
 			h.getNamedItemFailed(w, r, err, a, kind)
 			return
 		}
+		if ro.AppID != a.ID {
+			h.getNamedItemFailed(w, r, app.ErrNotFound, a, kind)
+			return
+		}
 		item = &namedItemRow{ID: ro.ID, Name: ro.Name, Description: ro.Description}
 	}
 	data := appNamedItemsData{
-		basePage: h.baseFlash(r, "apps", flashFromQuery(r.URL.Query().Get("flash"))),
+		basePage: h.baseQueryFlash(r, "apps"),
 		appTabs:  appTabs{App: a, ActiveTab: kind},
 		Kind:     kind,
 		Plural:   namedItemPlural(kind),
@@ -344,9 +354,33 @@ func (h *Handler) postUpdateNamedItem(w http.ResponseWriter, r *http.Request, ki
 	}
 
 	gid := chi.URLParam(r, "gid")
-	name := r.FormValue("name")
-	description := r.FormValue("description")
+	name := strings.TrimSpace(r.FormValue("name"))
+	description := strings.TrimSpace(r.FormValue("description"))
 	listURL := namedItemBasePath(a.ID, kind)
+
+	// Verify the target group or role belongs to the URL's app so a request to
+	// /admin/apps/{appA}/groups/{groupFromAppB} cannot mutate another app.
+	if kind == "groups" {
+		existing, err := h.apps.GetGroup(r.Context(), gid)
+		if err != nil {
+			h.getNamedItemFailed(w, r, err, a, kind)
+			return
+		}
+		if existing.AppID != a.ID {
+			h.getNamedItemFailed(w, r, app.ErrNotFound, a, kind)
+			return
+		}
+	} else {
+		existing, err := h.apps.GetRole(r.Context(), gid)
+		if err != nil {
+			h.getNamedItemFailed(w, r, err, a, kind)
+			return
+		}
+		if existing.AppID != a.ID {
+			h.getNamedItemFailed(w, r, app.ErrNotFound, a, kind)
+			return
+		}
+	}
 
 	if name == "" {
 		item := &namedItemRow{ID: gid, Name: name, Description: description}
@@ -424,7 +458,7 @@ func (h *Handler) applyRoleGroupDiff(r *http.Request, a *app.App, roleID string)
 // namedItemsEditDataWithError rebuilds the edit page data with an error
 // flash and the submitted values preserved in the form.
 func (h *Handler) namedItemsEditDataWithError(r *http.Request, a *app.App, kind, msg string, item *namedItemRow) appNamedItemsData {
-	return appNamedItemsData{
+	data := appNamedItemsData{
 		basePage: h.baseFlash(r, "apps", &Flash{Type: "error", Message: msg}),
 		appTabs:  appTabs{App: a, ActiveTab: kind},
 		Kind:     kind,
@@ -432,6 +466,8 @@ func (h *Handler) namedItemsEditDataWithError(r *http.Request, a *app.App, kind,
 		IsEdit:   true,
 		EditItem: item,
 	}
+	h.fillRoleGroupOptions(r, a, kind, &data)
+	return data
 }
 
 // ─── Delete ──────────────────────────────────────────────────────────────────
@@ -457,17 +493,31 @@ func (h *Handler) postDeleteNamedItem(w http.ResponseWriter, r *http.Request, ki
 
 	var name string
 	if kind == "groups" {
-		if g, err := h.apps.GetGroup(r.Context(), gid); err == nil {
-			name = g.Name
+		g, err := h.apps.GetGroup(r.Context(), gid)
+		if err != nil {
+			h.deleteNamedItemFailed(w, r, err, a, kind, gid)
+			return
 		}
+		if g.AppID != a.ID {
+			h.deleteNamedItemFailed(w, r, app.ErrNotFound, a, kind, gid)
+			return
+		}
+		name = g.Name
 		if err := h.apps.DeleteGroup(r.Context(), gid); err != nil {
 			h.deleteNamedItemFailed(w, r, err, a, kind, gid)
 			return
 		}
 	} else {
-		if ro, err := h.apps.GetRole(r.Context(), gid); err == nil {
-			name = ro.Name
+		ro, err := h.apps.GetRole(r.Context(), gid)
+		if err != nil {
+			h.deleteNamedItemFailed(w, r, err, a, kind, gid)
+			return
 		}
+		if ro.AppID != a.ID {
+			h.deleteNamedItemFailed(w, r, app.ErrNotFound, a, kind, gid)
+			return
+		}
+		name = ro.Name
 		if err := h.apps.DeleteRole(r.Context(), gid); err != nil {
 			h.deleteNamedItemFailed(w, r, err, a, kind, gid)
 			return

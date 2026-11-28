@@ -68,49 +68,13 @@ func (h *Handler) PostUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("display_name"))
 	themeName := strings.TrimSpace(r.FormValue("theme"))
 	appView := strings.TrimSpace(r.FormValue("app_view"))
-	if len(name) > MaxDisplayNameLength {
-		http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
-		return
-	}
-	if themeName != "" {
-		if _, ok := theme.Lookup(themeName); !ok {
-			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
-			return
-		}
-	}
-	switch appView {
-	case "", "comfortable", "iconized":
-	default:
-		http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
-		return
-	}
 
-	if err := h.users.UpdateAppView(r.Context(), u.ID, appView); err != nil {
-		if errors.Is(err, ErrInvalidAppView) {
+	if err := h.users.UpdateProfile(r.Context(), u.ID, name, themeName, appView); err != nil {
+		if errors.Is(err, ErrNameTooLong) || errors.Is(err, ErrInvalidTheme) || errors.Is(err, ErrInvalidAppView) {
 			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
 			return
 		}
-		h.logger.Error("profile: update app view", "user_id", u.ID, "error", err)
-		http.Redirect(w, r, "/profile?flash=error", http.StatusFound)
-		return
-	}
-
-	if err := h.users.UpdateTheme(r.Context(), u.ID, themeName); err != nil {
-		if errors.Is(err, ErrInvalidTheme) {
-			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
-			return
-		}
-		h.logger.Error("profile: update theme", "user_id", u.ID, "error", err)
-		http.Redirect(w, r, "/profile?flash=error", http.StatusFound)
-		return
-	}
-
-	if err := h.users.UpdateDisplayName(r.Context(), u.ID, name); err != nil {
-		if errors.Is(err, ErrNameTooLong) {
-			http.Redirect(w, r, "/profile?flash=invalid", http.StatusFound)
-			return
-		}
-		h.logger.Error("profile: update display name", "user_id", u.ID, "error", err)
+		h.logger.Error("profile: update", "user_id", u.ID, "error", err)
 		http.Redirect(w, r, "/profile?flash=error", http.StatusFound)
 		return
 	}

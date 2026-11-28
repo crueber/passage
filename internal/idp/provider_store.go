@@ -24,7 +24,18 @@ func DefaultScopes() []string {
 var providerNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // ErrProviderNotFound reports an unknown provider id or name.
-var ErrProviderNotFound = errors.New("idp: provider not found")
+var (
+	ErrProviderNotFound  = errors.New("idp: provider not found")
+	ErrProviderNameTaken = errors.New("idp: provider name already taken")
+)
+
+// ProviderButton carries only the public fields needed to render a sign-in
+// button on the login page, avoiding decrypting stored client secrets on every
+// unauthenticated GET /login.
+type ProviderButton struct {
+	Name  string
+	Label string
+}
 
 // SecretCipher seals and opens client secrets at rest. Implemented by
 // *mfa.Cipher in production; tests may use a pass-through.
@@ -70,6 +81,29 @@ func (s *ProviderStore) List(ctx context.Context) ([]*Provider, error) {
 	return out, nil
 }
 
+// ListButtons returns only each provider's route name and display label,
+// skipping client_secret selection and AES-GCM decryption on the public login path.
+func (s *ProviderStore) ListButtons(ctx context.Context) ([]ProviderButton, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name, label FROM idp_providers ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("idp store list buttons: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ProviderButton
+	for rows.Next() {
+		var b ProviderButton
+		if err := rows.Scan(&b.Name, &b.Label); err != nil {
+			return nil, fmt.Errorf("idp store list buttons scan: %w", err)
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("idp store list buttons rows: %w", err)
+	}
+	return out, nil
+}
+
 // Get resolves a provider by its route name.
 func (s *ProviderStore) Get(ctx context.Context, name string) (*Provider, error) {
 	return s.getOne(ctx, `SELECT `+providerColumns+` FROM idp_providers WHERE name = ?`, name)
@@ -90,29 +124,37 @@ func (s *ProviderStore) getOne(ctx context.Context, query, arg string) (*Provide
 }
 
 // Create inserts a provider. A missing id is generated; the label defaults to
-// the name and the scopes to DefaultScopes. A duplicate name is reported as an
-// error by SQLite's unique constraint.
+// the name and the scopes to DefaultScopes. A duplicate name returns
+// ErrProviderNameTaken.
 func (s *ProviderStore) Create(ctx context.Context, p *Provider) error {
 	if p.ID == "" {
-		p.ID = randomID()
+		id, err := randomID()
+		if err != nil {
+			return fmt.Errorf("idp store create provider: %w", err)
+		}
+		p.ID = id
 	}
 	normalizeProvider(p)
 	sealed, err := s.seal(p)
 	if err != nil {
 		return err
 	}
+	now := time.Now().UTC()
+	p.CreatedAt = now
+	p.UpdatedAt = now
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO idp_providers (id, name, label, issuer, client_id, client_secret, scopes, auto_create)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Label, p.Issuer, p.ClientID, sealed, strings.Join(p.Scopes, "\n"), boolInt(p.AutoCreate))
+		`INSERT INTO idp_providers (id, name, label, issuer, client_id, client_secret, scopes, auto_create, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Label, p.Issuer, p.ClientID, sealed, strings.Join(p.Scopes, "\n"), boolInt(p.AutoCreate), now, now)
 	if err != nil {
-		return fmt.Errorf("idp store create provider: %w", err)
+		return fmt.Errorf("idp store create provider: %w", mapProviderConstraintError(err))
 	}
 	return nil
 }
 
 // Update rewrites a provider by id. An empty ClientSecret keeps the stored one,
-// so the edit form does not have to echo the secret back.
+// so the edit form does not have to echo the secret back. Renaming a provider
+// updates existing idp_links rows atomically so linked accounts are never orphaned.
 func (s *ProviderStore) Update(ctx context.Context, p *Provider) error {
 	normalizeProvider(p)
 	sealed := ""
@@ -122,32 +164,77 @@ func (s *ProviderStore) Update(ctx context.Context, p *Provider) error {
 			return err
 		}
 	}
-	var err error
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("idp store update provider begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var oldName string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM idp_providers WHERE id = ?`, p.ID).Scan(&oldName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrProviderNotFound
+		}
+		return fmt.Errorf("idp store update provider lookup: %w", err)
+	}
+
+	now := time.Now().UTC()
 	if sealed == "" {
-		_, err = s.db.ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`UPDATE idp_providers SET name = ?, label = ?, issuer = ?, client_id = ?, scopes = ?,
 			        auto_create = ?, updated_at = ?
 			 WHERE id = ?`,
 			p.Name, p.Label, p.Issuer, p.ClientID, strings.Join(p.Scopes, "\n"),
-			boolInt(p.AutoCreate), time.Now().UTC(), p.ID)
+			boolInt(p.AutoCreate), now, p.ID)
 	} else {
-		_, err = s.db.ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`UPDATE idp_providers SET name = ?, label = ?, issuer = ?, client_id = ?, client_secret = ?,
 			        scopes = ?, auto_create = ?, updated_at = ?
 			 WHERE id = ?`,
 			p.Name, p.Label, p.Issuer, p.ClientID, sealed,
-			strings.Join(p.Scopes, "\n"), boolInt(p.AutoCreate), time.Now().UTC(), p.ID)
+			strings.Join(p.Scopes, "\n"), boolInt(p.AutoCreate), now, p.ID)
 	}
 	if err != nil {
-		return fmt.Errorf("idp store update provider: %w", err)
+		return fmt.Errorf("idp store update provider: %w", mapProviderConstraintError(err))
 	}
+	if oldName != p.Name {
+		if _, err := tx.ExecContext(ctx, `UPDATE idp_links SET provider = ? WHERE provider = ?`, p.Name, oldName); err != nil {
+			return fmt.Errorf("idp store update provider links: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("idp store update provider commit: %w", err)
+	}
+	p.UpdatedAt = now
 	return nil
 }
 
-// Delete removes a provider by id.
+// Delete removes a provider by id along with any idp_links tied to its slug,
+// preventing a later provider reusing the same slug from inheriting old links.
 func (s *ProviderStore) Delete(ctx context.Context, id string) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM idp_providers WHERE id = ?`, id); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("idp store delete provider begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var name string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM idp_providers WHERE id = ?`, id).Scan(&name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrProviderNotFound
+		}
+		return fmt.Errorf("idp store delete provider lookup: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM idp_links WHERE provider = ?`, name); err != nil {
+		return fmt.Errorf("idp store delete provider links: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM idp_providers WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("idp store delete provider: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("idp store delete provider commit: %w", err)
 	}
 	return nil
 }
@@ -285,12 +372,17 @@ func boolInt(b bool) int {
 	return 0
 }
 
-func randomID() string {
+func mapProviderConstraintError(err error) error {
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") && strings.Contains(err.Error(), "idp_providers.name") {
+		return ErrProviderNameTaken
+	}
+	return err
+}
+
+func randomID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		// crypto/rand failing is unrecoverable; a timestamp keeps the row
-		// addressable rather than panicking in a request.
-		return fmt.Sprintf("provider-%d", time.Now().UnixNano())
+		return "", fmt.Errorf("generate provider id: %w", err)
 	}
-	return hex.EncodeToString(b[:])
+	return hex.EncodeToString(b[:]), nil
 }

@@ -222,19 +222,19 @@ func ApplyToConfig(ctx context.Context, s Store, cfg *config.Config, logger *slo
 	cfg.Session.DurationHours = Int(ctx, s, SessionDurationHours, cfg.Session.DurationHours, 1, 8760)
 	cfg.Session.IdleTimeoutMinutes = Int(ctx, s, SessionIdleTimeoutMinutes, cfg.Session.IdleTimeoutMinutes, 0, 8760)
 
-	cfg.SMTP.Host = String(ctx, s, SMTPHost, cfg.SMTP.Host)
+	cfg.SMTP.Host = strings.TrimSpace(Raw(ctx, s, SMTPHost, cfg.SMTP.Host))
 	cfg.SMTP.Port = Int(ctx, s, SMTPPort, cfg.SMTP.Port, 1, 65535)
-	cfg.SMTP.Username = String(ctx, s, SMTPUsername, cfg.SMTP.Username)
-	cfg.SMTP.Password = String(ctx, s, SMTPPassword, cfg.SMTP.Password)
+	cfg.SMTP.Username = strings.TrimSpace(Raw(ctx, s, SMTPUsername, cfg.SMTP.Username))
+	cfg.SMTP.Password = Raw(ctx, s, SMTPPassword, cfg.SMTP.Password)
 	cfg.SMTP.TLS = String(ctx, s, SMTPTLS, cfg.SMTP.TLS)
-	cfg.SMTP.From = String(ctx, s, SMTPFrom, cfg.SMTP.From)
+	cfg.SMTP.From = strings.TrimSpace(Raw(ctx, s, SMTPFrom, cfg.SMTP.From))
 
-	cfg.Security.WebhookURL = String(ctx, s, WebhookURL, cfg.Security.WebhookURL)
-	cfg.Security.WebhookSecret = String(ctx, s, WebhookSecret, cfg.Security.WebhookSecret)
+	cfg.Security.WebhookURL = strings.TrimSpace(Raw(ctx, s, WebhookURL, cfg.Security.WebhookURL))
+	cfg.Security.WebhookSecret = Raw(ctx, s, WebhookSecret, cfg.Security.WebhookSecret)
 	cfg.Security.WebhookTimeoutSeconds = Int(ctx, s, WebhookTimeoutSeconds, cfg.Security.WebhookTimeoutSeconds, 1, 60)
 
 	cfg.Metrics.Enabled = Bool(ctx, s, MetricsEnabled, cfg.Metrics.Enabled)
-	cfg.Metrics.Token = Raw(ctx, s, MetricsToken, cfg.Metrics.Token)
+	cfg.Metrics.Token = strings.TrimSpace(Raw(ctx, s, MetricsToken, cfg.Metrics.Token))
 
 	cfg.UI.Theme = theme.Canonical(String(ctx, s, Theme, cfg.UI.Theme))
 

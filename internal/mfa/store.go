@@ -192,13 +192,24 @@ func (s *Store) AcceptStep(ctx context.Context, userID string, step int64, now t
 }
 
 // ReplaceRecoveryCodes swaps the user's recovery-code set. Unused codes from
-// the old set stop working immediately.
+// the old set stop working immediately. Returns ErrNotEnabled if MFA was
+// disabled concurrently before the transaction ran.
 func (s *Store) ReplaceRecoveryCodes(ctx context.Context, userID string, hashes []string, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("mfa store replace codes begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	var enabled int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM user_mfa WHERE user_id = ? AND enabled_at IS NOT NULL`, userID,
+	).Scan(&enabled); err != nil {
+		return fmt.Errorf("mfa store replace codes check enabled: %w", err)
+	}
+	if enabled == 0 {
+		return ErrNotEnabled
+	}
 
 	if err := replaceRecoveryCodes(ctx, tx, userID, hashes, now); err != nil {
 		return err
@@ -336,13 +347,15 @@ func (s *Store) GetChallenge(ctx context.Context, token string) (*Challenge, err
 	return &c, nil
 }
 
-// DeleteChallenge removes one challenge.
+// DeleteChallenge removes one challenge. Returns ErrNotFound if no row was
+// deleted, which closes the concurrent double-consume race on a pending login.
 func (s *Store) DeleteChallenge(ctx context.Context, token string) error {
 	const query = `DELETE FROM mfa_challenges WHERE token = ?`
-	if _, err := s.db.ExecContext(ctx, query, token); err != nil {
+	res, err := s.db.ExecContext(ctx, query, token)
+	if err != nil {
 		return fmt.Errorf("mfa store delete challenge: %w", err)
 	}
-	return nil
+	return requireRows(res, "mfa store delete challenge", ErrNotFound)
 }
 
 // DeleteExpiredChallenges removes challenges that expired before cutoff.

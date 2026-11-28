@@ -9,14 +9,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/user"
 )
 
-// enableSMTP makes the fixture's config able to send mail. Handlers read the
-// config snapshot directly, so a test can turn this on without rebuilding.
-func enableSMTP(f *fixture) {
-	f.cfg.SMTP.Host = "smtp.example.com"
-	f.cfg.SMTP.From = "passage@example.com"
+// enableSMTP configures live SMTP settings in the fixture's settings store
+// (the database is the source of truth for feature settings).
+func enableSMTP(t *testing.T, f *fixture) {
+	t.Helper()
+	ctx := context.Background()
+	if err := f.settings.Set(ctx, settings.SMTPHost, "smtp.example.com"); err != nil {
+		t.Fatalf("set smtp_host: %v", err)
+	}
+	if err := f.settings.Set(ctx, settings.SMTPFrom, "passage@example.com"); err != nil {
+		t.Fatalf("set smtp_from: %v", err)
+	}
 }
 
 // TestGetInviteUser_RendersForm proves the invitation page renders even with no
@@ -47,7 +54,7 @@ func TestPostInviteUser_CreatesPendingInvite(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t)
-	enableSMTP(f)
+	enableSMTP(t, f)
 	adminUser := createAdminUser(t, f, "invitesender", "invitesender@example.com")
 	token := createSession(t, f, adminUser.ID)
 	router := buildAdminRouter(f)
@@ -108,7 +115,7 @@ func TestPostInviteUser_Rejections(t *testing.T) {
 	t.Run("existing email", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
-		enableSMTP(f)
+		enableSMTP(t, f)
 		adminUser := createAdminUser(t, f, "existingadmin", "existingadmin@example.com")
 		if _, err := f.userSvc.Register(context.Background(), "already", "already@example.com", "password123"); err != nil {
 			t.Fatalf("Register: %v", err)
@@ -153,7 +160,7 @@ func TestPostInviteUser_Rejections(t *testing.T) {
 	t.Run("bad expiry", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
-		enableSMTP(f)
+		enableSMTP(t, f)
 		adminUser := createAdminUser(t, f, "expiryadmin", "expiryadmin@example.com")
 		token := createSession(t, f, adminUser.ID)
 		router := buildAdminRouter(f)
@@ -177,7 +184,7 @@ func TestPostInviteUser_SendFailureLeavesNothingBehind(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t)
-	enableSMTP(f)
+	enableSMTP(t, f)
 	f.mailer.err = errors.New("smtp down")
 	adminUser := createAdminUser(t, f, "failadmin", "failadmin@example.com")
 	token := createSession(t, f, adminUser.ID)
@@ -209,7 +216,7 @@ func TestPostRevokeInvitation(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t)
-	enableSMTP(f)
+	enableSMTP(t, f)
 	adminUser := createAdminUser(t, f, "revokeadmin", "revokeadmin@example.com")
 	token := createSession(t, f, adminUser.ID)
 	router := buildAdminRouter(f)

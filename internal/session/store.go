@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -44,7 +45,7 @@ func (s *SQLiteStore) Create(ctx context.Context, sess *Session) error {
 	_, err := s.db.ExecContext(ctx, query,
 		sess.ID, sess.PublicID, sess.UserID, sess.AppID,
 		sess.IPAddress, sess.UserAgent,
-		sess.ExpiresAt, sess.CreatedAt, sess.LastUsedAt,
+		sess.ExpiresAt.UTC(), sess.CreatedAt.UTC(), sess.LastUsedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("session store create: %w", err)
@@ -78,9 +79,9 @@ func (s *SQLiteStore) ListByUser(ctx context.Context, userID string) ([]*Session
 
 // ListAll returns all non-expired sessions ordered by creation time descending.
 func (s *SQLiteStore) ListAll(ctx context.Context) ([]*Session, error) {
-	query := `SELECT ` + sessionColumns + ` FROM sessions WHERE expires_at > CURRENT_TIMESTAMP ORDER BY created_at DESC`
+	query := `SELECT ` + sessionColumns + ` FROM sessions WHERE expires_at > ? ORDER BY created_at DESC`
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, query, time.Now().UTC())
 	if err != nil {
 		return nil, fmt.Errorf("session store list all: %w", err)
 	}
@@ -162,7 +163,7 @@ func (s *SQLiteStore) TouchLastUsed(ctx context.Context, id string, now, staleBe
 	const query = `
 		UPDATE sessions SET last_used_at = ?
 		WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)`
-	if _, err := s.db.ExecContext(ctx, query, now, id, staleBefore); err != nil {
+	if _, err := s.db.ExecContext(ctx, query, now.UTC(), id, staleBefore.UTC()); err != nil {
 		return fmt.Errorf("session store touch last used: %w", err)
 	}
 	return nil
@@ -173,7 +174,7 @@ func (s *SQLiteStore) TouchLastUsed(ctx context.Context, id string, now, staleBe
 // created_at, matching how the service evaluates the idle window.
 func (s *SQLiteStore) DeleteIdleBefore(ctx context.Context, cutoff time.Time) error {
 	const query = `DELETE FROM sessions WHERE COALESCE(last_used_at, created_at) < ?`
-	if _, err := s.db.ExecContext(ctx, query, cutoff); err != nil {
+	if _, err := s.db.ExecContext(ctx, query, cutoff.UTC()); err != nil {
 		return fmt.Errorf("session store delete idle: %w", err)
 	}
 	return nil
@@ -211,7 +212,7 @@ func scanSession(s sessionScanner) (*Session, error) {
 		&sess.ExpiresAt, &sess.CreatedAt, &lastUsedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrSessionNotFound
 		}
 		return nil, err

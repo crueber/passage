@@ -3,8 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -107,6 +110,42 @@ type ServerConfig struct {
 	Host    string `yaml:"host"`
 	Port    int    `yaml:"port"`
 	BaseURL string `yaml:"base_url"`
+	// TrustedProxies lists the proxy IP addresses or CIDR ranges whose
+	// forwarding headers (X-Forwarded-For / X-Real-IP / True-Client-IP) are
+	// honored. When nil (omitted), DefaultTrustedProxies() applies. Set to an
+	// empty slice ([] in YAML or PASSAGE_SERVER_TRUSTED_PROXIES=none) when
+	// Passage is exposed directly without a reverse proxy.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// DefaultTrustedProxies returns the default CIDR ranges trusted as reverse
+// proxies: loopback, RFC 1918 private networks, IPv6 ULA, link-local, and
+// CGNAT / Tailscale (100.64.0.0/10).
+func DefaultTrustedProxies() []string {
+	return []string{
+		"127.0.0.0/8",
+		"::1/128",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"fc00::/7",
+		"169.254.0.0/16",
+		"fe80::/10",
+		"100.64.0.0/10",
+	}
+}
+
+// EffectiveTrustedProxies returns the configured trusted proxy CIDRs/IPs, or
+// DefaultTrustedProxies() when TrustedProxies was left unset (nil). A non-nil
+// empty slice returns nil, meaning no proxy headers are trusted.
+func (s ServerConfig) EffectiveTrustedProxies() []string {
+	if s.TrustedProxies == nil {
+		return DefaultTrustedProxies()
+	}
+	if len(s.TrustedProxies) == 0 {
+		return nil
+	}
+	return s.TrustedProxies
 }
 
 // DatabaseConfig holds database settings.
@@ -250,19 +289,21 @@ func Load(path string) (*Config, error) {
 	cfg := defaults()
 
 	if path != "" {
-		if _, err := os.Stat(path); err == nil {
-			data, err := os.ReadFile(path)
-			if err != nil {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("read config file %q: %w", path, err)
 			}
+			// File not existing is not an error — env vars and defaults apply.
+		} else {
 			if err := yaml.Unmarshal(data, cfg); err != nil {
 				return nil, fmt.Errorf("parse config file %q: %w", path, err)
 			}
 		}
-		// File not existing is not an error — env vars and defaults apply.
 	}
 
 	applyEnvOverrides(cfg)
+	cfg.Server.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.Server.BaseURL), "/")
 	return cfg, nil
 }
 
@@ -278,8 +319,47 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port))
 	}
 
+	if c.Server.BaseURL == "" {
+		errs = append(errs, fmt.Errorf("server.base_url is required (e.g. https://auth.example.com)"))
+	} else {
+		u, err := url.Parse(c.Server.BaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, fmt.Errorf("server.base_url must be a valid http(s) URL with a host, got %q", c.Server.BaseURL))
+		}
+	}
+
+	for _, entry := range c.Server.EffectiveTrustedProxies() {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if strings.Contains(entry, "/") {
+			if _, err := netip.ParsePrefix(entry); err != nil {
+				errs = append(errs, fmt.Errorf("server.trusted_proxies contains invalid CIDR %q: %w", entry, err))
+			}
+		} else if _, err := netip.ParseAddr(entry); err != nil {
+			errs = append(errs, fmt.Errorf("server.trusted_proxies contains invalid IP %q: %w", entry, err))
+		}
+	}
+
 	if c.Database.Path == "" {
 		errs = append(errs, fmt.Errorf("database.path must not be empty"))
+	}
+
+	if strings.TrimSpace(c.Session.CookieName) == "" {
+		errs = append(errs, fmt.Errorf("session.cookie_name must not be empty"))
+	}
+
+	switch c.Log.Level {
+	case "", "debug", "info", "warn", "error":
+	default:
+		errs = append(errs, fmt.Errorf("log.level must be debug, info, warn, or error, got %q", c.Log.Level))
+	}
+
+	switch c.Log.Format {
+	case "", "json", "text":
+	default:
+		errs = append(errs, fmt.Errorf("log.format must be json or text, got %q", c.Log.Format))
 	}
 
 	// Validate the secret-encryption key format if explicitly set. An empty
@@ -315,6 +395,16 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_SERVER_BASE_URL"); v != "" {
 		cfg.Server.BaseURL = v
 	}
+	if v, ok := os.LookupEnv("PASSAGE_SERVER_TRUSTED_PROXIES"); ok {
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" || strings.EqualFold(trimmed, "none") {
+			cfg.Server.TrustedProxies = []string{}
+		} else {
+			cfg.Server.TrustedProxies = strings.FieldsFunc(trimmed, func(r rune) bool {
+				return r == ',' || r == ' ' || r == '\t' || r == '\n'
+			})
+		}
+	}
 
 	// Database
 	if v := os.Getenv("PASSAGE_DATABASE_PATH"); v != "" {
@@ -333,10 +423,6 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 
-	// SMTP
-
-	// Auth
-
 	// Log
 	if v := os.Getenv("PASSAGE_LOG_LEVEL"); v != "" {
 		cfg.Log.Level = v
@@ -354,10 +440,4 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("PASSAGE_SECURITY_ENCRYPTION_KEY"); v != "" {
 		cfg.Security.EncryptionKey = v
 	}
-
-	// UI
-
-	// Metrics
-
-	// RateLimit
 }

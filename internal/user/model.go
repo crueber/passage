@@ -135,6 +135,11 @@ type Store interface {
 	// SetAppView sets only the My Apps default view for one user. Empty means
 	// Comfortable.
 	SetAppView(ctx context.Context, id, view string) error
+	// SetPasswordHash updates only password_hash and updated_at so a password
+	// change cannot clobber concurrent admin edits to other columns.
+	SetPasswordHash(ctx context.Context, id, hash string) error
+	// UpdateProfile atomically updates display name, theme, and app view.
+	UpdateProfile(ctx context.Context, id, name, themeName, appView string) error
 	// HasAdmin reports whether at least one admin user exists in the database.
 	// Used at startup to determine whether the /setup endpoint should be active.
 	HasAdmin(ctx context.Context) (bool, error)
@@ -148,6 +153,7 @@ type TokenStore interface {
 	CreateResetToken(ctx context.Context, userID string) (string, error)
 	GetResetToken(ctx context.Context, token string) (*ResetToken, error)
 	MarkResetTokenUsed(ctx context.Context, token string) error
+	DeleteExpiredResetTokens(ctx context.Context) error
 
 	// Magic link tokens.
 	CreateMagicLinkToken(ctx context.Context, userID string, ttlMinutes int) (*MagicLinkToken, error)
@@ -160,6 +166,7 @@ type TokenStore interface {
 	CreateEmailVerificationToken(ctx context.Context, userID, emailAddr string, ttl time.Duration) (*EmailVerificationToken, error)
 	GetEmailVerificationToken(ctx context.Context, token string) (*EmailVerificationToken, error)
 	MarkEmailVerificationTokenUsed(ctx context.Context, token string) error
+	DeleteExpiredEmailVerificationTokens(ctx context.Context) error
 
 	// Invitations. Creating one invalidates any earlier pending invitation for
 	// the same address, so only the newest link works. No user row is written

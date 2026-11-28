@@ -47,10 +47,14 @@ does not bypass a CIDR or hour window. An app that should be admin-only and
 reachable from anywhere sets only `admin_only`.
 
 The client address is the one the forward-auth request or authorize request
-arrived from. Passage applies chi's `RealIP` middleware, so behind a reverse
-proxy this is the address in `X-Forwarded-For` / `X-Real-IP` — configure those
-headers only from trusted proxies, or the CIDR rule can be spoofed. With no
-reverse proxy in front, it is the direct peer address.
+arrived from. Passage applies `web.TrustedRealIP`, which only honours
+forwarding headers (`X-Forwarded-For` rightmost-untrusted hop, falling back to
+`X-Real-IP` / `True-Client-IP`) when the direct TCP peer matches
+`server.trusted_proxies`, and strips those headers afterwards. Configure
+`server.trusted_proxies` to match your actual reverse proxy (or `[]` when
+exposed directly, including when publishing Docker ports without a proxy in
+front), or the CIDR rule can be spoofed. With no trusted proxy in front, the
+client address is always the direct peer address.
 
 ## Evaluation order
 

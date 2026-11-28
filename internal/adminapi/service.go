@@ -7,7 +7,12 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+// lastUsedTouchInterval throttles api_tokens.last_used_at updates so read-only
+// API traffic does not contend on SQLite's single writer lock on every request.
+const lastUsedTouchInterval = 5 * time.Minute
 
 // Service owns the token lifecycle: creation, listing, revocation, and bearer
 // authentication. The plaintext token never leaves Create.
@@ -27,6 +32,9 @@ func (s *Service) Create(ctx context.Context, name string) (string, *Token, erro
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", nil, ErrNameRequired
+	}
+	if utf8.RuneCountInString(name) > MaxTokenNameLength {
+		return "", nil, ErrNameTooLong
 	}
 
 	plaintext, hash, err := GenerateToken()
@@ -90,10 +98,12 @@ func (s *Service) Authenticate(ctx context.Context, presented string) (*Token, e
 	}
 
 	now := time.Now().UTC()
-	if err := s.store.TouchLastUsed(ctx, t.ID, now); err != nil {
-		s.logger.Warn("adminapi: update token last_used_at", "token_id", t.ID, "error", err)
-	} else {
-		t.LastUsedAt = now
+	if t.LastUsedAt.IsZero() || now.Sub(t.LastUsedAt) >= lastUsedTouchInterval {
+		if err := s.store.TouchLastUsed(ctx, t.ID, now); err != nil {
+			s.logger.Warn("adminapi: update token last_used_at", "token_id", t.ID, "error", err)
+		} else {
+			t.LastUsedAt = now
+		}
 	}
 	return t, nil
 }

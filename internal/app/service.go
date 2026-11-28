@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net"
 	"path"
 	"strings"
 	"time"
@@ -47,10 +48,15 @@ func (s *Service) ToggleFavorite(ctx context.Context, userID, appID string) (fav
 // all active apps and returns the first one whose HostPattern matches using
 // path.Match semantics. Returns ErrNoAppForHost if no app matches.
 func (s *Service) ResolveFromHost(ctx context.Context, host string) (*App, error) {
-	// Strip port if present (e.g. "grafana.home.example.com:443" → "grafana.home.example.com").
-	if idx := strings.LastIndex(host, ":"); idx != -1 {
-		host = host[:idx]
+	// Strip port if present (handling IPv6 literals like "[::1]:443" cleanly)
+	// and match case-insensitively per DNS / RFC 9110 §7.2.
+	host = strings.TrimSpace(host)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	} else {
+		host = strings.Trim(host, "[]")
 	}
+	hostLower := strings.ToLower(host)
 
 	apps, err := s.store.ListActive(ctx)
 	if err != nil {
@@ -60,7 +66,7 @@ func (s *Service) ResolveFromHost(ctx context.Context, host string) (*App, error
 	var matched *App
 	var matchCount int
 	for _, a := range apps {
-		ok, err := path.Match(a.HostPattern, host)
+		ok, err := path.Match(strings.ToLower(a.HostPattern), hostLower)
 		if err != nil {
 			// path.Match only returns an error for malformed patterns.
 			s.logger.Warn("app host pattern is malformed", "app_id", a.ID, "slug", a.Slug, "pattern", a.HostPattern, "error", err)
@@ -86,6 +92,15 @@ func (s *Service) ResolveFromHost(ctx context.Context, host string) (*App, error
 	}
 
 	return matched, nil
+}
+
+// ValidateHostPatternSyntax reports whether pattern is syntactically valid for
+// path.Match host globbing.
+func ValidateHostPatternSyntax(pattern string) error {
+	if _, err := path.Match(pattern, "test.example.com"); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ValidateHostPattern checks if the given pattern overlaps with any existing
@@ -123,14 +138,15 @@ func (s *Service) ValidateHostPattern(ctx context.Context, pattern, excludeID st
 		if !overlap {
 			// Check if either pattern is a wildcard that could match the other's
 			// non-wildcard prefix. e.g. "*.home.example.com" vs "foo.home.example.com".
-			// Generate a synthetic test hostname from the non-wildcard pattern.
-			if !strings.Contains(a.HostPattern, "*") {
-				if ok, _ := path.Match(pattern, a.HostPattern); ok {
+			pLower := strings.ToLower(pattern)
+			aLower := strings.ToLower(a.HostPattern)
+			if !strings.Contains(aLower, "*") {
+				if ok, _ := path.Match(pLower, aLower); ok {
 					overlap = true
 				}
 			}
-			if !overlap && !strings.Contains(pattern, "*") {
-				if ok, _ := path.Match(a.HostPattern, pattern); ok {
+			if !overlap && !strings.Contains(pLower, "*") {
+				if ok, _ := path.Match(aLower, pLower); ok {
 					overlap = true
 				}
 			}
@@ -176,6 +192,53 @@ func (s *Service) List(ctx context.Context) ([]*App, error) {
 		return nil, fmt.Errorf("app service list: %w", err)
 	}
 	return apps, nil
+}
+
+// Count returns the total number of registered apps.
+func (s *Service) Count(ctx context.Context) (int, error) {
+	n, err := s.store.Count(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("app service count: %w", err)
+	}
+	return n, nil
+}
+
+// ListAllGroups returns all groups across every app, ordered by app and name.
+func (s *Service) ListAllGroups(ctx context.Context) ([]*Group, error) {
+	groups, err := s.store.ListAllGroups(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("app service list all groups: %w", err)
+	}
+	return groups, nil
+}
+
+// ListAllRoles returns all roles across every app, ordered by app and name.
+func (s *Service) ListAllRoles(ctx context.Context) ([]*Role, error) {
+	roles, err := s.store.ListAllRoles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("app service list all roles: %w", err)
+	}
+	return roles, nil
+}
+
+// ListRoleGroupsByApp returns all role->group memberships for an app, keyed by
+// role ID.
+func (s *Service) ListRoleGroupsByApp(ctx context.Context, appID string) (map[string][]*Group, error) {
+	groups, err := s.store.ListRoleGroupsByApp(ctx, appID)
+	if err != nil {
+		return nil, fmt.Errorf("app service list role groups by app: %w", err)
+	}
+	return groups, nil
+}
+
+// ListUserAssignments returns a user's direct groups, role-inherited groups,
+// and roles across every app.
+func (s *Service) ListUserAssignments(ctx context.Context, userID string) (*UserAssignments, error) {
+	res, err := s.store.ListUserAssignments(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("app service list user assignments: %w", err)
+	}
+	return res, nil
 }
 
 // Update saves changes to an existing app.
@@ -390,8 +453,16 @@ func (s *Service) ListGroupsForRole(ctx context.Context, roleID string) ([]*Grou
 	return s.store.ListGroupsForRole(ctx, roleID)
 }
 
-// AssignUserGroup grants a user a direct group within an app. Idempotent.
+// AssignUserGroup grants a user a direct group within an app. The group must
+// belong to appID. Idempotent.
 func (s *Service) AssignUserGroup(ctx context.Context, userID, appID, groupID string) error {
+	g, err := s.store.GetGroup(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if g.AppID != appID {
+		return ErrCrossAppAssignment
+	}
 	return s.store.AssignUserGroup(ctx, userID, appID, groupID)
 }
 
@@ -412,8 +483,16 @@ func (s *Service) ListUserInheritedGroups(ctx context.Context, userID, appID str
 	return s.store.ListUserInheritedGroups(ctx, userID, appID)
 }
 
-// AssignUserRole grants a user a role within an app. Idempotent.
+// AssignUserRole grants a user a role within an app. The role must belong to
+// appID. Idempotent.
 func (s *Service) AssignUserRole(ctx context.Context, userID, appID, roleID string) error {
+	ro, err := s.store.GetRole(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	if ro.AppID != appID {
+		return ErrCrossAppAssignment
+	}
 	return s.store.AssignUserRole(ctx, userID, appID, roleID)
 }
 
@@ -470,9 +549,19 @@ func (s *Service) EvaluateAccess(ctx context.Context, a *App, userID string, isA
 		return policy.Allow(), nil
 	}
 
-	roles, groups, err := s.TokenAssignments(ctx, userID, a.ID)
-	if err != nil {
-		return policy.Decision{}, fmt.Errorf("app service evaluate access: %w", err)
+	// Only query role/group assignment tables when the policy actually checks
+	// them, avoiding two SQLite reads on every CIDR/hours/admin-only request.
+	var roles, groups []string
+	var err error
+	if p.NeedsRole() {
+		if roles, err = s.store.UserRoleNames(ctx, userID, a.ID); err != nil {
+			return policy.Decision{}, fmt.Errorf("app service evaluate access roles: %w", err)
+		}
+	}
+	if p.NeedsGroup() {
+		if groups, err = s.store.EffectiveGroupNames(ctx, userID, a.ID); err != nil {
+			return policy.Decision{}, fmt.Errorf("app service evaluate access groups: %w", err)
+		}
 	}
 
 	decision, err := policy.Evaluate(policy.Input{

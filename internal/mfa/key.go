@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -87,25 +88,38 @@ func loadOrCreateKeyFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("generate encryption key: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// Write the complete key to a mode-0600 temp file in the same directory and
+	// publish it atomically via os.Link so a concurrent starter can never read a
+	// half-written 0-byte key file.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".passage-key-*")
 	if err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			// Lost the creation race; the other process's key is the real one.
-			return readKeyFile(path)
-		}
-		return nil, fmt.Errorf("create encryption key file %q: %w", path, err)
+		return nil, fmt.Errorf("create temp encryption key file for %q: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return nil, fmt.Errorf("chmod temp encryption key file %q: %w", tmpPath, err)
 	}
 	// No trailing newline: the file is exactly one hex key.
-	if _, err := f.WriteString(hex.EncodeToString(key)); err != nil {
-		_ = f.Close()
-		// The file is ours (O_EXCL) and unusable; remove it so the next start
-		// creates a complete key instead of failing on a partial one.
-		_ = os.Remove(path)
+	if _, err := tmp.WriteString(hex.EncodeToString(key)); err != nil {
+		_ = tmp.Close()
 		return nil, fmt.Errorf("write encryption key file %q: %w", path, err)
 	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return nil, fmt.Errorf("sync encryption key file %q: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
 		return nil, fmt.Errorf("close encryption key file %q: %w", path, err)
+	}
+	if err := os.Link(tmpPath, path); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			// Lost the creation race; the other process's complete key is the real one.
+			return readKeyFile(path)
+		}
+		return nil, fmt.Errorf("link encryption key file %q: %w", path, err)
 	}
 	return key, nil
 }

@@ -7,6 +7,7 @@
   <title>Access — {{.App.Name}} — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
+  <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -113,6 +114,8 @@
                     <input type="hidden" name="without_page" value="{{$.WithoutPager.Page}}">
                     <button type="submit" class="btn btn-primary btn-sm">Grant</button>
                   </form>
+                </td>
+              </tr>
 {{else}}
               <tr>
                 <td colspan="3">

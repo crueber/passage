@@ -171,6 +171,7 @@ func TestValidate(t *testing.T) {
 	t.Parallel()
 	validCfg := func() *config.Config {
 		cfg, _ := config.Load("")
+		cfg.Server.BaseURL = "https://auth.example.com"
 		return cfg
 	}
 
@@ -182,6 +183,29 @@ func TestValidate(t *testing.T) {
 		{
 			name:   "valid config passes",
 			mutate: func(c *config.Config) {},
+		},
+		{
+			name:    "empty base_url fails",
+			mutate:  func(c *config.Config) { c.Server.BaseURL = "" },
+			wantErr: true,
+		},
+		{
+			name:    "malformed base_url fails",
+			mutate:  func(c *config.Config) { c.Server.BaseURL = "not-a-url" },
+			wantErr: true,
+		},
+		{
+			name:   "empty trusted_proxies slice passes",
+			mutate: func(c *config.Config) { c.Server.TrustedProxies = []string{} },
+		},
+		{
+			name:   "custom trusted_proxies CIDR and IP pass",
+			mutate: func(c *config.Config) { c.Server.TrustedProxies = []string{"100.64.0.0/10", "198.51.100.2"} },
+		},
+		{
+			name:    "invalid trusted_proxies entry fails",
+			mutate:  func(c *config.Config) { c.Server.TrustedProxies = []string{"not-an-ip"} },
+			wantErr: true,
 		},
 		{
 			name:    "port zero fails",
@@ -305,6 +329,7 @@ func TestEncryptionKey(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
+			cfg.Server.BaseURL = "https://auth.example.com"
 			if cfg.Security.EncryptionKey != tt.want {
 				t.Errorf("Security.EncryptionKey = %q; want %q", cfg.Security.EncryptionKey, tt.want)
 			}

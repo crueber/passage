@@ -217,7 +217,7 @@ func (h *Handler) GetWhoami(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.users.List(r.Context())
 	if err != nil {
-		h.logError("list users", err)
+		h.logError(r, "list users", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -237,7 +237,7 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
-		h.logError("get user", err)
+		h.logError(r, "get user", err, "user_id", chi.URLParam(r, "id"))
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -248,7 +248,7 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetApps(w http.ResponseWriter, r *http.Request) {
 	apps, err := h.apps.List(r.Context())
 	if err != nil {
-		h.logError("list apps", err)
+		h.logError(r, "list apps", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -268,7 +268,7 @@ func (h *Handler) GetApp(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
-		h.logError("get app", err)
+		h.logError(r, "get app", err, "app_id", chi.URLParam(r, "id"))
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -281,7 +281,7 @@ func (h *Handler) GetApp(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := h.sessions.ListAll(r.Context())
 	if err != nil {
-		h.logError("list sessions", err)
+		h.logError(r, "list sessions", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -297,15 +297,11 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]sessionResponse, len(sessions))
 	for i, s := range sessions {
-		var appID *string
-		if s.AppID != nil {
-			appID = s.AppID
-		}
 		out[i] = sessionResponse{
 			PublicID:   s.PublicID,
 			UserID:     s.UserID,
 			Username:   usernames[s.UserID],
-			AppID:      appID,
+			AppID:      s.AppID,
 			IPAddress:  s.IPAddress,
 			UserAgent:  s.UserAgent,
 			CreatedAt:  rfc3339(s.CreatedAt),
@@ -321,7 +317,7 @@ func (h *Handler) GetAudit(w http.ResponseWriter, r *http.Request) {
 	page, limit := auditPage(r)
 	events, err := h.audit.ListAudit(r.Context(), limit, (page-1)*limit)
 	if err != nil {
-		h.logError("list audit events", err)
+		h.logError(r, "list audit events", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -417,8 +413,11 @@ func rfc3339Ptr(t time.Time) *string {
 }
 
 // logError records an internal failure without leaking it to the client.
-func (h *Handler) logError(op string, err error) {
-	h.logger.Error("adminapi: "+op, "error", err)
+func (h *Handler) logError(r *http.Request, op string, err error, extra ...any) {
+	args := make([]any, 0, 4+len(extra))
+	args = append(args, "path", r.URL.Path, "error", err)
+	args = append(args, extra...)
+	h.logger.Error("adminapi: "+op, args...)
 }
 
 // writeJSON writes a JSON response. The encode error is ignored on purpose:

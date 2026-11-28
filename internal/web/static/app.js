@@ -5,26 +5,73 @@
   "use strict";
 
   // [data-copy="<selector>"]: copy the target element's text to the clipboard.
+  var copyFallback = function (text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.className = "sr-only";
+    document.body.appendChild(ta);
+    var ok = false;
+    try {
+      ta.focus({ preventScroll: true });
+      ta.select();
+      ok = document.execCommand("copy");
+    } catch (err) {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
+  };
+
   document.addEventListener("click", function (e) {
     var btn = e.target.closest("[data-copy]");
     if (!btn) return;
     var target = document.querySelector(btn.getAttribute("data-copy"));
     if (!target) return;
-    var done = function () {
-      var original = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(function () { btn.textContent = original; }, 1500);
+    var text;
+    if (target.tagName === "UL" || target.tagName === "OL") {
+      text = Array.prototype.map
+        .call(target.querySelectorAll("li"), function (li) {
+          return li.textContent.trim();
+        })
+        .join("\n");
+    } else {
+      text = target.textContent.trim();
+    }
+    var finish = function (ok) {
+      if (!("copyLabel" in btn.dataset)) {
+        btn.dataset.copyLabel = btn.textContent;
+      }
+      if (btn._copyTimer) {
+        clearTimeout(btn._copyTimer);
+      }
+      btn.textContent = ok ? "Copied!" : "Copy failed";
+      btn._copyTimer = setTimeout(function () {
+        btn.textContent = btn.dataset.copyLabel;
+        btn._copyTimer = null;
+      }, 1500);
+    };
+    var fallbackAndFinish = function () {
+      var ok = copyFallback(text);
+      if (typeof btn.focus === "function") btn.focus({ preventScroll: true });
+      finish(ok);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(target.textContent).then(done, done);
+      navigator.clipboard.writeText(text).then(
+        function () { finish(true); },
+        fallbackAndFinish
+      );
     } else {
-      done();
+      fallbackAndFinish();
     }
   });
 
   // [data-confirm="<message>"]: ask before submitting the owning form.
   document.addEventListener("submit", function (e) {
-    var el = e.target.querySelector("[data-confirm]");
+    var el =
+      e.submitter && e.submitter.hasAttribute("data-confirm")
+        ? e.submitter
+        : e.target.querySelector("[data-confirm]");
     if (el && !window.confirm(el.getAttribute("data-confirm"))) {
       e.preventDefault();
     }
@@ -158,21 +205,26 @@
     };
 
     commandInput.addEventListener("input", filterCommand);
-    commandInput.addEventListener("keydown", function (e) {
+
+    commandLayer.addEventListener("keydown", function (e) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         moveSelection(1);
-      } else if (e.key === "ArrowUp") {
+        if (document.activeElement !== commandInput && selectedItem) selectedItem.focus();
+        return;
+      }
+      if (e.key === "ArrowUp") {
         e.preventDefault();
         moveSelection(-1);
-      } else if (e.key === "Enter") {
+        if (document.activeElement !== commandInput && selectedItem) selectedItem.focus();
+        return;
+      }
+      if (e.key === "Enter") {
         if (!selectedItem) return;
         e.preventDefault();
         selectedItem.click();
+        return;
       }
-    });
-
-    commandLayer.addEventListener("keydown", function (e) {
       if (e.key !== "Tab") return;
       var focusables = [commandInput].concat(visibleItems());
       var first = focusables[0];
@@ -186,16 +238,28 @@
       }
     });
 
+    commandLayer.addEventListener("focusin", function (e) {
+      var item = e.target.closest(".command-item");
+      if (item && item !== selectedItem) selectItem(item);
+    });
+
+    commandLayer.addEventListener("click", function (e) {
+      if (e.target.closest(".command-item")) closeCommand();
+    });
+
     Array.prototype.forEach.call(
       commandLayer.querySelectorAll("[data-command-close]"),
       function (el) {
         el.addEventListener("click", closeCommand);
       }
     );
-    if (commandOpen) commandOpen.addEventListener("click", openCommand);
+    if (commandOpen) {
+      commandOpen.hidden = false;
+      commandOpen.addEventListener("click", openCommand);
+    }
 
     document.addEventListener("keydown", function (e) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (commandLayer.hidden) openCommand();
         else commandInput.focus();
@@ -224,6 +288,9 @@
       var check = !allChecked(boxes());
       boxes().forEach(function (cb) { cb.checked = check; });
       updateLabel();
+    });
+    boxes().forEach(function (cb) {
+      cb.addEventListener("change", updateLabel);
     });
     updateLabel();
   }

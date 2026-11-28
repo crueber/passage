@@ -54,6 +54,32 @@ func (s *SQLiteSettingsStore) Set(ctx context.Context, key, value string) error 
 	return nil
 }
 
+// SetMany stores multiple key-value pairs in a single transaction so saving a
+// settings tab is all-or-nothing.
+func (s *SQLiteSettingsStore) SetMany(ctx context.Context, values map[string]string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("settings store set many begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const query = `
+		INSERT OR REPLACE INTO settings (key, value, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)`
+	for key, value := range values {
+		if _, err := tx.ExecContext(ctx, query, key, value); err != nil {
+			return fmt.Errorf("settings store set %q: %w", key, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("settings store set many commit: %w", err)
+	}
+	return nil
+}
+
 // GetAll returns all settings as a key-value map.
 func (s *SQLiteSettingsStore) GetAll(ctx context.Context) (map[string]string, error) {
 	const query = `SELECT key, value FROM settings ORDER BY key`

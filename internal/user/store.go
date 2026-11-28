@@ -5,10 +5,25 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+const userColumns = `id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, app_view, created_at, updated_at`
+
+// requireRows turns a zero-rows-affected SQL result into zeroErr.
+func requireRows(res sql.Result, op string, zeroErr error) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s rows affected: %w", op, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%s: %w", op, zeroErr)
+	}
+	return nil
+}
 
 // SQLiteStore implements Store and TokenStore using a SQLite database.
 type SQLiteStore struct {
@@ -65,9 +80,7 @@ func (s *SQLiteStore) Create(ctx context.Context, u *User) error {
 
 // GetByID looks up a user by their UUID.
 func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*User, error) {
-	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, app_view, created_at, updated_at
-		FROM users WHERE id = ?`
+	const query = `SELECT ` + userColumns + ` FROM users WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, query, id)
 	u, err := scanUser(row)
 	if err != nil {
@@ -78,9 +91,7 @@ func (s *SQLiteStore) GetByID(ctx context.Context, id string) (*User, error) {
 
 // GetByUsername looks up a user by their username.
 func (s *SQLiteStore) GetByUsername(ctx context.Context, username string) (*User, error) {
-	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, app_view, created_at, updated_at
-		FROM users WHERE username = ?`
+	const query = `SELECT ` + userColumns + ` FROM users WHERE username = ?`
 	row := s.db.QueryRowContext(ctx, query, username)
 	u, err := scanUser(row)
 	if err != nil {
@@ -89,12 +100,11 @@ func (s *SQLiteStore) GetByUsername(ctx context.Context, username string) (*User
 	return u, nil
 }
 
-// GetByEmail looks up a user by their email address.
+// GetByEmail looks up a user by their email address case-insensitively so
+// legacy mixed-case rows remain reachable alongside lowercased lookups.
 func (s *SQLiteStore) GetByEmail(ctx context.Context, email string) (*User, error) {
-	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, app_view, created_at, updated_at
-		FROM users WHERE email = ?`
-	row := s.db.QueryRowContext(ctx, query, email)
+	const query = `SELECT ` + userColumns + ` FROM users WHERE LOWER(email) = LOWER(?)`
+	row := s.db.QueryRowContext(ctx, query, strings.TrimSpace(email))
 	u, err := scanUser(row)
 	if err != nil {
 		return nil, fmt.Errorf("user store get by email: %w", err)
@@ -104,9 +114,7 @@ func (s *SQLiteStore) GetByEmail(ctx context.Context, email string) (*User, erro
 
 // List returns all users ordered by username.
 func (s *SQLiteStore) List(ctx context.Context) ([]*User, error) {
-	const query = `
-		SELECT id, username, email, name, password_hash, is_admin, is_active, roles, email_verified, theme, app_view, created_at, updated_at
-		FROM users ORDER BY username`
+	const query = `SELECT ` + userColumns + ` FROM users ORDER BY username`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("user store list: %w", err)
@@ -157,14 +165,7 @@ func (s *SQLiteStore) Update(ctx context.Context, u *User) error {
 	if err != nil {
 		return fmt.Errorf("user store update: %w", mapUserConstraintError(err))
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("user store update rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("user store update: %w", ErrNotFound)
-	}
-	return nil
+	return requireRows(res, "user store update", ErrNotFound)
 }
 
 // SetEmailVerified sets only the email_verified flag for the given user.
@@ -174,14 +175,7 @@ func (s *SQLiteStore) SetEmailVerified(ctx context.Context, id string, verified 
 	if err != nil {
 		return fmt.Errorf("user store set email verified: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("user store set email verified rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("user store set email verified: %w", ErrNotFound)
-	}
-	return nil
+	return requireRows(res, "user store set email verified", ErrNotFound)
 }
 
 // SetName sets only the display name for the given user.
@@ -191,14 +185,7 @@ func (s *SQLiteStore) SetName(ctx context.Context, id, name string) error {
 	if err != nil {
 		return fmt.Errorf("user store set name: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("user store set name rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("user store set name: %w", ErrNotFound)
-	}
-	return nil
+	return requireRows(res, "user store set name", ErrNotFound)
 }
 
 // SetTheme sets only the colour-theme override for the given user. An empty
@@ -209,14 +196,7 @@ func (s *SQLiteStore) SetTheme(ctx context.Context, id, themeName string) error 
 	if err != nil {
 		return fmt.Errorf("user store set theme: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("user store set theme rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("user store set theme: %w", ErrNotFound)
-	}
-	return nil
+	return requireRows(res, "user store set theme", ErrNotFound)
 }
 
 // SetAppView sets only the My Apps default view for the given user. An empty
@@ -227,14 +207,29 @@ func (s *SQLiteStore) SetAppView(ctx context.Context, id, view string) error {
 	if err != nil {
 		return fmt.Errorf("user store set app view: %w", err)
 	}
-	n, err := res.RowsAffected()
+	return requireRows(res, "user store set app view", ErrNotFound)
+}
+
+// SetPasswordHash updates only password_hash and updated_at so a password
+// change cannot overwrite concurrent admin edits to other user fields.
+func (s *SQLiteStore) SetPasswordHash(ctx context.Context, id, hash string) error {
+	const query = `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`
+	res, err := s.db.ExecContext(ctx, query, hash, time.Now().UTC(), id)
 	if err != nil {
-		return fmt.Errorf("user store set app view rows affected: %w", err)
+		return fmt.Errorf("user store set password hash: %w", err)
 	}
-	if n == 0 {
-		return fmt.Errorf("user store set app view: %w", ErrNotFound)
+	return requireRows(res, "user store set password hash", ErrNotFound)
+}
+
+// UpdateProfile atomically writes display name, theme, and app view in one
+// statement so a partial failure cannot leave half-saved profile edits.
+func (s *SQLiteStore) UpdateProfile(ctx context.Context, id, name, themeName, appView string) error {
+	const query = `UPDATE users SET name = ?, theme = ?, app_view = ?, updated_at = ? WHERE id = ?`
+	res, err := s.db.ExecContext(ctx, query, name, themeName, appView, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("user store update profile: %w", err)
 	}
-	return nil
+	return requireRows(res, "user store update profile", ErrNotFound)
 }
 
 // Delete removes a user by ID.
@@ -244,14 +239,7 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("user store delete: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("user store delete rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("user store delete: %w", ErrNotFound)
-	}
-	return nil
+	return requireRows(res, "user store delete", ErrNotFound)
 }
 
 // HasAdmin returns true if at least one admin user exists in the database.
@@ -306,19 +294,28 @@ func (s *SQLiteStore) GetResetToken(ctx context.Context, token string) (*ResetTo
 	return &rt, nil
 }
 
-// MarkResetTokenUsed marks a reset token as used by setting its used_at timestamp.
+// MarkResetTokenUsed atomically marks an unused, unexpired reset token as used.
+// Returns ErrTokenUsed if another request already consumed it.
 func (s *SQLiteStore) MarkResetTokenUsed(ctx context.Context, token string) error {
-	const query = `UPDATE password_reset_tokens SET used_at = ? WHERE token = ?`
-	res, err := s.db.ExecContext(ctx, query, time.Now().UTC(), token)
+	now := time.Now().UTC()
+	const query = `UPDATE password_reset_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL AND expires_at > ?`
+	res, err := s.db.ExecContext(ctx, query, now, token, now)
 	if err != nil {
 		return fmt.Errorf("mark reset token used: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("mark reset token used rows affected: %w", err)
+	return requireRows(res, "mark reset token used", ErrTokenUsed)
+}
+
+// DeleteExpiredResetTokens removes expired or already-used password reset tokens.
+// DeleteExpiredResetTokens removes expired or already-used password reset tokens.
+// Split into two statements so SQLite can use the expires_at index and the
+// partial used_at index instead of falling back to a full table scan on OR.
+func (s *SQLiteStore) DeleteExpiredResetTokens(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE expires_at < ?`, time.Now().UTC()); err != nil {
+		return fmt.Errorf("delete expired reset tokens: %w", err)
 	}
-	if n == 0 {
-		return fmt.Errorf("mark reset token used: %w", ErrNotFound)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE used_at IS NOT NULL`); err != nil {
+		return fmt.Errorf("delete used reset tokens: %w", err)
 	}
 	return nil
 }
@@ -333,29 +330,21 @@ func (s *SQLiteStore) CreateMagicLinkToken(ctx context.Context, userID string, t
 	if _, err := rand.Read(b); err != nil {
 		return nil, fmt.Errorf("generate magic link token: %w", err)
 	}
-	token := hex.EncodeToString(b)
+	now := time.Now().UTC()
+	mlt := &MagicLinkToken{
+		Token:     hex.EncodeToString(b),
+		UserID:    userID,
+		ExpiresAt: now.Add(time.Duration(ttlMinutes) * time.Minute),
+		CreatedAt: now,
+	}
 
-	interval := fmt.Sprintf("+%d minutes", ttlMinutes)
 	const insertQuery = `
-		INSERT INTO magic_link_tokens (token, user_id, expires_at)
-		VALUES (?, ?, datetime('now', ?))`
-	if _, err := s.db.ExecContext(ctx, insertQuery, token, userID, interval); err != nil {
+		INSERT INTO magic_link_tokens (token, user_id, expires_at, created_at)
+		VALUES (?, ?, ?, ?)`
+	if _, err := s.db.ExecContext(ctx, insertQuery, mlt.Token, mlt.UserID, mlt.ExpiresAt, mlt.CreatedAt); err != nil {
 		return nil, fmt.Errorf("store magic link token: %w", err)
 	}
-
-	const selectQuery = `
-		SELECT token, user_id, expires_at, used_at, created_at
-		FROM magic_link_tokens WHERE token = ?`
-	row := s.db.QueryRowContext(ctx, selectQuery, token)
-	var mlt MagicLinkToken
-	var usedAt sql.NullTime
-	if err := row.Scan(&mlt.Token, &mlt.UserID, &mlt.ExpiresAt, &usedAt, &mlt.CreatedAt); err != nil {
-		return nil, fmt.Errorf("fetch magic link token after insert: %w", err)
-	}
-	if usedAt.Valid {
-		mlt.UsedAt = &usedAt.Time
-	}
-	return &mlt, nil
+	return mlt, nil
 }
 
 // GetMagicLinkToken looks up a magic link token by its token string.
@@ -368,7 +357,7 @@ func (s *SQLiteStore) GetMagicLinkToken(ctx context.Context, token string) (*Mag
 	var usedAt sql.NullTime
 	err := row.Scan(&mlt.Token, &mlt.UserID, &mlt.ExpiresAt, &usedAt, &mlt.CreatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrMagicLinkTokenNotFound
 		}
 		return nil, fmt.Errorf("get magic link token: %w", err)
@@ -382,26 +371,21 @@ func (s *SQLiteStore) GetMagicLinkToken(ctx context.Context, token string) (*Mag
 // MarkMagicLinkTokenUsed atomically marks a magic link token as used.
 // Returns ErrMagicLinkTokenUsed if the token was already used (double-spend protection).
 func (s *SQLiteStore) MarkMagicLinkTokenUsed(ctx context.Context, token string) error {
-	const query = `UPDATE magic_link_tokens SET used_at = datetime('now') WHERE token = ? AND used_at IS NULL`
-	res, err := s.db.ExecContext(ctx, query, token)
+	const query = `UPDATE magic_link_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL`
+	res, err := s.db.ExecContext(ctx, query, time.Now().UTC(), token)
 	if err != nil {
 		return fmt.Errorf("mark magic link token used: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("mark magic link token used rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrMagicLinkTokenUsed
-	}
-	return nil
+	return requireRows(res, "mark magic link token used", ErrMagicLinkTokenUsed)
 }
 
 // DeleteExpiredMagicLinkTokens removes all expired or already-used magic link tokens.
 func (s *SQLiteStore) DeleteExpiredMagicLinkTokens(ctx context.Context) error {
-	const query = `DELETE FROM magic_link_tokens WHERE expires_at < datetime('now') OR used_at IS NOT NULL`
-	if _, err := s.db.ExecContext(ctx, query); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM magic_link_tokens WHERE expires_at < ?`, time.Now().UTC()); err != nil {
 		return fmt.Errorf("delete expired magic link tokens: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM magic_link_tokens WHERE used_at IS NOT NULL`); err != nil {
+		return fmt.Errorf("delete used magic link tokens: %w", err)
 	}
 	return nil
 }
@@ -486,12 +470,16 @@ func (s *SQLiteStore) MarkEmailVerificationTokenUsed(ctx context.Context, token 
 	if err != nil {
 		return fmt.Errorf("mark email verification token used: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("mark email verification token used rows affected: %w", err)
+	return requireRows(res, "mark email verification token used", ErrEmailVerificationTokenUsed)
+}
+
+// DeleteExpiredEmailVerificationTokens removes expired or consumed verification tokens.
+func (s *SQLiteStore) DeleteExpiredEmailVerificationTokens(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM email_verification_tokens WHERE expires_at < ?`, time.Now().UTC()); err != nil {
+		return fmt.Errorf("delete expired email verification tokens: %w", err)
 	}
-	if n == 0 {
-		return ErrEmailVerificationTokenUsed
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM email_verification_tokens WHERE used_at IS NOT NULL`); err != nil {
+		return fmt.Errorf("delete used email verification tokens: %w", err)
 	}
 	return nil
 }

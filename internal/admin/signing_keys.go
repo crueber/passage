@@ -41,13 +41,21 @@ type signingKeysData struct {
 
 // GetSigningKeys renders the OIDC signing key history.
 func (h *Handler) GetSigningKeys(w http.ResponseWriter, r *http.Request) {
-	h.renderSigningKeys(w, r, h.base(r, "signing-keys"))
+	if h.signingKeys == nil {
+		http.Error(w, "Signing keys are not available.", http.StatusInternalServerError)
+		return
+	}
+	h.renderSigningKeys(w, r, h.baseQueryFlash(r, "signing-keys"))
 }
 
 // PostRotateSigningKey generates a new RSA key and makes it current. The
 // previous keys stay active, so id_tokens they signed keep verifying until
 // they expire — that is the point of kid history.
 func (h *Handler) PostRotateSigningKey(w http.ResponseWriter, r *http.Request) {
+	if h.signingKeys == nil {
+		http.Error(w, "Signing keys are not available.", http.StatusInternalServerError)
+		return
+	}
 	key, err := h.signingKeys.RotateSigningKey(r.Context())
 	if err != nil {
 		h.logger.Error("admin: rotate oauth signing key", "error", err)
@@ -66,7 +74,15 @@ func (h *Handler) PostRotateSigningKey(w http.ResponseWriter, r *http.Request) {
 // PostRetireSigningKey stops a key being served and accepted. The last active
 // key is refused.
 func (h *Handler) PostRetireSigningKey(w http.ResponseWriter, r *http.Request) {
+	if h.signingKeys == nil {
+		http.Error(w, "Signing keys are not available.", http.StatusInternalServerError)
+		return
+	}
 	kid := chi.URLParam(r, "kid")
+	if kid == "" {
+		http.Redirect(w, r, "/admin/signing-keys?flash=error", http.StatusFound)
+		return
+	}
 
 	err := h.signingKeys.RetireSigningKey(r.Context(), kid)
 	switch {
@@ -88,6 +104,10 @@ func (h *Handler) PostRetireSigningKey(w http.ResponseWriter, r *http.Request) {
 
 // PostDeleteSigningKey removes a retired key permanently.
 func (h *Handler) PostDeleteSigningKey(w http.ResponseWriter, r *http.Request) {
+	if h.signingKeys == nil {
+		http.Error(w, "Signing keys are not available.", http.StatusInternalServerError)
+		return
+	}
 	kid := chi.URLParam(r, "kid")
 	if kid == "" {
 		http.Redirect(w, r, "/admin/signing-keys?flash=error", http.StatusFound)

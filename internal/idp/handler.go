@@ -2,7 +2,9 @@ package idp
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -22,6 +24,7 @@ import (
 	"github.com/crueber/passage/internal/session"
 	"github.com/crueber/passage/internal/settings"
 	"github.com/crueber/passage/internal/user"
+	"github.com/crueber/passage/internal/web"
 )
 
 // Flow state lives in one short-lived HttpOnly cookie. It is provider-bound,
@@ -83,6 +86,7 @@ type Handler struct {
 	client     *Client
 	providers  *ProviderStore
 	cfg        *config.Config
+	stateKey   []byte
 	logger     *slog.Logger
 	now        func() time.Time
 }
@@ -104,6 +108,14 @@ func NewHandler(
 	if client == nil {
 		client = NewClient(nil)
 	}
+	var stateKey []byte
+	if cfg != nil && cfg.CSRF.Key != "" {
+		sum := sha256.Sum256([]byte("passage-oidc-state:" + cfg.CSRF.Key))
+		stateKey = sum[:]
+	} else {
+		stateKey = make([]byte, 32)
+		_, _ = rand.Read(stateKey)
+	}
 	return &Handler{
 		links:      links,
 		users:      users,
@@ -114,6 +126,7 @@ func NewHandler(
 		client:     client,
 		providers:  providers,
 		cfg:        cfg,
+		stateKey:   stateKey,
 		logger:     logger,
 		now:        time.Now,
 	}
@@ -176,7 +189,7 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, err := encodeFlowState(&flowState{
+	payload, err := h.encodeFlowState(&flowState{
 		Provider:  p.Name,
 		State:     state,
 		Nonce:     nonce,
@@ -220,7 +233,7 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		h.failure(w, r, p, nil, "missing state cookie", flashFailure)
 		return
 	}
-	st, err := decodeFlowState(cookie.Value)
+	st, err := h.decodeFlowState(cookie.Value)
 	if err != nil {
 		h.failure(w, r, p, nil, "invalid state cookie", flashFailure)
 		return
@@ -240,9 +253,7 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if providerErr := r.URL.Query().Get("error"); providerErr != "" {
-		// The OAuth error code is a fixed vocabulary item; the description can
-		// echo user or provider detail, so it is not recorded.
+	if providerErr := sanitizeOAuthError(r.URL.Query().Get("error")); providerErr != "" {
 		h.failure(w, r, p, nil, "provider returned "+providerErr, flashFailure)
 		return
 	}
@@ -267,7 +278,12 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ident, err := h.client.VerifyIDToken(r.Context(), p, doc.JWKSURI, idToken, st.Nonce)
+	// Use the discovery-verified doc.Issuer so a trailing-slash difference
+	// between admin config and the provider's discovery document never rejects
+	// a valid id_token.
+	verifyProvider := *p
+	verifyProvider.Issuer = doc.Issuer
+	ident, err := h.client.VerifyIDToken(r.Context(), &verifyProvider, doc.JWKSURI, idToken, st.Nonce)
 	if err != nil {
 		h.logger.Warn("idp callback: id_token verification failed", "provider", p.Name, "error", err)
 		h.failure(w, r, p, nil, "id_token verification failed", flashFailure)
@@ -431,7 +447,7 @@ func (h *Handler) redirectURI(provider string) string {
 // appIDFromReturnTarget mirrors the password flow: only an OAuth authorization
 // target names an app, and that app may override the session duration.
 func (h *Handler) appIDFromReturnTarget(ctx context.Context, rd string) *string {
-	if rd == "" {
+	if rd == "" || h.apps == nil {
 		return nil
 	}
 	parsed, err := url.Parse(rd)
@@ -519,16 +535,33 @@ func (h *Handler) clearStateCookie(w http.ResponseWriter, provider string) {
 	})
 }
 
-func encodeFlowState(st *flowState) (string, error) {
+func (h *Handler) encodeFlowState(st *flowState) (string, error) {
 	raw, err := json.Marshal(st)
 	if err != nil {
 		return "", fmt.Errorf("encode flow state: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
+	body := base64.RawURLEncoding.EncodeToString(raw)
+	mac := hmac.New(sha256.New, h.stateKey)
+	mac.Write([]byte(body))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return body + "." + sig, nil
 }
 
-func decodeFlowState(value string) (*flowState, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(value)
+func (h *Handler) decodeFlowState(value string) (*flowState, error) {
+	body, sig, ok := strings.Cut(value, ".")
+	if !ok || body == "" || sig == "" {
+		return nil, errors.New("decode flow state: missing signature")
+	}
+	gotMAC, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil {
+		return nil, fmt.Errorf("decode flow state signature: %w", err)
+	}
+	mac := hmac.New(sha256.New, h.stateKey)
+	mac.Write([]byte(body))
+	if !hmac.Equal(gotMAC, mac.Sum(nil)) {
+		return nil, errors.New("decode flow state: invalid signature")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(body)
 	if err != nil {
 		return nil, fmt.Errorf("decode flow state: %w", err)
 	}
@@ -537,6 +570,25 @@ func decodeFlowState(value string) (*flowState, error) {
 		return nil, fmt.Errorf("decode flow state: %w", err)
 	}
 	return &st, nil
+}
+
+// sanitizeOAuthError restricts an untrusted upstream ?error= value to short
+// safe ASCII token characters before logging it into auth_events.detail.
+func sanitizeOAuthError(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < len(raw) && b.Len() < 64; i++ {
+		c := raw[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
+			b.WriteByte(c)
+		}
+	}
+	if b.Len() == 0 {
+		return "unknown"
+	}
+	return b.String()
 }
 
 // randomToken returns n crypto/rand bytes as base64url without padding.
@@ -548,9 +600,9 @@ func randomToken(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// safeReturnPath mirrors the user handler's open-redirect guard.
+// safeReturnPath delegates to web.SafeReturnPath.
 func safeReturnPath(rd string) bool {
-	return rd != "" && strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, "\\")
+	return web.SafeReturnPath(rd)
 }
 
 // returnDestination picks where a completed sign-in lands: the safe return

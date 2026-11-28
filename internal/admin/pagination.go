@@ -53,16 +53,20 @@ func parsePagination(basePath string, q url.Values, pageKey, sizeKey string, tot
 		page = totalPages
 	}
 
+	// Never propagate a one-shot flash banner into pagination links.
+	cleanQ := cloneQuery(q)
+	cleanQ.Del("flash")
+
 	p := pagination{Page: page, Size: size, Total: total, TotalPages: totalPages}
 	if page > 1 {
-		p.PrevURL = pageURL(basePath, q, pageKey, page-1)
+		p.PrevURL = pageURL(basePath, cleanQ, pageKey, page-1)
 	}
 	if page < totalPages {
-		p.NextURL = pageURL(basePath, q, pageKey, page+1)
+		p.NextURL = pageURL(basePath, cleanQ, pageKey, page+1)
 	}
 
 	for _, choice := range pageSizeChoices {
-		qq := cloneQuery(q)
+		qq := cloneQuery(cleanQ)
 		// Changing the size always returns both lists on a shared page to the
 		// first page: the old row numbers no longer mean the same thing.
 		for key := range qq {
@@ -133,6 +137,8 @@ const (
 
 // paginationFor resolves a page size from the explicit query/form value or the
 // remembered browser cookie, and stores a valid explicit choice for next time.
+// Pass w == nil when calling a second time on a page that shares a cookie
+// (such as app access) to avoid emitting duplicate Set-Cookie headers.
 func (h *Handler) paginationFor(w http.ResponseWriter, r *http.Request, q url.Values, basePath, pageKey, sizeKey string, total int, memoryKey string) pagination {
 	effective := cloneQuery(q)
 	if effective.Get(sizeKey) == "" {
@@ -145,17 +151,19 @@ func (h *Handler) paginationFor(w http.ResponseWriter, r *http.Request, q url.Va
 
 	pager := parsePagination(basePath, effective, pageKey, sizeKey, total)
 
-	if raw := q.Get(sizeKey); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && validPageSize(n) {
-			http.SetCookie(w, &http.Cookie{
-				Name:     pageSizeCookiePrefix + memoryKey,
-				Value:    strconv.Itoa(n),
-				Path:     "/",
-				MaxAge:   365 * 24 * 60 * 60,
-				HttpOnly: true,
-				Secure:   h.cfg.Session.CookieSecure,
-				SameSite: http.SameSiteLaxMode,
-			})
+	if w != nil {
+		if raw := q.Get(sizeKey); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && validPageSize(n) {
+				http.SetCookie(w, &http.Cookie{
+					Name:     pageSizeCookiePrefix + memoryKey,
+					Value:    strconv.Itoa(n),
+					Path:     "/",
+					MaxAge:   365 * 24 * 60 * 60,
+					HttpOnly: true,
+					Secure:   h.cfg.Session.CookieSecure,
+					SameSite: http.SameSiteLaxMode,
+				})
+			}
 		}
 	}
 	return pager

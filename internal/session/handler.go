@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bytes"
 	"errors"
 	"html/template"
 	"log/slog"
@@ -80,13 +79,10 @@ func (h *Handler) GetSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply the same expiry rule validation uses so the page never offers a
-	// revoke button for a session that is already dead.
-	now := time.Now().UTC()
-	views := make([]SessionView, 0, len(sessions))
-	for _, s := range sessions {
-		if h.svc.SessionExpired(r.Context(), s, now) {
-			continue
-		}
+	// revoke button for a session that is already dead (single settings lookup).
+	active := h.svc.FilterActive(r.Context(), sessions, time.Now().UTC())
+	views := make([]SessionView, 0, len(active))
+	for _, s := range active {
 		views = append(views, SessionView{
 			PublicID:   s.PublicID,
 			Device:     DeviceSummary(s.UserAgent),
@@ -204,14 +200,6 @@ func flashFromCode(code string) *user.Flash {
 }
 
 // render executes a named template into a buffer and writes the result to w.
-// Buffering ensures a partial page is never written if execution fails.
 func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, data any) {
-	var buf bytes.Buffer
-	if err := h.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
-		h.logger.Error("sessions: render template", "name", name, "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = buf.WriteTo(w)
+	web.Render(w, h.tmpl, h.logger, name, data)
 }

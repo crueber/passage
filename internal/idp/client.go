@@ -108,7 +108,23 @@ type Client struct {
 // indefinitely.
 func NewClient(hc *http.Client) *Client {
 	if hc == nil {
-		hc = &http.Client{Timeout: 10 * time.Second}
+		hc = &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				// Never follow redirects on POST token exchanges (prevents
+				// leaking code/code_verifier/Basic credentials).
+				if req.Method != http.MethodGet && req.Method != http.MethodHead {
+					return http.ErrUseLastResponse
+				}
+				if len(via) >= 3 {
+					return errors.New("idp: too many redirects")
+				}
+				if err := requireHTTPSURL(req.URL.String()); err != nil {
+					return fmt.Errorf("idp: redirect rejected: %w", err)
+				}
+				return nil
+			},
+		}
 	}
 	return &Client{
 		http:      hc,
@@ -207,7 +223,9 @@ func (c *Client) Exchange(ctx context.Context, p *Provider, tokenEndpoint, code,
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.SetBasicAuth(p.ClientID, p.ClientSecret)
+	// RFC 6749 §2.3.1 requires form-URL-encoding client_id and client_secret
+	// before Basic Auth base64 encoding.
+	req.SetBasicAuth(url.QueryEscape(p.ClientID), url.QueryEscape(p.ClientSecret))
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -220,13 +238,14 @@ func (c *Client) Exchange(ctx context.Context, p *Provider, tokenEndpoint, code,
 		return "", fmt.Errorf("idp exchange: read response: %w", err)
 	}
 	var tr tokenResponse
-	if err := json.Unmarshal(body, &tr); err != nil {
-		return "", fmt.Errorf("idp exchange: decode response: %w", err)
-	}
 	if resp.StatusCode != http.StatusOK {
+		_ = json.Unmarshal(body, &tr)
 		// The OAuth error code is safe to surface; the description and body are
 		// not, so they stay out of the error and the logs.
 		return "", fmt.Errorf("idp exchange: token endpoint returned status %d (error %q)", resp.StatusCode, tr.Error)
+	}
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return "", fmt.Errorf("idp exchange: decode response: %w", err)
 	}
 	if tr.IDToken == "" {
 		return "", errors.New("idp exchange: token response has no id_token")
@@ -321,8 +340,14 @@ func (c *Client) keyfunc(ctx context.Context, jwksURI string, forceRefresh bool)
 			return nil, err
 		}
 		kid, _ := t.Header["kid"].(string)
+		if kid == "" {
+			if len(keys) == 1 {
+				return keys[0].key, nil
+			}
+			return nil, fmt.Errorf("%w: missing kid with %d keys", errJWKSKeyNotFound, len(keys))
+		}
 		for _, k := range keys {
-			if kid == "" || k.kid == kid {
+			if k.kid == kid {
 				return k.key, nil
 			}
 		}
@@ -389,14 +414,14 @@ func parseRSAKey(nB64, eB64 string) (*rsa.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode exponent: %w", err)
 	}
-	if len(nBytes) == 0 || len(eBytes) == 0 {
-		return nil, errors.New("empty modulus or exponent")
+	if len(nBytes) == 0 || len(eBytes) == 0 || len(eBytes) > 4 {
+		return nil, errors.New("invalid modulus or exponent length")
 	}
 	e := 0
 	for _, b := range eBytes {
 		e = e<<8 | int(b)
 	}
-	if e < 3 {
+	if e < 3 || e%2 == 0 {
 		return nil, errors.New("invalid exponent")
 	}
 	key := &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: e}
@@ -447,6 +472,9 @@ func requireHTTPSURL(raw string) error {
 	}
 	if u.Host == "" {
 		return errors.New("must include a host")
+	}
+	if u.User != nil {
+		return errors.New("must not include user information")
 	}
 	return nil
 }

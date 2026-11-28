@@ -242,12 +242,26 @@ func (s *SQLiteStore) GrantAccess(ctx context.Context, userID, appID string) err
 	return nil
 }
 
-// RevokeAccess removes a user's access to an app.
+// RevokeAccess removes a user's access to an app along with any direct group
+// and role assignments for that app so re-granting access later starts clean.
 func (s *SQLiteStore) RevokeAccess(ctx context.Context, userID, appID string) error {
-	const query = `DELETE FROM user_app_access WHERE user_id = ? AND app_id = ?`
-	_, err := s.db.ExecContext(ctx, query, userID, appID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("app store revoke access: %w", err)
+		return fmt.Errorf("app store revoke access begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, q := range []string{
+		`DELETE FROM user_app_access WHERE user_id = ? AND app_id = ?`,
+		`DELETE FROM user_app_groups WHERE user_id = ? AND app_id = ?`,
+		`DELETE FROM user_app_roles WHERE user_id = ? AND app_id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, userID, appID); err != nil {
+			return fmt.Errorf("app store revoke access: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("app store revoke access commit: %w", err)
 	}
 	return nil
 }

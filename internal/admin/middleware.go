@@ -20,22 +20,32 @@ type sessionValidator interface {
 // request is redirected to /login. We redirect (rather than 403) to avoid
 // leaking the existence of the admin interface to unauthenticated requests.
 func RequireAdmin(sessionSvc sessionValidator, cfg *config.Config) func(http.Handler) http.Handler {
+	redirectToLogin := func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("HX-Request") == "true" {
+			// Ask htmx to perform a full-page navigation rather than swapping
+			// the /login HTML into a table row.
+			w.Header().Set("HX-Redirect", "/login")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusFound)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie(cfg.Session.EffectiveCookieName())
 			if err != nil {
-				http.Redirect(w, r, "/login", http.StatusFound)
+				redirectToLogin(w, r)
 				return
 			}
 
 			_, u, err := sessionSvc.ValidateSession(r.Context(), cookie.Value)
 			if err != nil {
-				http.Redirect(w, r, "/login", http.StatusFound)
+				redirectToLogin(w, r)
 				return
 			}
 
 			if !u.IsAdmin {
-				http.Redirect(w, r, "/login", http.StatusFound)
+				redirectToLogin(w, r)
 				return
 			}
 

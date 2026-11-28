@@ -5,14 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 )
-
-// maxMagicLinkKeyBytes bounds a throttle key. Client addresses are short; the
-// cap stops a spoofed header from writing a huge primary key.
-const maxMagicLinkKeyBytes = 128
 
 // MagicLinkConfig controls magic-link request throttling. A zero value for any
 // field disables the feature.
@@ -166,16 +161,24 @@ func (s *MagicLinkStore) clearExpired(ctx context.Context, ip string, now time.T
 // PurgeExpired deletes rows that can no longer affect a decision: no active
 // block, and either no open window or a window that ended before `before`.
 func (s *MagicLinkStore) PurgeExpired(ctx context.Context, before time.Time) (int64, error) {
+	return s.purgeCutoffs(ctx, before, before)
+}
+
+func (s *MagicLinkStore) purgeCutoffs(ctx context.Context, windowBefore, lockBefore time.Time) (int64, error) {
 	const query = `
 		DELETE FROM magic_link_throttle
 		WHERE (locked_until IS NULL AND (window_started IS NULL OR window_started < ?))
 		   OR (locked_until IS NOT NULL AND locked_until < ?)`
 
-	res, err := s.db.ExecContext(ctx, query, formatAccountTime(before), formatAccountTime(before))
+	res, err := s.db.ExecContext(ctx, query, formatAccountTime(windowBefore), formatAccountTime(lockBefore))
 	if err != nil {
 		return 0, fmt.Errorf("magic link store purge: %w", err)
 	}
-	return res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("magic link store purge rows: %w", err)
+	}
+	return n, nil
 }
 
 // MagicLinkService applies the request policy on top of MagicLinkStore. The
@@ -209,17 +212,21 @@ func (s *MagicLinkService) config() MagicLinkConfig {
 	return s.cfg
 }
 
+func (c MagicLinkConfig) enabled() bool {
+	return c.MaxFailures > 0 && c.Window > 0 && c.Lockout > 0
+}
+
 // Enabled reports whether throttling is configured. A zero threshold, window or
 // lockout disables the feature.
 func (s *MagicLinkService) Enabled() bool {
-	cfg := s.config()
-	return cfg.MaxFailures > 0 && cfg.Window > 0 && cfg.Lockout > 0
+	return s.config().enabled()
 }
 
 // Status returns the effective state for ip at the current clock time. A block
 // that has ended is cleared as a side effect of reading it.
 func (s *MagicLinkService) Status(ctx context.Context, ip string) (MagicLinkStatus, error) {
-	if !s.Enabled() {
+	cfg := s.config()
+	if !cfg.enabled() {
 		return MagicLinkStatus{}, nil
 	}
 
@@ -233,6 +240,9 @@ func (s *MagicLinkService) Status(ctx context.Context, ip string) (MagicLinkStat
 
 	now := s.now()
 	if state.LockedUntil.IsZero() {
+		if state.WindowStart.IsZero() || state.WindowStart.Before(now.Add(-cfg.Window)) {
+			return MagicLinkStatus{}, nil
+		}
 		return MagicLinkStatus{Failures: state.Failures}, nil
 	}
 	if state.LockedUntil.After(now) {
@@ -249,12 +259,12 @@ func (s *MagicLinkService) Status(ctx context.Context, ip string) (MagicLinkStat
 // address when the threshold is reached inside the window. Requests made while
 // a block is active are reported without extending it.
 func (s *MagicLinkService) RecordFailure(ctx context.Context, ip string) (MagicLinkStatus, error) {
-	if !s.Enabled() {
+	cfg := s.config()
+	if !cfg.enabled() {
 		return MagicLinkStatus{}, nil
 	}
 
 	now := s.now()
-	cfg := s.config()
 
 	state, err := s.store.Get(ctx, ip)
 	switch {
@@ -294,11 +304,20 @@ func (s *MagicLinkService) PurgeExpired(ctx context.Context, before time.Time) (
 	return s.store.PurgeExpired(ctx, before)
 }
 
+// PurgeStale drops rows whose window or block has expired under the current
+// live configuration, so configured windows longer than 24 hours are never
+// truncated early.
+func (s *MagicLinkService) PurgeStale(ctx context.Context) (int64, error) {
+	now := s.now().UTC()
+	cfg := s.config()
+	windowCut := now.Add(-24 * time.Hour)
+	if cfg.Window > 0 {
+		windowCut = now.Add(-cfg.Window)
+	}
+	return s.store.purgeCutoffs(ctx, windowCut, now)
+}
+
 // normalizeMagicLinkKey is the single definition of a throttle bucket key.
 func normalizeMagicLinkKey(ip string) string {
-	s := strings.ToLower(strings.TrimSpace(ip))
-	if len(s) > maxMagicLinkKeyBytes {
-		return s[:maxMagicLinkKeyBytes]
-	}
-	return s
+	return normalizeUsername(ip)
 }

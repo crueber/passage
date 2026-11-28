@@ -20,7 +20,7 @@ sign-in button appear immediately, with no restart.
 | Label | no | Login button text. Defaults to the name. |
 | Issuer | yes | Absolute `https` URL. Passage fetches `<issuer>/.well-known/openid-configuration` and requires the document's `issuer` to match (a trailing slash is ignored there, but the id_token `iss` must equal the configured value exactly). |
 | Client ID | yes | OAuth client id. |
-| Client secret | yes | OAuth client secret, sent with HTTP Basic auth (`client_secret_basic`) to the token endpoint. Stored encrypted with the instance key; the edit form never echoes it (leave it blank to keep it). |
+| Client secret | yes | OAuth client secret, sent with HTTP Basic auth (`client_secret_basic`, form-URL-encoded per RFC 6749 §2.3.1) to the token endpoint. Stored encrypted with the instance key; the edit form never echoes it (leave it blank to keep it). |
 | Scopes | no | One per line. Defaults to `openid email profile` and must include `openid`. `email` is needed for email-based linking. |
 | Auto-create | no | Create a local account on first sign-in when no link or matching email exists. Always subject to the global registration policy. |
 
@@ -124,3 +124,10 @@ it applies; the external provider is responsible for its own MFA policy.
   slash, the `iss` comparison does not).
 - **No sign-in button** — the provider list is empty or configuration failed
   validation. `cfg.Validate` reports every provider problem at once at startup.
+- **`invalid_client` on token exchange after upgrade** — Passage encodes
+  `client_id` and `client_secret` with RFC 6749 §2.3.1 `application/x-www-form-urlencoded`
+  escaping before Base64-encoding the `Authorization: Basic` header. Standard
+  OIDC providers (Authentik, Keycloak, Authelia, Google, Entra ID, Dex) decode
+  this per the RFC; a non-compliant provider whose secret contains `+`, `/`, `=`,
+  or `%` may need the secret rotated to alphanumeric characters if it rejects
+  RFC-encoded Basic credentials.

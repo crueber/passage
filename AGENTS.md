@@ -37,7 +37,7 @@ passage/
   internal/
     config/             # config loading — YAML file + PASSAGE_* env var overrides
     db/                 # SQLite open + goose migrations
-      migrations/       # *.sql embedded migration files (001_*.sql … 033_*.sql)
+      migrations/       # *.sql embedded migration files (001_*.sql … 034_*.sql)
     user/               # model, store, service, handler, magic links, invitations, profile, setup tokens
     app/                # model, store, service (host pattern matching, per-app session duration, auth method flags)
     session/            # model, store, service, middleware (RequireSession), user sessions page
@@ -127,7 +127,7 @@ Route groups in `run.go`; when adding routes, pick the right group:
 
 | Group | Middleware | Routes |
 |---|---|---|
-| Global | `RequestID`, `RealIP`, `Logger`, metrics counter, `Recoverer`, `web.SecurityHeaders()` | everything; `/static/*` is served here |
+| Global | `RequestID`, `web.TrustedRealIP`, `web.RequestLogger`, metrics counter, `Recoverer`, `web.SecurityHeaders()` | everything; `/static/*` is served here (with strong ETag) |
 | Public | none | `/healthz`, `/metrics` (404 when disabled), `/.well-known/*`, `/oauth/*`, `/logout`, `/verify-email/{token}`, passkey login routes, `/login/mfa/passkey/*`, `/login/oidc/*` |
 | Anonymous forms | `csrf.ProtectAnonymous` | `/login`, `/register`, `/invite/{token}`, `/reset`, `/reset/{token}`, `/login/mfa`, `/login/magic`, `/setup` (POSTs are rate-limited) |
 | API | bearer token (`adminapi.RequireToken`) + limiter | `/api/v1/*` — read-only, no session or CSRF |
@@ -143,7 +143,8 @@ Route groups in `run.go`; when adding routes, pick the right group:
 
 - `config.Load(path)` reads YAML (default `passage.yaml`, override with `-config`), then applies `PASSAGE_*` env var overrides. A missing config file is **not** an error — defaults + env are enough.
 - Only bootstrap keys belong in the config file; feature settings go in the settings table and the admin UI (see the settings bullet above). Every bootstrap key must be validated in `Config.Validate()` (uses `errors.Join` — collect all errors, don't fail on the first); settings-page values are validated on save in `internal/admin/settings_form.go`.
-- `server.base_url` is required for anything that builds absolute URLs (email links, WebAuthn RP ID/origins, OIDC discovery). WebAuthn falls back to `localhost` / `http://localhost:8080` when unset (dev only).
+- `server.base_url` is required by `Config.Validate()` — it builds absolute URLs (email links, WebAuthn RP ID/origins, OIDC discovery) and prevents Host-header poisoning on password-reset/invite emails.
+- `server.trusted_proxies` (env `PASSAGE_SERVER_TRUSTED_PROXIES`) lists proxy CIDRs/IPs whose forwarding headers (`X-Forwarded-For` rightmost-untrusted hop, falling back to `X-Real-IP`/`True-Client-IP`) are honored by `web.TrustedRealIP` before stripping those headers. Defaults to loopback + RFC 1918 + ULA + link-local + CGNAT/Tailscale (`100.64.0.0/10`); set `trusted_proxies: []` or `PASSAGE_SERVER_TRUSTED_PROXIES=none` when exposed directly without a reverse proxy.
 - `security.encryption_key` (env `PASSAGE_SECURITY_ENCRYPTION_KEY`) is the optional AES-256-GCM key that encrypts TOTP secrets at rest: 64 hex characters or base64 of 32 bytes. When unset, `mfa.ResolveKey` creates `<database.path>.key` on first use (hex, mode 0600, `O_CREATE|O_EXCL`); a `:memory:` database gets an ephemeral key. Never log it, and never rotate it by overwriting the file — there is no re-keying path, and a lost key makes enrolled secrets unreadable.
 - See `passage.example.yaml` and `.env.example` for the full reference. Update them when adding config keys.
 
@@ -233,7 +234,7 @@ Use pointer receivers consistently on a type. Never mix value and pointer receiv
 
 ## Database Conventions
 
-- All migrations live in `internal/db/migrations/` as numbered SQL files: `001_initial.sql` … `033_magic_link_throttle.sql`. New migrations are the next number; never edit an applied migration.
+- All migrations live in `internal/db/migrations/` as numbered SQL files: `001_initial.sql` … `034_performance_indexes.sql`. New migrations are the next number; never edit an applied migration.
 - **Additive only.** `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE … ADD COLUMN` with a `NOT NULL DEFAULT`, `CREATE INDEX IF NOT EXISTS`. No `DROP`, no table rebuilds, no column renames, and a new column must default to "behaves like before" so an upgrade can never take auth down. Include a best-effort `Down` and a test that reopens a *populated* database.
 - Migrations must stay **independent of each other's ordering**: `db.Open` runs goose with `WithAllowOutofOrder(true)` because parallel branches merge files out of numeric order, and a database that has already recorded a higher version must still start when a lower one appears. Never make one migration depend on another running first.
 - SQLite is opened via `db.Open(ctx, path, logger)` which runs migrations and sets `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`. Do not open the driver directly.

@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -54,9 +55,9 @@ func (s *SQLiteStore) CreateCode(ctx context.Context, c *Code) error {
 
 	_, err = s.db.ExecContext(ctx, query,
 		c.Code, c.AppID, c.UserID, c.RedirectURI, c.Scopes,
-		c.Nonce, c.AuthTime, c.Resource,
+		c.Nonce, c.AuthTime.UTC(), c.Resource,
 		c.CodeChallenge, string(c.CodeChallengeMethod),
-		c.ExpiresAt, c.CreatedAt, now,
+		c.ExpiresAt.UTC(), c.CreatedAt.UTC(), now,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth store create code: %w", err)
@@ -85,7 +86,7 @@ func (s *SQLiteStore) GetCode(ctx context.Context, code string) (*Code, error) {
 		&c.ExpiresAt, &usedAt, &c.CreatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrCodeNotFound
 		}
 		return nil, fmt.Errorf("oauth store get code: %w", err)
@@ -106,9 +107,10 @@ func (s *SQLiteStore) GetCode(ctx context.Context, code string) (*Code, error) {
 // MarkCodeUsed atomically marks the code as used if it has not already been used.
 // Returns ErrCodeUsed if the code was already used (concurrent double-spend protection).
 func (s *SQLiteStore) MarkCodeUsed(ctx context.Context, code string) error {
+	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE oauth_codes SET used_at = datetime('now'), updated_at = datetime('now') WHERE code = ? AND used_at IS NULL`,
-		code,
+		`UPDATE oauth_codes SET used_at = ?, updated_at = ? WHERE code = ? AND used_at IS NULL`,
+		now, now, code,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth store mark code used: %w", err)
@@ -140,7 +142,7 @@ func (s *SQLiteStore) CreateToken(ctx context.Context, t *Token) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
-		t.Token, t.AppID, t.UserID, t.Scopes, t.ExpiresAt, t.CreatedAt, now,
+		t.Token, t.AppID, t.UserID, t.Scopes, t.ExpiresAt.UTC(), t.CreatedAt.UTC(), now,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth store create token: %w", err)
@@ -159,7 +161,7 @@ func (s *SQLiteStore) GetToken(ctx context.Context, token string) (*Token, error
 	var t Token
 	err := row.Scan(&t.Token, &t.AppID, &t.UserID, &t.Scopes, &t.ExpiresAt, &t.CreatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrTokenNotFound
 		}
 		return nil, fmt.Errorf("oauth store get token: %w", err)
@@ -188,7 +190,7 @@ func (s *SQLiteStore) RevokeJTI(ctx context.Context, jti string, expiresAt time.
 		INSERT INTO oauth_revoked_jti (jti, expires_at, revoked_at)
 		VALUES (?, ?, ?)
 		ON CONFLICT(jti) DO NOTHING`
-	if _, err := s.db.ExecContext(ctx, query, jti, expiresAt, time.Now().UTC()); err != nil {
+	if _, err := s.db.ExecContext(ctx, query, jti, expiresAt.UTC(), time.Now().UTC()); err != nil {
 		return fmt.Errorf("oauth store revoke jti: %w", err)
 	}
 	return nil
@@ -234,7 +236,7 @@ func (s *SQLiteStore) CreateRefreshToken(ctx context.Context, rt *RefreshToken) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = s.db.ExecContext(ctx, query,
-		rt.Token, rt.AppID, rt.UserID, rt.Scopes, rt.FamilyID, rt.ExpiresAt, rt.CreatedAt, now,
+		rt.Token, rt.AppID, rt.UserID, rt.Scopes, rt.FamilyID, rt.ExpiresAt.UTC(), rt.CreatedAt.UTC(), now,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth store create refresh token: %w", err)
@@ -257,7 +259,7 @@ func (s *SQLiteStore) GetRefreshToken(ctx context.Context, token string) (*Refre
 		&rt.ExpiresAt, &usedAt, &rt.CreatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrRefreshNotFound
 		}
 		return nil, fmt.Errorf("oauth store get refresh token: %w", err)
@@ -272,9 +274,10 @@ func (s *SQLiteStore) GetRefreshToken(ctx context.Context, token string) (*Refre
 // MarkRefreshTokenUsed atomically marks the refresh token as used if it has not already been used.
 // Returns ErrRefreshUsed if the token was already used (concurrent double-spend protection).
 func (s *SQLiteStore) MarkRefreshTokenUsed(ctx context.Context, token string) error {
+	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE oauth_refresh_tokens SET used_at = datetime('now'), updated_at = datetime('now') WHERE token = ? AND used_at IS NULL`,
-		token,
+		`UPDATE oauth_refresh_tokens SET used_at = ?, updated_at = ? WHERE token = ? AND used_at IS NULL`,
+		now, now, token,
 	)
 	if err != nil {
 		return fmt.Errorf("oauth store mark refresh token used: %w", err)
@@ -304,21 +307,21 @@ func (s *SQLiteStore) DeleteRefreshFamily(ctx context.Context, familyID string) 
 	return nil
 }
 
-// DeleteExpired removes all expired authorization codes, access tokens, and
-// refresh tokens from the database. Used codes and refresh tokens are also
-// removed regardless of expiry, since they can never be reused. Denylisted
-// access-token jtis are removed once the token itself would have expired: the
-// signature check rejects it after that, so the row adds nothing.
+// DeleteExpired removes expired authorization codes, access tokens, refresh
+// tokens, and denylisted JTIs. Used authorization codes are removed immediately,
+// while used refresh tokens are retained until expires_at so OAuth 2.1 §6.1
+// reuse detection continues to fire for the full lifetime of a rotation chain.
 func (s *SQLiteStore) DeleteExpired(ctx context.Context) error {
+	now := time.Now().UTC()
 	queries := []string{
-		`DELETE FROM oauth_codes WHERE expires_at < datetime('now') OR used_at IS NOT NULL`,
-		`DELETE FROM oauth_tokens WHERE expires_at < datetime('now')`,
-		`DELETE FROM oauth_refresh_tokens WHERE expires_at < datetime('now') OR used_at IS NOT NULL`,
-		`DELETE FROM oauth_revoked_jti WHERE expires_at < datetime('now')`,
+		`DELETE FROM oauth_codes WHERE expires_at < ? OR used_at IS NOT NULL`,
+		`DELETE FROM oauth_tokens WHERE expires_at < ?`,
+		`DELETE FROM oauth_refresh_tokens WHERE expires_at < ?`,
+		`DELETE FROM oauth_revoked_jti WHERE expires_at < ?`,
 	}
 
 	for _, q := range queries {
-		if _, err := s.db.ExecContext(ctx, q); err != nil {
+		if _, err := s.db.ExecContext(ctx, q, now); err != nil {
 			return fmt.Errorf("oauth store delete expired: %w", err)
 		}
 	}

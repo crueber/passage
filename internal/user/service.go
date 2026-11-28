@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -57,13 +58,16 @@ func (s *Service) bcryptCost(ctx context.Context) int {
 	return settings.Int(ctx, s.settings, settings.BcryptCost, s.cfg.Auth.BcryptCost, 10, 31)
 }
 
-// Register creates a new user account. It checks that registration is enabled,
+// Register creates a new user account. It checks that registration is enabled
+// (reading live settings so toggling it in the admin UI needs no restart),
 // validates inputs, hashes the password with bcrypt, and persists the user.
 func (s *Service) Register(ctx context.Context, username, email, password string) (*User, error) {
-	if !s.cfg.Auth.AllowRegistration {
+	if !settings.Bool(ctx, s.settings, settings.AllowRegistration, s.cfg.Auth.AllowRegistration) {
 		return nil, ErrRegistrationDisabled
 	}
 
+	username = strings.TrimSpace(username)
+	email = strings.ToLower(strings.TrimSpace(email))
 	if username == "" {
 		return nil, ErrUsernameRequired
 	}
@@ -102,6 +106,8 @@ func (s *Service) Register(ctx context.Context, username, email, password string
 // setting. It is used only during the initial /setup flow to create the first
 // admin when no admin yet exists.
 func (s *Service) CreateAdmin(ctx context.Context, username, email, password string) (*User, error) {
+	username = strings.TrimSpace(username)
+	email = strings.ToLower(strings.TrimSpace(email))
 	if username == "" {
 		return nil, ErrUsernameRequired
 	}
@@ -135,6 +141,10 @@ func (s *Service) CreateAdmin(ctx context.Context, username, email, password str
 	return u, nil
 }
 
+// dummyBcryptHash is compared against when an account does not exist or has no
+// password set, keeping timing close to a real bcrypt verification.
+var dummyBcryptHash = []byte("$2a$12$dummyhashfortimingnnn.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
 // Authenticate verifies credentials and returns the user if valid.
 // Returns ErrInvalidCredentials if the username does not exist or the password
 // is wrong. Returns ErrUserInactive if the account has been disabled.
@@ -144,10 +154,17 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 		if errors.Is(err, ErrNotFound) {
 			// Hash a dummy value to maintain constant-time behavior and
 			// prevent user enumeration via timing side-channels.
-			_ = bcrypt.CompareHashAndPassword([]byte("$2a$12$dummyhashfortimingnnn.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), []byte(password))
+			_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(password))
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("authenticate: %w", err)
+	}
+
+	// Passwordless accounts (OIDC / passkey-only) run the same dummy comparison
+	// so timing cannot distinguish them from unknown users or password accounts.
+	if u.PasswordHash == "" {
+		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(password))
+		return nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
@@ -249,7 +266,7 @@ func deriveUsername(preferred, emailAddr string) string {
 // If the email is not found, nil is returned for both values to avoid email
 // enumeration.
 func (s *Service) GeneratePasswordReset(ctx context.Context, email string) (token string, err error) {
-	u, err := s.store.GetByEmail(ctx, email)
+	u, err := s.store.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			// Do not reveal whether the email exists.
@@ -266,6 +283,10 @@ func (s *Service) GeneratePasswordReset(ctx context.Context, email string) (toke
 }
 
 // ResetPassword validates the token and sets the user's password to newPassword.
+// Password length and bcrypt hashing (which enforces bcrypt's 72-byte limit)
+// run before atomically claiming the token so a short or overly long password
+// never burns a valid link, while concurrent submissions still cannot consume
+// the same link twice.
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
 	rt, err := s.tokenStore.GetResetToken(ctx, token)
 	if err != nil {
@@ -280,12 +301,27 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		return ErrTokenExpired
 	}
 
-	if err := s.ChangePassword(ctx, rt.UserID, newPassword); err != nil {
-		return fmt.Errorf("reset password change: %w", err)
+	if len(newPassword) < 8 {
+		return ErrPasswordTooShort
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.bcryptCost(ctx))
+	if err != nil {
+		return fmt.Errorf("reset password hash: %w", err)
 	}
 
 	if err := s.tokenStore.MarkResetTokenUsed(ctx, token); err != nil {
 		return fmt.Errorf("reset password mark token used: %w", err)
+	}
+
+	if err := s.store.SetPasswordHash(ctx, rt.UserID, string(hash)); err != nil {
+		return fmt.Errorf("reset password update user: %w", err)
+	}
+
+	if s.sessions != nil {
+		if err := s.sessions.RevokeAllByUser(ctx, rt.UserID); err != nil {
+			return fmt.Errorf("reset password revoke sessions: %w", err)
+		}
 	}
 	return nil
 }
@@ -301,13 +337,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, newPassword string
 		return fmt.Errorf("change password hash: %w", err)
 	}
 
-	u, err := s.store.GetByID(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("change password get user: %w", err)
-	}
-
-	u.PasswordHash = string(hash)
-	if err := s.store.Update(ctx, u); err != nil {
+	if err := s.store.SetPasswordHash(ctx, userID, string(hash)); err != nil {
 		return fmt.Errorf("change password update user: %w", err)
 	}
 
@@ -319,6 +349,23 @@ func (s *Service) ChangePassword(ctx context.Context, userID, newPassword string
 		if err := s.sessions.RevokeAllByUser(ctx, userID); err != nil {
 			return fmt.Errorf("change password revoke sessions: %w", err)
 		}
+	}
+	return nil
+}
+
+// DeleteExpiredResetTokens removes expired or consumed password reset tokens.
+func (s *Service) DeleteExpiredResetTokens(ctx context.Context) error {
+	if err := s.tokenStore.DeleteExpiredResetTokens(ctx); err != nil {
+		return fmt.Errorf("user: delete expired reset tokens: %w", err)
+	}
+	return nil
+}
+
+// DeleteExpiredEmailVerificationTokens removes expired or consumed email
+// verification tokens.
+func (s *Service) DeleteExpiredEmailVerificationTokens(ctx context.Context) error {
+	if err := s.tokenStore.DeleteExpiredEmailVerificationTokens(ctx); err != nil {
+		return fmt.Errorf("user: delete expired email verification tokens: %w", err)
 	}
 	return nil
 }
@@ -396,8 +443,8 @@ func (s *Service) smtpConfigured(ctx context.Context) bool {
 	host := s.cfg.SMTP.Host
 	from := s.cfg.SMTP.From
 	if s.settings != nil {
-		host = settings.String(ctx, s.settings, settings.SMTPHost, host)
-		from = settings.String(ctx, s.settings, settings.SMTPFrom, from)
+		host = strings.TrimSpace(settings.Raw(ctx, s.settings, settings.SMTPHost, host))
+		from = strings.TrimSpace(settings.Raw(ctx, s.settings, settings.SMTPFrom, from))
 	}
 	return host != "" && from != ""
 }
@@ -512,11 +559,38 @@ func (s *Service) UpdateAppView(ctx context.Context, userID, view string) error 
 // column is written, so a concurrent admin edit to other fields survives.
 func (s *Service) UpdateDisplayName(ctx context.Context, userID, name string) error {
 	name = strings.TrimSpace(name)
-	if len(name) > MaxDisplayNameLength {
+	if utf8.RuneCountInString(name) > MaxDisplayNameLength {
 		return ErrNameTooLong
 	}
 	if err := s.store.SetName(ctx, userID, name); err != nil {
 		return fmt.Errorf("user: update display name: %w", err)
+	}
+	return nil
+}
+
+// UpdateProfile validates and atomically updates display name, theme, and My
+// Apps default view in one database write so an error never leaves partial
+// changes persisted.
+func (s *Service) UpdateProfile(ctx context.Context, userID, name, themeName, view string) error {
+	name = strings.TrimSpace(name)
+	if utf8.RuneCountInString(name) > MaxDisplayNameLength {
+		return ErrNameTooLong
+	}
+	themeName = strings.TrimSpace(themeName)
+	if themeName != "" {
+		themeName = theme.Canonical(themeName)
+		if _, ok := theme.Lookup(themeName); !ok {
+			return ErrInvalidTheme
+		}
+	}
+	view = strings.TrimSpace(view)
+	switch view {
+	case "", "comfortable", "iconized":
+	default:
+		return ErrInvalidAppView
+	}
+	if err := s.store.UpdateProfile(ctx, userID, name, themeName, view); err != nil {
+		return fmt.Errorf("user: update profile: %w", err)
 	}
 	return nil
 }
@@ -587,7 +661,7 @@ func (s *Service) AcceptInvitation(ctx context.Context, token, username, display
 	if username == "" {
 		return nil, ErrUsernameRequired
 	}
-	if len(displayName) > MaxDisplayNameLength {
+	if utf8.RuneCountInString(displayName) > MaxDisplayNameLength {
 		return nil, ErrNameTooLong
 	}
 	if len(password) < 8 {
@@ -621,12 +695,12 @@ func (s *Service) AcceptInvitation(ctx context.Context, token, username, display
 	}
 
 	if err := s.tokenStore.MarkInvitationAccepted(ctx, token); err != nil {
+		// Roll back the account on any mark-accepted failure (concurrent
+		// double-accept or DB error) so no orphaned user is left behind.
+		if delErr := s.store.Delete(ctx, u.ID); delErr != nil {
+			return nil, fmt.Errorf("accept invitation roll back user: %w", errors.Join(err, delErr))
+		}
 		if errors.Is(err, ErrInvitationAccepted) {
-			// Another request consumed the invitation first. Roll back the
-			// account this call just created so the two cannot both win.
-			if delErr := s.store.Delete(ctx, u.ID); delErr != nil {
-				return nil, fmt.Errorf("accept invitation roll back user: %w", errors.Join(err, delErr))
-			}
 			return nil, ErrInvitationAccepted
 		}
 		return nil, fmt.Errorf("accept invitation mark accepted: %w", err)

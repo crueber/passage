@@ -65,15 +65,22 @@ func ValidateAllowedResources(resources []string) error {
 // ValidateResourceURI reports whether raw is an absolute URI without a
 // fragment, the form RFC 8707 §2 requires of a resource indicator.
 func ValidateResourceURI(raw string) error {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	trimmed := strings.TrimSpace(raw)
+	if strings.Contains(trimmed, "#") {
+		return fmt.Errorf("resource %q must not contain a fragment", raw)
+	}
+	u, err := url.Parse(trimmed)
 	if err != nil {
 		return fmt.Errorf("resource %q is not a valid URI", raw)
 	}
 	if u.Scheme == "" {
 		return fmt.Errorf("resource %q must be an absolute URI with a scheme", raw)
 	}
-	if u.Fragment != "" {
-		return fmt.Errorf("resource %q must not contain a fragment", raw)
+	if u.Host == "" && u.Opaque == "" {
+		return fmt.Errorf("resource %q must include a host or identifier", raw)
+	}
+	if (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) && u.Host == "" {
+		return fmt.Errorf("resource %q must include a host", raw)
 	}
 	return nil
 }

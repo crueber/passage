@@ -251,28 +251,21 @@ func TestClientIP(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "uses X-Real-IP when set",
-			remoteAddr: "10.0.0.1:1234",
-			xRealIP:    "203.0.113.5",
-			want:       "203.0.113.5",
-		},
-		{
-			name:       "uses first entry of X-Forwarded-For",
-			remoteAddr: "10.0.0.1:1234",
-			xff:        "203.0.113.10, 10.0.0.2",
-			want:       "203.0.113.10",
-		},
-		{
-			name:       "uses RemoteAddr when no forwarding headers",
+			name:       "uses RemoteAddr host without port",
 			remoteAddr: "192.0.2.99:5678",
 			want:       "192.0.2.99",
 		},
 		{
-			name:       "X-Real-IP takes priority over X-Forwarded-For",
+			name:       "uses bare RemoteAddr set by TrustedRealIP",
+			remoteAddr: "203.0.113.5",
+			want:       "203.0.113.5",
+		},
+		{
+			name:       "ignores raw forwarding headers (resolved upstream by TrustedRealIP)",
 			remoteAddr: "10.0.0.1:1234",
 			xRealIP:    "203.0.113.1",
 			xff:        "203.0.113.2",
-			want:       "203.0.113.1",
+			want:       "10.0.0.1",
 		},
 	}
 

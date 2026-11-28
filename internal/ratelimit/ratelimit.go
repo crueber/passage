@@ -2,17 +2,22 @@ package ratelimit
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/crueber/passage/internal/web"
 )
+
+// maxClientIPKeyBytes bounds the in-memory limiter key length.
+const maxClientIPKeyBytes = 128
 
 // window tracks request timestamps within a sliding time window for one key.
 type window struct {
 	mu         sync.Mutex
 	timestamps []time.Time
+	deleted    bool
 }
 
 // Limiter is a sliding-window rate limiter keyed by string (IP address or username).
@@ -55,38 +60,50 @@ func (l *Limiter) RetryAfter() time.Duration {
 }
 
 // Allow returns true if the key is within the rate limit, false if exceeded.
+// A limit or period <= 0 disables rate limiting and allows every request.
 // Allowed requests are recorded; denied requests are not (the window already
 // has limit entries so no additional recording is needed).
 func (l *Limiter) Allow(key string) bool {
-	l.mu.Lock()
-	limit, period := l.limit, l.period
-	w, ok := l.windows[key]
-	if !ok {
-		w = &window{}
-		l.windows[key] = w
-	}
-	l.mu.Unlock()
-
-	now := time.Now()
-	cutoff := now.Add(-period)
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	// Remove timestamps outside the window.
-	valid := w.timestamps[:0]
-	for _, ts := range w.timestamps {
-		if ts.After(cutoff) {
-			valid = append(valid, ts)
+	for {
+		l.mu.Lock()
+		limit, period := l.limit, l.period
+		if limit <= 0 || period <= 0 {
+			l.mu.Unlock()
+			return true
 		}
-	}
-	w.timestamps = valid
+		w, ok := l.windows[key]
+		if !ok {
+			w = &window{}
+			l.windows[key] = w
+		}
+		l.mu.Unlock()
 
-	if len(w.timestamps) >= limit {
-		return false
+		now := time.Now()
+		cutoff := now.Add(-period)
+
+		w.mu.Lock()
+		if w.deleted {
+			w.mu.Unlock()
+			continue
+		}
+
+		// Remove timestamps outside the window.
+		valid := w.timestamps[:0]
+		for _, ts := range w.timestamps {
+			if ts.After(cutoff) {
+				valid = append(valid, ts)
+			}
+		}
+		w.timestamps = valid
+
+		if len(w.timestamps) >= limit {
+			w.mu.Unlock()
+			return false
+		}
+		w.timestamps = append(w.timestamps, now)
+		w.mu.Unlock()
+		return true
 	}
-	w.timestamps = append(w.timestamps, now)
-	return true
 }
 
 // Len returns the number of keys currently tracked by the limiter.
@@ -114,15 +131,16 @@ func (l *Limiter) Cleanup() {
 				break
 			}
 		}
-		w.mu.Unlock()
 		if !hasRecent {
+			w.deleted = true
 			delete(l.windows, key)
 		}
+		w.mu.Unlock()
 	}
 }
 
 // Middleware returns a chi middleware that applies rate limiting based on the
-// client's IP address (extracted via X-Real-IP, X-Forwarded-For, or RemoteAddr).
+// client's IP address (resolved upstream by web.TrustedRealIP into RemoteAddr).
 //
 // On limit exceeded:
 //   - If the Accept header includes "text/html" or is absent (browser default),
@@ -158,29 +176,19 @@ func Middleware(l *Limiter) func(http.Handler) http.Handler {
 	}
 }
 
-// clientIP extracts the real client IP from the request.
-// It trusts X-Real-IP and X-Forwarded-For headers, which is appropriate when
-// Passage runs behind a trusted reverse proxy. If Passage is exposed directly
-// to the internet without a proxy, these headers could be spoofed by clients.
-// Uses X-Real-IP first, then X-Forwarded-For (first entry), then RemoteAddr.
+// clientIP extracts the resolved client IP from r.RemoteAddr using the shared
+// web.ClientIP helper. Forwarding headers are resolved and stripped once at
+// the router boundary by web.TrustedRealIP so rate limiting, access policies,
+// and audit logs always agree on the client address.
 func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
+	return clampKey(web.ClientIP(r))
+}
+
+func clampKey(s string) string {
+	if len(s) > maxClientIPKeyBytes {
+		return s[:maxClientIPKeyBytes]
 	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For can be a comma-separated list; take the first entry.
-		for i, c := range xff {
-			if c == ',' {
-				return strings.TrimSpace(xff[:i])
-			}
-		}
-		return strings.TrimSpace(xff)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return s
 }
 
 // acceptsHTML returns true if the Accept header includes "text/html" or is absent

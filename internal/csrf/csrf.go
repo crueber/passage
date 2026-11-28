@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"net/http"
 	"time"
@@ -49,35 +50,26 @@ const (
 
 	// tokenTTL is the maximum age of a CSRF token.
 	tokenTTL = 4 * time.Hour
+
+	// tokenPayloadLen is nonce(16) + timestamp(8) + HMAC-SHA256(32).
+	tokenPayloadLen = 56
 )
 
 // GenerateToken generates a new CSRF token string HMAC-signed with signingKey.
 //
 // signingKey should be either:
 //   - the session token value (authenticated routes), or
-//   - the CSRF cookie value (unauthenticated double-submit routes).
+//   - the CSRF cookie value mixed with the server secret (anonymous routes).
 //
 // Token wire format (base64url-encoded): nonce(16) || timestamp(8) || HMAC-SHA256(32)
 func GenerateToken(signingKey string) (string, error) {
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err != nil {
+	var payload [tokenPayloadLen]byte
+	if _, err := rand.Read(payload[:16]); err != nil {
 		return "", fmt.Errorf("csrf: generate nonce: %w", err)
 	}
-
-	now := time.Now().Unix()
-	ts := make([]byte, 8)
-	ts[0] = byte(now >> 56)
-	ts[1] = byte(now >> 48)
-	ts[2] = byte(now >> 40)
-	ts[3] = byte(now >> 32)
-	ts[4] = byte(now >> 24)
-	ts[5] = byte(now >> 16)
-	ts[6] = byte(now >> 8)
-	ts[7] = byte(now)
-
-	mac := hmacSign(signingKey, append(nonce, ts...))
-	payload := append(append(nonce, ts...), mac...)
-	return base64.RawURLEncoding.EncodeToString(payload), nil
+	binary.BigEndian.PutUint64(payload[16:24], uint64(time.Now().Unix()))
+	copy(payload[24:], hmacSign(signingKey, payload[:24]))
+	return base64.RawURLEncoding.EncodeToString(payload[:]), nil
 }
 
 // ValidateToken verifies that submitted is a valid, unexpired CSRF token signed
@@ -88,25 +80,17 @@ func ValidateToken(signingKey, submitted string) error {
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(submitted)
-	if err != nil || len(payload) < 56 { // 16 nonce + 8 ts + 32 mac
+	if err != nil || len(payload) != tokenPayloadLen {
 		return fmt.Errorf("csrf: malformed token")
 	}
 
-	nonce := payload[:16]
-	tsBytes := payload[16:24]
-	submittedMAC := payload[24:56]
-
-	// Reconstruct the timestamp from big-endian bytes.
-	var ts int64
-	for i := 0; i < 8; i++ {
-		ts = (ts << 8) | int64(tsBytes[i])
-	}
+	ts := int64(binary.BigEndian.Uint64(payload[16:24]))
 	if time.Since(time.Unix(ts, 0)) > tokenTTL {
 		return fmt.Errorf("csrf: token expired")
 	}
 
-	expectedMAC := hmacSign(signingKey, append(nonce, tsBytes...))
-	if !hmac.Equal(submittedMAC, expectedMAC) {
+	expectedMAC := hmacSign(signingKey, payload[:24])
+	if !hmac.Equal(payload[24:], expectedMAC) {
 		return fmt.Errorf("csrf: invalid token")
 	}
 	return nil
@@ -131,14 +115,49 @@ func hmacSign(key string, data []byte) []byte {
 	return mac.Sum(nil)
 }
 
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+// serveWithCSRF enforces token validation on non-safe methods and injects a
+// fresh CSRF token into the request context for both safe and valid non-safe
+// requests.
+func serveWithCSRF(w http.ResponseWriter, r *http.Request, next http.Handler, signingKey string) {
+	if !isSafeMethod(r.Method) {
+		submitted := r.Header.Get(HeaderName)
+		if submitted == "" {
+			// PostFormValue ignores URL query parameters so CSRF tokens cannot
+			// be passed in query strings (and leaked via Referer/logs).
+			submitted = r.PostFormValue(FieldName)
+		}
+		if err := ValidateToken(signingKey, submitted); err != nil {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
+	tok, err := GenerateToken(signingKey)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	r = r.WithContext(withToken(r.Context(), tok))
+	next.ServeHTTP(w, r)
+}
+
 // ProtectAuthenticated is a chi middleware for routes that require a valid session.
 //
 // On safe methods (GET, HEAD, OPTIONS): generates a CSRF token signed with the
 // session token and stores it in the request context via withToken.
 //
 // On state-changing methods (POST, PUT, PATCH, DELETE): validates the submitted
-// CSRF token (from the _csrf form field or HX-CSRF-Token header) against the
-// session token. Returns 403 Forbidden on failure.
+// CSRF token (from the HX-CSRF-Token header or _csrf POST body field) against
+// the session token. Returns 403 Forbidden on failure.
 //
 // sessionCookieName must match the name used to set the session cookie.
 func ProtectAuthenticated(sessionCookieName string) func(http.Handler) http.Handler {
@@ -153,36 +172,7 @@ func ProtectAuthenticated(sessionCookieName string) func(http.Handler) http.Hand
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
-
-			switch r.Method {
-			case http.MethodGet, http.MethodHead, http.MethodOptions:
-				tok, err := GenerateToken(sessionToken)
-				if err != nil {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
-				r = r.WithContext(withToken(r.Context(), tok))
-				next.ServeHTTP(w, r)
-
-			default:
-				submitted := r.FormValue(FieldName)
-				if submitted == "" {
-					submitted = r.Header.Get(HeaderName)
-				}
-				if err := ValidateToken(sessionToken, submitted); err != nil {
-					http.Error(w, "Forbidden", http.StatusForbidden)
-					return
-				}
-				// Regenerate a fresh token for the response so the page can
-				// render a valid token for the next request.
-				tok, err := GenerateToken(sessionToken)
-				if err != nil {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
-				r = r.WithContext(withToken(r.Context(), tok))
-				next.ServeHTTP(w, r)
-			}
+			serveWithCSRF(w, r, next, sessionToken)
 		})
 	}
 }
@@ -195,23 +185,23 @@ func ProtectAuthenticated(sessionCookieName string) func(http.Handler) http.Hand
 // when the operator has not configured one). The cfgKey is never transmitted
 // to the client.
 //
-// cookieSecure controls whether the CSRF cookie carries the Secure attribute.
-// Set to true in production when Passage is served over HTTPS (typically via
-// cfg.Session.CookieSecure, which mirrors PASSAGE_SESSION_COOKIE_SECURE).
-//
 // On safe methods: issues/refreshes the CSRF cookie if absent and stores a
 // generated token in the request context.
 //
 // On state-changing methods: validates the submitted token against the signing
 // key derived from the CSRF cookie. Returns 403 Forbidden on failure.
-// A request that arrives with no CSRF cookie is rejected — the middleware
-// fails closed, the same as a request with a wrong token.
+// A request that arrives with no CSRF cookie is rejected immediately without
+// setting a cookie.
 func ProtectAnonymous(cfgKey string, cookieSecure bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			signingKey := csrfCookieKey(r, cookieName(cookieSecure), cfgKey)
 			if signingKey == "" {
-				// No CSRF cookie yet — generate a new random value and set the cookie.
+				if !isSafeMethod(r.Method) {
+					http.Error(w, "Forbidden", http.StatusForbidden)
+					return
+				}
+				// No CSRF cookie yet on a safe request — issue one.
 				raw := make([]byte, 32)
 				if _, err := rand.Read(raw); err != nil {
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -223,8 +213,6 @@ func ProtectAnonymous(cfgKey string, cookieSecure bool) func(http.Handler) http.
 				} else {
 					signingKey = cookieVal
 				}
-				// Set the CSRF cookie with only the random value — the cfgKey is
-				// a server-side secret and must never be transmitted to the client.
 				http.SetCookie(w, &http.Cookie{
 					Name:     cookieName(cookieSecure),
 					Value:    cookieVal,
@@ -236,33 +224,7 @@ func ProtectAnonymous(cfgKey string, cookieSecure bool) func(http.Handler) http.
 				})
 			}
 
-			switch r.Method {
-			case http.MethodGet, http.MethodHead, http.MethodOptions:
-				tok, err := GenerateToken(signingKey)
-				if err != nil {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
-				r = r.WithContext(withToken(r.Context(), tok))
-				next.ServeHTTP(w, r)
-
-			default:
-				submitted := r.FormValue(FieldName)
-				if submitted == "" {
-					submitted = r.Header.Get(HeaderName)
-				}
-				if err := ValidateToken(signingKey, submitted); err != nil {
-					http.Error(w, "Forbidden", http.StatusForbidden)
-					return
-				}
-				tok, err := GenerateToken(signingKey)
-				if err != nil {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
-				r = r.WithContext(withToken(r.Context(), tok))
-				next.ServeHTTP(w, r)
-			}
+			serveWithCSRF(w, r, next, signingKey)
 		})
 	}
 }

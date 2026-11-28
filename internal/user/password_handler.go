@@ -100,6 +100,7 @@ func (h *Handler) PostChangePassword(w http.ResponseWriter, r *http.Request) {
 	token, expiresAt, err := h.sessions.CreateSession(r.Context(), u.ID, nil, r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		h.logger.Error("password: create replacement session", "user_id", u.ID, "error", err)
+		clearSessionCookie(w, h.cfg)
 		http.Redirect(w, r, "/login?flash=password-changed", http.StatusFound)
 		return
 	}

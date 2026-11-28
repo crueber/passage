@@ -7,6 +7,7 @@
   <title>Identity providers — Passage Admin</title>
   <link rel="stylesheet" href="/static/passage.css">
   <link rel="stylesheet" href="/static/themes.css">
+  <script src="/static/app.js" defer></script>
 </head>
 <body>
 {{template "admin-header" .}}
@@ -27,11 +28,11 @@
     <table class="table">
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Label</th>
-          <th>Issuer</th>
-          <th>New accounts</th>
-          <th class="text-right">Actions</th>
+          <th scope="col">Name</th>
+          <th scope="col">Label</th>
+          <th scope="col">Issuer</th>
+          <th scope="col">New accounts</th>
+          <th scope="col" class="text-right">Actions</th>
         </tr>
       </thead>
       <tbody>

@@ -156,6 +156,9 @@ func (s *Service) validateJWTAccessToken(ctx context.Context, raw string) (*user
 
 	u, err := s.users.GetByID(ctx, claims.Subject)
 	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			return nil, nil, fmt.Errorf("oauth validate access token: unknown user: %w", ErrTokenNotFound)
+		}
 		return nil, nil, fmt.Errorf("oauth validate access token: get user: %w", err)
 	}
 	if !u.IsActive {
@@ -210,6 +213,9 @@ func (s *Service) introspectJWTAccessToken(ctx context.Context, client *app.App,
 
 	u, err := s.users.GetByID(ctx, claims.Subject)
 	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("oauth introspect: get user: %w", err)
 	}
 	if !u.IsActive {
@@ -238,7 +244,7 @@ func (s *Service) revokeJWTAccessToken(ctx context.Context, client *app.App, raw
 
 	expiresAt := time.Now().UTC().Add(accessTokenTTL)
 	if claims.ExpiresAt != nil {
-		expiresAt = claims.ExpiresAt.Time
+		expiresAt = claims.ExpiresAt.Time.UTC()
 	}
 	if err := s.store.RevokeJTI(ctx, claims.ID, expiresAt); err != nil {
 		return fmt.Errorf("oauth revoke: denylist access token: %w", err)

@@ -47,7 +47,7 @@ func (h *Handler) MFABlocked(ctx context.Context, userID string) bool {
 // run.go puts it on the app routes and the admin routes only.
 func (h *Handler) RequireMFA(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.mfa == nil || !h.mfaRequired(r.Context()) {
+		if h.mfa == nil {
 			next.ServeHTTP(w, r)
 			return
 		}

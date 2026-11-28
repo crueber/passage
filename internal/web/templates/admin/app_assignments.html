@@ -22,9 +22,9 @@
     <a class="btn btn-ghost btn-sm" href="/admin/apps/{{.App.ID}}/access">{{template "ic-chevron-left"}}Back to access</a>
   </div>
 
+  {{if or .Roles .Groups}}
   <form method="POST" action="/admin/apps/{{.App.ID}}/access/{{.User.ID}}/assignments">
     {{csrfField .CSRFToken}}
-    {{if or .Roles .Groups}}
 
     <div class="grid max-w-3xl gap-4 sm:grid-cols-2">
       <fieldset class="card p-5">

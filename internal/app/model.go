@@ -104,6 +104,15 @@ type UserAccess struct {
 	CreatedAt time.Time
 }
 
+// UserAssignments holds a user's direct groups, role-inherited groups, and
+// roles across all apps, indexed by appID -> itemID -> true. Used to render
+// bulk assignment pages in O(1) SQL queries instead of O(apps).
+type UserAssignments struct {
+	DirectGroups    map[string]map[string]bool
+	InheritedGroups map[string]map[string]bool
+	Roles           map[string]map[string]bool
+}
+
 // Store is the persistence interface for apps. It is defined here, at the
 // consumer boundary, as per Go convention.
 type Store interface {
@@ -113,6 +122,7 @@ type Store interface {
 	GetByClientID(ctx context.Context, clientID string) (*App, error)
 	ListActive(ctx context.Context) ([]*App, error)
 	List(ctx context.Context) ([]*App, error)
+	Count(ctx context.Context) (int, error)
 	Update(ctx context.Context, app *App) error
 	Delete(ctx context.Context, id string) error
 	GrantAccess(ctx context.Context, userID, appID string) error
@@ -128,11 +138,13 @@ type Store interface {
 	CreateGroup(ctx context.Context, g *Group) error
 	GetGroup(ctx context.Context, id string) (*Group, error)
 	ListGroupsByApp(ctx context.Context, appID string) ([]*Group, error)
+	ListAllGroups(ctx context.Context) ([]*Group, error)
 	UpdateGroup(ctx context.Context, g *Group) error
 	DeleteGroup(ctx context.Context, id string) error
 	CreateRole(ctx context.Context, ro *Role) error
 	GetRole(ctx context.Context, id string) (*Role, error)
 	ListRolesByApp(ctx context.Context, appID string) ([]*Role, error)
+	ListAllRoles(ctx context.Context) ([]*Role, error)
 	UpdateRole(ctx context.Context, ro *Role) error
 	DeleteRole(ctx context.Context, id string) error
 
@@ -141,6 +153,7 @@ type Store interface {
 	AssignGroupToRole(ctx context.Context, roleID, groupID string) error
 	UnassignGroupFromRole(ctx context.Context, roleID, groupID string) error
 	ListGroupsForRole(ctx context.Context, roleID string) ([]*Group, error)
+	ListRoleGroupsByApp(ctx context.Context, appID string) (map[string][]*Group, error)
 	AssignUserGroup(ctx context.Context, userID, appID, groupID string) error
 	UnassignUserGroup(ctx context.Context, userID, appID, groupID string) error
 	ListUserDirectGroups(ctx context.Context, userID, appID string) ([]*Group, error)
@@ -148,6 +161,7 @@ type Store interface {
 	AssignUserRole(ctx context.Context, userID, appID, roleID string) error
 	UnassignUserRole(ctx context.Context, userID, appID, roleID string) error
 	ListUserRoles(ctx context.Context, userID, appID string) ([]*Role, error)
+	ListUserAssignments(ctx context.Context, userID string) (*UserAssignments, error)
 	UserRoleNames(ctx context.Context, userID, appID string) ([]string, error)
 	EffectiveGroupNames(ctx context.Context, userID, appID string) ([]string, error)
 }

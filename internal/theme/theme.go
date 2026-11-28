@@ -88,7 +88,7 @@ var legacyNames = map[string]string{
 	"ayu-light":    "amber-sand",
 }
 
-// Canonical resolves a legacy slug to its current name and leaves an current or
+// Canonical resolves a legacy slug to its current name and leaves a current or
 // unknown value untouched. Use it wherever a stored value is rendered.
 func Canonical(name string) string {
 	if current, ok := legacyNames[name]; ok {

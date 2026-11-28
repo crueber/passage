@@ -4,9 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/crueber/passage/internal/authlog"
 	"github.com/crueber/passage/internal/csrf"
@@ -82,7 +80,7 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 		renderErr("Please enter a valid email address.")
 		return
 	}
-	if settings.String(ctx, h.settings, settings.SMTPHost, h.cfg.SMTP.Host) == "" {
+	if strings.TrimSpace(settings.Raw(ctx, h.settings, settings.SMTPHost, h.cfg.SMTP.Host)) == "" {
 		renderErr("Magic links require SMTP to be configured.")
 		return
 	}
@@ -109,13 +107,8 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Read TTL from settings; default to 15.
-	ttlMinutes := 15
-	if ttlStr, err := h.settings.Get(ctx, "magic_link_ttl_minutes"); err == nil {
-		if n, err := strconv.Atoi(strings.TrimSpace(ttlStr)); err == nil && n > 0 {
-			ttlMinutes = n
-		}
-	}
+	// Read TTL from settings; default to 15 (nil-safe).
+	ttlMinutes := settings.Int(ctx, h.settings, settings.MagicLinkTTLMinutes, 15, 1, 1440)
 
 	u, err := h.users.GetByEmail(ctx, email)
 	switch {
@@ -150,14 +143,16 @@ func (h *Handler) PostMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	magicURL := h.cfg.Server.BaseURL + "/login/magic/verify?token=" + url.QueryEscape(tok.Token)
+	magicURL := h.baseURL(r) + "/login/magic/verify?token=" + url.QueryEscape(tok.Token)
 	if rd != "" {
 		magicURL += "&rd=" + url.QueryEscape(rd)
 	}
 
-	// u.Email is always non-empty at this point (it was used to find the user).
-	displayName := u.Email
-	if err := h.mailer.SendMagicLink(ctx, email, displayName, magicURL); err != nil {
+	displayName := u.Name
+	if displayName == "" {
+		displayName = u.Email
+	}
+	if err := h.mailer.SendMagicLink(ctx, u.Email, displayName, magicURL); err != nil {
 		h.logger.Warn("magic link: send email", "email", email, "error", err)
 	}
 
@@ -270,21 +265,13 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 	// Resolve the return target before creating the session: an OAuth
 	// authorization request names the app, and that app may override the
 	// session duration (see Handler.appIDFromReturnTarget).
-	rd := r.URL.Query().Get("rd")
-	clearReturnCookie := false
-	if rdCookie, err := r.Cookie("passage_rd"); err == nil && rdCookie.Value != "" && rd == "" {
-		rd = rdCookie.Value
-		clearReturnCookie = true
-	}
-	if !safeReturnPath(rd) {
-		rd = ""
-	}
+	dest, _ := h.resolveReturnDestination(r, u, r.URL.Query().Get("rd"))
 
 	// No second factor is requested here, deliberately: consuming the link
 	// proves control of the mailbox, which is the same "something you have"
 	// property a TOTP code provides. MFA enforcement lives in Handler.PostLogin,
 	// on the password flow only.
-	sessionToken, expiresAt, err := h.sessions.CreateSession(ctx, u.ID, h.appIDFromReturnTarget(ctx, rd), ip, ua)
+	sessionToken, expiresAt, err := h.sessions.CreateSession(ctx, u.ID, h.appIDFromReturnTarget(ctx, dest), ip, ua)
 	if err != nil {
 		h.logger.Error("magic link: create session", "user_id", u.ID, "error", err)
 		h.record(r, authlog.Event{
@@ -307,28 +294,6 @@ func (h *Handler) GetMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
 		Detail:   "magic link",
 	})
 
-	if clearReturnCookie {
-		// Clear the passage_rd cookie now that we've consumed it.
-		http.SetCookie(w, &http.Cookie{
-			Name:     "passage_rd",
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			Expires:  time.Unix(0, 0),
-			HttpOnly: true,
-			Secure:   h.cfg.Session.CookieSecure,
-			SameSite: http.SameSiteLaxMode,
-		})
-	}
-
-	// Redirect: rd → /admin for admins → /.
-	if rd != "" {
-		http.Redirect(w, r, rd, http.StatusFound)
-		return
-	}
-	if u.IsAdmin {
-		http.Redirect(w, r, "/admin", http.StatusFound)
-		return
-	}
-	http.Redirect(w, r, "/", http.StatusFound)
+	clearReturnCookieIfPresent(w, r, h.cfg)
+	http.Redirect(w, r, dest, http.StatusFound)
 }

@@ -48,6 +48,47 @@ const (
 	AuditActionProviderDelete       = "provider.delete"
 )
 
+// AuditActions returns every administrative audit action name in display order,
+// used to populate the filter dropdown on the Admin Actions log tab.
+func AuditActions() []string {
+	return []string{
+		AuditActionUserCreate,
+		AuditActionUserUpdate,
+		AuditActionUserDelete,
+		AuditActionUserPasswordReset,
+		AuditActionUserUnlock,
+		AuditActionUserMFAReset,
+		AuditActionUserInvite,
+		AuditActionUserInviteRevoke,
+		AuditActionAppCreate,
+		AuditActionAppUpdate,
+		AuditActionAppDelete,
+		AuditActionAppGrantAccess,
+		AuditActionAppRevokeAccess,
+		AuditActionAppGroupCreate,
+		AuditActionAppGroupUpdate,
+		AuditActionAppGroupDelete,
+		AuditActionAppRoleCreate,
+		AuditActionAppRoleUpdate,
+		AuditActionAppRoleDelete,
+		AuditActionAppAssignmentsUpdate,
+		AuditActionOAuthGenerate,
+		AuditActionOAuthRotate,
+		AuditActionOAuthKeyRotate,
+		AuditActionOAuthKeyRetire,
+		AuditActionOAuthKeyDelete,
+		AuditActionSessionRevoke,
+		AuditActionSessionRevokeAll,
+		AuditActionSettingsUpdate,
+		AuditActionAuthMethodUpdate,
+		AuditActionProviderCreate,
+		AuditActionProviderUpdate,
+		AuditActionProviderDelete,
+		AuditActionAPITokenCreate,
+		AuditActionAPITokenRevoke,
+	}
+}
+
 // ─── Model ────────────────────────────────────────────────────────────────────
 
 // AuditEvent records a single admin action for the audit log.
@@ -142,6 +183,7 @@ func (s *SQLiteAuditStore) List(ctx context.Context, f AuditFilter) ([]*AuditEve
 	if limit <= 0 {
 		limit = 100
 	}
+	offset := max(f.Offset, 0)
 
 	var (
 		rows *sql.Rows
@@ -152,16 +194,16 @@ func (s *SQLiteAuditStore) List(ctx context.Context, f AuditFilter) ([]*AuditEve
 			SELECT id, actor_id, actor_name, action, target_type, target_id, target_name, detail, ip_address, created_at
 			FROM audit_log
 			WHERE action = ?
-			ORDER BY created_at DESC
+			ORDER BY created_at DESC, rowid DESC
 			LIMIT ? OFFSET ?`
-		rows, err = s.db.QueryContext(ctx, q, f.Action, limit, f.Offset)
+		rows, err = s.db.QueryContext(ctx, q, f.Action, limit, offset)
 	} else {
 		const q = `
 			SELECT id, actor_id, actor_name, action, target_type, target_id, target_name, detail, ip_address, created_at
 			FROM audit_log
-			ORDER BY created_at DESC
+			ORDER BY created_at DESC, rowid DESC
 			LIMIT ? OFFSET ?`
-		rows, err = s.db.QueryContext(ctx, q, limit, f.Offset)
+		rows, err = s.db.QueryContext(ctx, q, limit, offset)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("audit store list: %w", err)

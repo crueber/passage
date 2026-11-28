@@ -192,6 +192,7 @@ server:
   host: "0.0.0.0"
   port: 8080
   base_url: "https://auth.home.example.com"   # required — email links, WebAuthn, OIDC discovery
+  # trusted_proxies: []                       # CIDRs/IPs allowed to set forwarding headers (omit for private/loopback/CGNAT defaults; [] trusts none)
 
 database:
   path: "./passage.db"
@@ -209,8 +210,6 @@ csrf:
 log:
   level: "info"          # "debug" | "info" | "warn" | "error"
   format: "json"         # "json" | "text"
-
-auth:
 ```
 
 ### Environment variable overrides
@@ -220,6 +219,7 @@ auth:
 | `PASSAGE_SERVER_HOST` | `server.host` |
 | `PASSAGE_SERVER_PORT` | `server.port` |
 | `PASSAGE_SERVER_BASE_URL` | `server.base_url` |
+| `PASSAGE_SERVER_TRUSTED_PROXIES` | `server.trusted_proxies` |
 | `PASSAGE_DATABASE_PATH` | `database.path` |
 | `PASSAGE_SESSION_COOKIE_NAME` | `session.cookie_name` |
 | `PASSAGE_SESSION_COOKIE_SECURE` | `session.cookie_secure` |

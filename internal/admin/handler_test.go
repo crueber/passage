@@ -170,6 +170,7 @@ func newFixture(t *testing.T) *fixture {
 	appSvc := app.NewService(appStore, appStore, slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
 
 	settings := admin.NewSQLiteSettingsStore(database)
+	userSvc.SetSettings(settings)
 
 	tmpl, err := web.Parse(web.TemplateFS, template.FuncMap{
 		"csrfField": func(_ string) template.HTML { return "" },

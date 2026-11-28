@@ -160,6 +160,57 @@ func (s *SQLiteStore) ListGroupsByApp(ctx context.Context, appID string) ([]*Gro
 	return groups, nil
 }
 
+// listAllNamed returns all rows of the given table across all apps, ordered by
+// app_id and name.
+func (s *SQLiteStore) listAllNamed(ctx context.Context, table string) ([]*namedRow, error) {
+	query := fmt.Sprintf(`
+		SELECT %s FROM %s ORDER BY app_id, name`, selectNamedColumns, table) // compile-time constant at every callsite.
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("app store list all %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	var out []*namedRow
+	for rows.Next() {
+		var n namedRow
+		if err := rows.Scan(&n.ID, &n.AppID, &n.Name, &n.Description, &n.CreatedAt, &n.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("app store list all %s scan: %w", table, err)
+		}
+		out = append(out, &n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("app store list all %s rows: %w", table, err)
+	}
+	return out, nil
+}
+
+// ListAllGroups returns all groups across every app, ordered by app and name.
+func (s *SQLiteStore) ListAllGroups(ctx context.Context) ([]*Group, error) {
+	rows, err := s.listAllNamed(ctx, "app_groups")
+	if err != nil {
+		return nil, err
+	}
+	groups := make([]*Group, len(rows))
+	for i, n := range rows {
+		groups[i] = n.group()
+	}
+	return groups, nil
+}
+
+// ListAllRoles returns all roles across every app, ordered by app and name.
+func (s *SQLiteStore) ListAllRoles(ctx context.Context) ([]*Role, error) {
+	rows, err := s.listAllNamed(ctx, "app_roles")
+	if err != nil {
+		return nil, err
+	}
+	roles := make([]*Role, len(rows))
+	for i, n := range rows {
+		roles[i] = n.role()
+	}
+	return roles, nil
+}
+
 // UpdateGroup saves changes to an existing group.
 func (s *SQLiteStore) UpdateGroup(ctx context.Context, g *Group) error {
 	return s.updateNamed(ctx, "app_groups", g.ID, g.Name, g.Description)
